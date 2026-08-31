@@ -5,11 +5,13 @@ import {
   ArrowLeft,
   ArrowUpRight,
   Bell,
+  Bot,
   Brain,
   Check,
   CheckCheck,
   ChevronDown,
   ChevronRight,
+  CircleAlert,
   CirclePlus,
   Clock3,
   Command,
@@ -17,9 +19,11 @@ import {
   FolderOpen,
   Heart,
   Home,
+  KeyRound,
   Layers3,
   Lightbulb,
   Menu,
+  MessageCircle,
   Moon,
   MoreHorizontal,
   PanelLeftClose,
@@ -27,13 +31,19 @@ import {
   PenLine,
   Pin,
   Plus,
+  RefreshCw,
+  RotateCcw,
   Search,
   SearchX,
+  Send,
   Settings2,
   ShieldCheck,
   Sparkles,
+  SlidersHorizontal,
   Sun,
   TrendingUp,
+  UserRound,
+  WandSparkles,
   X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -53,12 +63,23 @@ import type {
   AnchorFilter,
   AnchorScope,
   AnchorState,
+  ChatMessage,
+  Decision,
   Project,
   ProjectIcon,
 } from './lib/anchors'
+import {
+  AI_PROVIDERS,
+  completeAIChat,
+  DEFAULT_AI_SETTINGS,
+  discoverModels,
+  readAISettings,
+  writeAISettings,
+} from './lib/ai'
+import type { AIMessage, AIModel, AISettings } from './lib/ai'
 import './App.css'
 
-type View = 'home' | 'all' | 'global' | 'projects'
+type View = 'home' | 'all' | 'global' | 'projects' | 'decide' | 'settings'
 
 type AnchorFormData = Pick<Anchor, 'title' | 'body' | 'scope' | 'tag' | 'color' | 'pinned'> & {
   projectId?: string
@@ -80,6 +101,7 @@ interface AppNotification {
 const THEME_STORAGE_KEY = 'anchor-theme-v1'
 const SIDEBAR_STORAGE_KEY = 'anchor-sidebar-collapsed-v1'
 const NOTIFICATIONS_STORAGE_KEY = 'anchor-read-notifications-v1'
+const SPOTLIGHT_STORAGE_KEY = 'anchor-spotlight-v1'
 
 const colorOptions: AccentColor[] = ['coral', 'sage', 'sky', 'gold', 'plum']
 
@@ -139,6 +161,59 @@ function isToday(value: string | undefined): boolean {
   return value !== undefined && new Date(value).toDateString() === new Date().toDateString()
 }
 
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function readSpotlightId(): string | undefined {
+  if (typeof window === 'undefined') {
+    return undefined
+  }
+
+  try {
+    const savedRotation = JSON.parse(window.localStorage.getItem(SPOTLIGHT_STORAGE_KEY) ?? 'null') as { day?: string; anchorId?: string } | null
+
+    return savedRotation?.day === todayKey() ? savedRotation.anchorId : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function writeSpotlightId(anchorId: string): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.localStorage.setItem(SPOTLIGHT_STORAGE_KEY, JSON.stringify({ day: todayKey(), anchorId }))
+}
+
+function pickRandomAnchorId(anchors: Anchor[], currentId?: string): string | undefined {
+  const choices = anchors.filter((anchor) => anchor.id !== currentId)
+
+  if (choices.length === 0) {
+    return anchors[0]?.id
+  }
+
+  return choices[Math.floor(Math.random() * choices.length)]?.id
+}
+
+function getInitialSpotlightId(): string | undefined {
+  const savedId = readSpotlightId()
+
+  if (savedId) {
+    return savedId
+  }
+
+  const pinnedAnchors = readAnchorState().anchors.filter((anchor) => anchor.pinned)
+  const randomId = pickRandomAnchorId(pinnedAnchors)
+
+  if (randomId) {
+    writeSpotlightId(randomId)
+  }
+
+  return randomId
+}
+
 function buildNotifications(
   anchors: Anchor[],
   projects: Project[],
@@ -165,10 +240,15 @@ function buildNotifications(
 
 function App() {
   const [state, setState] = useState<AnchorState>(() => readAnchorState())
+  const [aiSettings, setAISettings] = useState<AISettings>(() => readAISettings())
+  const [availableModels, setAvailableModels] = useState<AIModel[]>([])
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelsError, setModelsError] = useState<string>()
   const [activeView, setActiveView] = useState<View>('home')
   const [activeProjectId, setActiveProjectId] = useState<string>()
   const [listFilter, setListFilter] = useState<AnchorFilter>('all')
   const [query, setQuery] = useState('')
+  const [spotlightAnchorId, setSpotlightAnchorId] = useState<string | undefined>(() => getInitialSpotlightId())
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     readStoredBoolean(SIDEBAR_STORAGE_KEY, false),
   )
@@ -178,7 +258,6 @@ function App() {
   )
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [searchPaletteOpen, setSearchPaletteOpen] = useState(false)
-  const [spotlightIndex, setSpotlightIndex] = useState(0)
   const [isComposerOpen, setIsComposerOpen] = useState(false)
   const [isProjectComposerOpen, setIsProjectComposerOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -190,6 +269,10 @@ function App() {
   useEffect(() => {
     writeAnchorState(state)
   }, [state])
+
+  useEffect(() => {
+    writeAISettings(aiSettings)
+  }, [aiSettings])
 
   useEffect(() => {
     try {
@@ -281,13 +364,34 @@ function App() {
     () => state.anchors.filter((anchor) => anchor.pinned),
     [state.anchors],
   )
-  const spotlight = pinnedAnchors[spotlightIndex % Math.max(pinnedAnchors.length, 1)]
+  const spotlight = pinnedAnchors.find((anchor) => anchor.id === spotlightAnchorId) ?? pinnedAnchors[0]
+  const spotlightPosition = Math.max(pinnedAnchors.findIndex((anchor) => anchor.id === spotlight?.id), 0)
   const activeProject = getProject(state.projects, activeProjectId)
   const notifications = useMemo(
     () => buildNotifications(state.anchors, state.projects, readNotificationIds),
     [readNotificationIds, state.anchors, state.projects],
   )
   const unreadNotifications = notifications.filter((notification) => !notification.isRead)
+
+  useEffect(() => {
+    if (pinnedAnchors.length < 2) {
+      return
+    }
+
+    const rotationTimer = window.setInterval(() => {
+      setSpotlightAnchorId((currentId) => {
+        const nextAnchorId = pickRandomAnchorId(pinnedAnchors, currentId)
+
+        if (nextAnchorId) {
+          writeSpotlightId(nextAnchorId)
+        }
+
+        return nextAnchorId
+      })
+    }, 90_000)
+
+    return () => window.clearInterval(rotationTimer)
+  }, [pinnedAnchors])
 
   const navigate = (view: View, projectId?: string) => {
     setActiveView(view)
@@ -317,6 +421,56 @@ function App() {
 
   const showToast = (message: string) => {
     setToast(message)
+  }
+
+  const refreshModels = async (settingsToLoad: AISettings = aiSettings) => {
+    setModelsLoading(true)
+    setModelsError(undefined)
+
+    try {
+      const models = await discoverModels(settingsToLoad)
+      setAvailableModels(models)
+
+      if (models.length > 0 && !settingsToLoad.model) {
+        setAISettings((currentSettings) =>
+          currentSettings.providerId === settingsToLoad.providerId
+            ? { ...currentSettings, model: models[0].id }
+            : currentSettings,
+        )
+      }
+
+      showToast(`${models.length} live model${models.length === 1 ? '' : 's'} found.`)
+    } catch (error) {
+      setAvailableModels([])
+      setModelsError(error instanceof Error ? error.message : 'The provider could not be reached.')
+    } finally {
+      setModelsLoading(false)
+    }
+  }
+
+  const updateAISettings = (changes: Partial<AISettings>) => {
+    if (changes.providerId && changes.providerId !== aiSettings.providerId) {
+      setAvailableModels([])
+      setModelsError(undefined)
+    }
+
+    setAISettings((currentSettings) => ({ ...currentSettings, ...changes }))
+  }
+
+  const saveAISettings = () => {
+    writeAISettings(aiSettings)
+    showToast('Your AI connection is saved on this device.')
+    void refreshModels(aiSettings)
+  }
+
+  const saveDecision = (decision: Decision) => {
+    setState((currentState) => ({
+      ...currentState,
+      decisions: [
+        decision,
+        ...currentState.decisions.filter((savedDecision) => savedDecision.id !== decision.id),
+      ],
+    }))
   }
 
   const togglePinned = (anchorId: string) => {
@@ -422,7 +576,7 @@ function App() {
   }
 
   const openSettings = () => {
-    showToast('Settings will live here soon.')
+    navigate('settings')
   }
 
   let pageContent: React.ReactNode
@@ -444,14 +598,56 @@ function App() {
         projects={state.projects}
         spotlight={spotlight}
         pinnedCount={pinnedAnchors.length}
-        spotlightIndex={spotlightIndex}
-        onNextSpotlight={() => setSpotlightIndex((index) => index + 1)}
+        spotlightIndex={spotlightPosition}
+        onNextSpotlight={() => {
+          setSpotlightAnchorId((currentId) => {
+            const nextAnchorId = pickRandomAnchorId(pinnedAnchors, currentId)
+
+            if (nextAnchorId) {
+              writeSpotlightId(nextAnchorId)
+            }
+
+            return nextAnchorId
+          })
+        }}
         onRemember={markAsRemembered}
         onTogglePinned={togglePinned}
         onAddAnchor={() => openAnchorComposer()}
         onOpenAll={() => navigate('all')}
         onOpenProject={(projectId) => navigate('projects', projectId)}
         onOpenProjects={() => navigate('projects')}
+        onOpenDecision={() => navigate('decide')}
+      />
+    )
+  } else if (activeView === 'decide') {
+    pageContent = (
+      <DecisionView
+        projects={state.projects}
+        anchors={state.anchors}
+        settings={aiSettings}
+        decisions={state.decisions}
+        onOpenSettings={() => navigate('settings')}
+        onSaveDecision={saveDecision}
+      />
+    )
+  } else if (activeView === 'settings') {
+    pageContent = (
+      <SettingsView
+        settings={aiSettings}
+        availableModels={availableModels}
+        modelsLoading={modelsLoading}
+        modelsError={modelsError}
+        theme={theme}
+        onThemeChange={setTheme}
+        onSettingsChange={updateAISettings}
+        onSave={saveAISettings}
+        onRefreshModels={() => void refreshModels(aiSettings)}
+        onReset={() => {
+          setAISettings({ ...DEFAULT_AI_SETTINGS })
+          setAvailableModels([])
+          setModelsError(undefined)
+          showToast('AI connection settings reset.')
+        }}
       />
     )
   } else if (activeView === 'projects') {
@@ -532,6 +728,12 @@ function App() {
             count={state.anchors.filter((anchor) => anchor.scope === 'global').length}
           />
           <NavItem
+            icon={WandSparkles}
+            label="Decision space"
+            active={activeView === 'decide' && !activeProjectId}
+            onClick={() => navigate('decide')}
+          />
+          <NavItem
             icon={FolderOpen}
             label="Projects"
             active={activeView === 'projects' && !activeProjectId}
@@ -578,7 +780,7 @@ function App() {
             </div>
             <p>The point isn't to remember everything. Just what matters.</p>
           </div>
-          <button className="settings-link" type="button" onClick={openSettings}>
+          <button className={`settings-link ${activeView === 'settings' ? 'active' : ''}`} type="button" onClick={openSettings}>
             <Settings2 size={16} />
             <span>Settings</span>
           </button>
@@ -622,7 +824,11 @@ function App() {
                     ? 'All anchors'
                     : activeView === 'global'
                       ? 'Global context'
-                      : 'Projects')}
+                      : activeView === 'decide'
+                        ? 'Decision space'
+                        : activeView === 'settings'
+                          ? 'Settings'
+                          : 'Projects')}
             </strong>
           </div>
           <div className="topbar-actions">
@@ -714,7 +920,7 @@ function App() {
             <Plus size={21} />
           </button>
           <MobileNavItem icon={FolderOpen} label="Projects" active={activeView === 'projects'} onClick={() => navigate('projects')} />
-          <MobileNavItem icon={Settings2} label="More" active={false} onClick={openSettings} />
+          <MobileNavItem icon={Settings2} label="More" active={activeView === 'settings'} onClick={openSettings} />
         </nav>
       </div>
 
@@ -977,6 +1183,7 @@ interface HomeViewProps {
   onOpenAll: () => void
   onOpenProject: (projectId: string) => void
   onOpenProjects: () => void
+  onOpenDecision: () => void
 }
 
 function HomeView({
@@ -992,6 +1199,7 @@ function HomeView({
   onOpenAll,
   onOpenProject,
   onOpenProjects,
+  onOpenDecision,
 }: HomeViewProps) {
   const recentAnchors = anchors.slice(0, 3)
   const dateLabel = new Intl.DateTimeFormat('en-US', {
@@ -999,6 +1207,7 @@ function HomeView({
     month: 'long',
     day: 'numeric',
   }).format(new Date())
+  const dotCount = Math.min(pinnedCount, 5)
 
   return (
     <div className="home-view page-enter">
@@ -1006,14 +1215,20 @@ function HomeView({
         <div>
           <p className="eyebrow">{dateLabel}</p>
           <h1>
-            Good morning, Alex<span className="accent-dot">.</span>
+            Happy morning, dear Alex<span className="accent-dot">.</span>
           </h1>
           <p className="page-subtitle">Keep the things you&apos;ve learned close.</p>
         </div>
-        <button className="primary-button" type="button" onClick={onAddAnchor}>
-          <Plus size={17} />
-          New anchor
-        </button>
+        <div className="heading-actions">
+          <button className="secondary-button decision-shortcut" type="button" onClick={onOpenDecision}>
+            <WandSparkles size={16} />
+            Think something through
+          </button>
+          <button className="primary-button" type="button" onClick={onAddAnchor}>
+            <Plus size={17} />
+            New anchor
+          </button>
+        </div>
       </div>
 
       <div className="home-layout">
@@ -1063,8 +1278,8 @@ function HomeView({
               )}
             </div>
             <div className="spotlight-pagination" aria-label={`${spotlightIndex + 1} of ${pinnedCount} pinned anchors`}>
-              {Array.from({ length: Math.min(pinnedCount, 4) }).map((_, index) => (
-                <span className={index === spotlightIndex % 4 ? 'active' : ''} key={index} />
+              {Array.from({ length: dotCount }).map((_, index) => (
+                <span className={index === spotlightIndex % Math.max(dotCount, 1) ? 'active' : ''} key={index} />
               ))}
             </div>
           </section>
@@ -1295,6 +1510,617 @@ function AnchorListItem({ anchor, projects, query, onTogglePinned }: AnchorListI
         </span>
       </div>
     </article>
+  )
+}
+
+interface DecisionViewProps {
+  projects: Project[]
+  anchors: Anchor[]
+  settings: AISettings
+  decisions: Decision[]
+  onOpenSettings: () => void
+  onSaveDecision: (decision: Decision) => void
+}
+
+function decisionSystemPrompt(
+  project: Project | undefined,
+  projectAnchors: Anchor[],
+  globalAnchors: Anchor[],
+): string {
+  const projectContext = project
+    ? `\nImported project: ${project.name}\nProject description: ${project.description}\nProject anchors:\n${projectAnchors.map((anchor) => `- ${anchor.title}: ${anchor.body}`).join('\n') || '- No project anchors yet.'}`
+    : '\nNo project was imported. Treat this as a personal, general decision.'
+  const globalContext = globalAnchors.length
+    ? `\nGlobal context the person chose to keep close:\n${globalAnchors.map((anchor) => `- ${anchor.title}: ${anchor.body}`).join('\n')}`
+    : ''
+
+  return `You are Anchor, a warm and thoughtful decision companion. Help this person slow down without taking their agency away. Be kind, clear, honest, and thorough. Do not pretend certainty, diagnose them, or make a high-stakes decision on their behalf. Name assumptions and uncertainty plainly.\n\nFor the first response, cover:\n1. What you hear beneath the situation.\n2. The realistic options, including the option to wait or gather more information.\n3. Benefits, costs, risks, and likely short-term and longer-term outcomes for each option.\n4. What could change the recommendation.\n5. A gentle, concrete next step and one question worth sitting with.\n\nUse readable headings and bullets. Keep the tone human rather than clinical. For follow-up questions, answer directly while remembering the full context.${projectContext}${globalContext}`
+}
+
+function decisionPreview(decision: Decision): string {
+  return decision.situation.replace(/\s+/g, ' ').trim() || 'Untitled decision'
+}
+
+function DecisionView({
+  projects,
+  anchors,
+  settings,
+  decisions,
+  onOpenSettings,
+  onSaveDecision,
+}: DecisionViewProps) {
+  const firstDecision = decisions[0]
+  const [activeDecisionId, setActiveDecisionId] = useState<string | undefined>(firstDecision?.id)
+  const [projectId, setProjectId] = useState(firstDecision?.projectId ?? '')
+  const [projectImported, setProjectImported] = useState(Boolean(firstDecision?.projectId))
+  const [situation, setSituation] = useState(firstDecision?.situation ?? '')
+  const [additionalContext, setAdditionalContext] = useState(firstDecision?.additionalContext ?? '')
+  const [messages, setMessages] = useState<ChatMessage[]>(firstDecision?.messages ?? [])
+  const [chatInput, setChatInput] = useState('')
+  const [isThinking, setIsThinking] = useState(false)
+  const [error, setError] = useState<string>()
+  const requestControllerRef = useRef<AbortController | undefined>(undefined)
+  const selectedProject = getProject(projects, projectId)
+  const projectAnchors = projectImported && selectedProject
+    ? anchors.filter((anchor) => anchor.projectId === selectedProject.id)
+    : []
+  const globalAnchors = anchors.filter((anchor) => anchor.scope === 'global' && anchor.pinned).slice(0, 6)
+  const provider = AI_PROVIDERS.find((item) => item.id === settings.providerId)
+  const connectionReady = Boolean(settings.apiKey.trim() && settings.model.trim() && (!provider?.requiresAccountId || settings.accountId.trim()))
+
+  const saveCurrentDecision = (nextMessages: ChatMessage[]) => {
+    const now = new Date().toISOString()
+    const existingDecision = decisions.find((decision) => decision.id === activeDecisionId)
+    const id = activeDecisionId ?? createId('decision')
+
+    setActiveDecisionId(id)
+    onSaveDecision({
+      id,
+      projectId: projectImported && projectId ? projectId : undefined,
+      situation: situation.trim(),
+      additionalContext: additionalContext.trim(),
+      messages: nextMessages,
+      createdAt: existingDecision?.createdAt ?? now,
+      updatedAt: now,
+    })
+  }
+
+  const buildUserPrompt = () => {
+    const importedContext = selectedProject && projectImported
+      ? `\n\nIMPORTED PROJECT CONTEXT\nProject: ${selectedProject.name}\nDescription: ${selectedProject.description}\nAnchors:\n${projectAnchors.map((anchor) => `- ${anchor.title}: ${anchor.body}`).join('\n') || '- None yet.'}`
+      : ''
+    const globalContextText = globalAnchors.length
+      ? `\n\nGLOBAL ANCHORS\n${globalAnchors.map((anchor) => `- ${anchor.title}: ${anchor.body}`).join('\n')}`
+      : ''
+
+    return `I want to think this through carefully.\n\nSITUATION\n${situation.trim()}\n\nMORE CONTEXT\n${additionalContext.trim() || 'No additional context yet.'}${importedContext}${globalContextText}`
+  }
+
+  const sendToAI = async (content: string) => {
+    const trimmedContent = content.trim()
+
+    if (!trimmedContent) {
+      return
+    }
+
+    if (!connectionReady) {
+      setError('Anchor needs a provider, API key, and model before it can think with you. You can connect one in Settings.')
+      return
+    }
+
+    const userMessage: ChatMessage = {
+      id: createId('message'),
+      role: 'user',
+      content: trimmedContent,
+      createdAt: new Date().toISOString(),
+    }
+    const nextMessages = [...messages, userMessage]
+    const aiMessages: AIMessage[] = [
+      {
+        role: 'system',
+        content: decisionSystemPrompt(selectedProject && projectImported ? selectedProject : undefined, projectAnchors, globalAnchors),
+      },
+      ...nextMessages.map((message) => ({ role: message.role, content: message.content })),
+    ]
+
+    requestControllerRef.current?.abort()
+    const requestController = new AbortController()
+
+    requestControllerRef.current = requestController
+    setMessages(nextMessages)
+    setChatInput('')
+    setError(undefined)
+    saveCurrentDecision(nextMessages)
+    setIsThinking(true)
+
+    try {
+      const response = await completeAIChat(settings, aiMessages, requestController.signal)
+      const assistantMessage: ChatMessage = {
+        id: createId('message'),
+        role: 'assistant',
+        content: response,
+        createdAt: new Date().toISOString(),
+      }
+      const completedMessages = [...nextMessages, assistantMessage]
+
+      setMessages(completedMessages)
+      saveCurrentDecision(completedMessages)
+    } catch (requestError) {
+      if (requestError instanceof DOMException && requestError.name === 'AbortError') {
+        return
+      }
+
+      setError(requestError instanceof Error ? requestError.message : 'Anchor could not reach that provider. Please check Settings and try again.')
+    } finally {
+      if (requestControllerRef.current === requestController) {
+        requestControllerRef.current = undefined
+        setIsThinking(false)
+      }
+    }
+  }
+
+  const handleAnalyze = () => {
+    if (!situation.trim()) {
+      setError('Start with the situation that is asking for your attention.')
+      return
+    }
+
+    void sendToAI(buildUserPrompt())
+  }
+
+  const handleChatSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!messages.length) {
+      handleAnalyze()
+      return
+    }
+
+    void sendToAI(chatInput)
+  }
+
+  const startNewDecision = () => {
+    requestControllerRef.current?.abort()
+    requestControllerRef.current = undefined
+    setIsThinking(false)
+    setActiveDecisionId(undefined)
+    setProjectId('')
+    setProjectImported(false)
+    setSituation('')
+    setAdditionalContext('')
+    setMessages([])
+    setChatInput('')
+    setError(undefined)
+  }
+
+  const loadDecision = (decision: Decision) => {
+    requestControllerRef.current?.abort()
+    requestControllerRef.current = undefined
+    setIsThinking(false)
+    setActiveDecisionId(decision.id)
+    setProjectId(decision.projectId ?? '')
+    setProjectImported(Boolean(decision.projectId))
+    setSituation(decision.situation)
+    setAdditionalContext(decision.additionalContext)
+    setMessages(decision.messages)
+    setChatInput('')
+    setError(undefined)
+  }
+
+  return (
+    <div className="decision-view page-enter">
+      <div className="page-heading decision-heading">
+        <div>
+          <p className="eyebrow">A little room before the next move</p>
+          <h1>Happy thinking, dear Alex<span className="accent-dot">.</span></h1>
+          <p className="page-subtitle">Bring the whole situation here. We&apos;ll look at it gently, together.</p>
+        </div>
+        <button className="secondary-button" type="button" onClick={startNewDecision}>
+          <RotateCcw size={16} />
+          New decision
+        </button>
+      </div>
+
+      <div className="decision-layout">
+        <section className="decision-brief">
+          <div className="decision-panel-heading">
+            <span className="step-badge">01</span>
+            <div>
+              <p className="eyebrow">Set the scene</p>
+              <h2>What is going on?</h2>
+            </div>
+          </div>
+          <p className="decision-panel-copy">You don&apos;t have to make it neat. Start where your mind is.</p>
+
+          <label className="form-field decision-field">
+            <span>Bring in a project <em>optional</em></span>
+            <div className="decision-project-picker">
+              <div className="select-wrap">
+                <select
+                  value={projectId}
+                  onChange={(event) => {
+                    setProjectId(event.target.value)
+                    setProjectImported(false)
+                  }}
+                >
+                  <option value="">No project — just me</option>
+                  {projects.map((project) => (
+                    <option value={project.id} key={project.id}>{project.name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={15} />
+              </div>
+              <button
+                className={`import-project-button ${projectImported ? 'imported' : ''}`}
+                type="button"
+                disabled={!selectedProject}
+                onClick={() => setProjectImported(true)}
+              >
+                {projectImported ? <Check size={14} /> : <Plus size={14} />}
+                {projectImported ? 'Imported' : 'Import'}
+              </button>
+            </div>
+          </label>
+
+          {projectImported && selectedProject && (
+            <div className="imported-context">
+              <div className="imported-context-header">
+                <span className={`mini-project-icon ${selectedProject.color}`}>
+                  <ProjectIcon icon={selectedProject.icon} size={15} />
+                </span>
+                <div>
+                  <strong>{selectedProject.name} is in the room.</strong>
+                  <span>{projectAnchors.length} project anchor{projectAnchors.length === 1 ? '' : 's'} will guide the conversation.</span>
+                </div>
+              </div>
+              {projectAnchors.length > 0 && (
+                <div className="imported-anchor-list">
+                  {projectAnchors.slice(0, 3).map((anchor) => (
+                    <span key={anchor.id}><span className={`context-dot ${anchor.color}`} />{anchor.title}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <label className="form-field decision-field">
+            <span>The situation</span>
+            <textarea
+              value={situation}
+              onChange={(event) => setSituation(event.target.value)}
+              placeholder="What happened? What choice is in front of you?"
+              rows={5}
+              maxLength={1200}
+            />
+            <small>{situation.length}/1200</small>
+          </label>
+          <label className="form-field decision-field">
+            <span>More context <em>optional</em></span>
+            <textarea
+              value={additionalContext}
+              onChange={(event) => setAdditionalContext(event.target.value)}
+              placeholder="What have you tried? What are you worried might happen?"
+              rows={4}
+              maxLength={1800}
+            />
+            <small>{additionalContext.length}/1800</small>
+          </label>
+
+          <div className={`decision-connection-note ${connectionReady ? 'ready' : ''}`}>
+            <span className="connection-dot" />
+            <div>
+              <strong>{connectionReady ? `Ready with ${provider?.name ?? 'your provider'}.` : 'One gentle setup step remains.'}</strong>
+              <span>{connectionReady ? `Using ${settings.model}. Your context will be sent only when you ask.` : 'Connect an AI provider and model in Settings to receive a thorough analysis.'}</span>
+            </div>
+            {!connectionReady && (
+              <button type="button" onClick={onOpenSettings}>Open Settings <ArrowUpRight size={13} /></button>
+            )}
+          </div>
+
+          {error && (
+            <div className="decision-error" role="alert">
+              <CircleAlert size={15} />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <button className="primary-button decision-submit" type="button" onClick={handleAnalyze} disabled={!situation.trim() || isThinking}>
+            {isThinking ? <RefreshCw className="spin" size={16} /> : <WandSparkles size={16} />}
+            {isThinking ? 'Thinking with you…' : 'Think this through'}
+          </button>
+
+          {decisions.length > 0 && (
+            <div className="decision-history">
+              <div className="decision-history-heading">
+                <span>Previous rooms</span>
+                <button type="button" onClick={startNewDecision}><Plus size={13} /> New</button>
+              </div>
+              {decisions.slice(0, 4).map((decision) => (
+                <button
+                  className={`decision-history-item ${activeDecisionId === decision.id ? 'active' : ''}`}
+                  type="button"
+                  key={decision.id}
+                  onClick={() => loadDecision(decision)}
+                >
+                  <span className="history-orb"><MessageCircle size={13} /></span>
+                  <span>{decisionPreview(decision)}</span>
+                  <ChevronRight size={13} />
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="decision-chat">
+          <div className="chat-header">
+            <div className="chat-title">
+              <span className="chat-bot-mark"><Bot size={18} /></span>
+              <div>
+                <strong>Anchor companion</strong>
+                <span>Not a verdict. A clearer view.</span>
+              </div>
+            </div>
+            <button className={`connection-pill ${connectionReady ? 'connected' : ''}`} type="button" onClick={onOpenSettings}>
+              <span className="connection-pill-dot" />
+              <span>{connectionReady ? `${provider?.name ?? 'AI'} · ${settings.model}` : 'Connect AI'}</span>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+
+          <div className="chat-messages" aria-live="polite">
+            {messages.length === 0 ? (
+              <div className="chat-welcome">
+                <div className="chat-welcome-icon"><Bot size={22} /></div>
+                <p className="eyebrow">A quiet place to think</p>
+                <h2>Let&apos;s slow this down together.</h2>
+                <p>Share the situation on the left, and I&apos;ll help you see the options, trade-offs, and possible paths without rushing you toward one.</p>
+                <div className="chat-welcome-points">
+                  <span><span>01</span>What matters most</span>
+                  <span><span>02</span>What could happen</span>
+                  <span><span>03</span>What to do next</span>
+                </div>
+              </div>
+            ) : (
+              messages.map((message) => (
+                <div className={`chat-message-row ${message.role}`} key={message.id}>
+                  <span className="chat-message-avatar">
+                    {message.role === 'assistant' ? <Bot size={15} /> : <UserRound size={15} />}
+                  </span>
+                  <div className="chat-message-bubble">
+                    <span className="chat-message-label">{message.role === 'assistant' ? 'Anchor' : 'You'}</span>
+                    <p>{message.content}</p>
+                  </div>
+                </div>
+              ))
+            )}
+            {isThinking && (
+              <div className="chat-message-row assistant">
+                <span className="chat-message-avatar"><Bot size={15} /></span>
+                <div className="chat-message-bubble typing-bubble" aria-label="Anchor is thinking">
+                  <span className="chat-message-label">Anchor is thinking</span>
+                  <span className="typing-dots"><i /><i /><i /></span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <form className="chat-composer" onSubmit={handleChatSubmit}>
+            <textarea
+              value={chatInput}
+              onChange={(event) => setChatInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault()
+                  event.currentTarget.form?.requestSubmit()
+                }
+              }}
+              placeholder={messages.length ? 'Ask a follow-up or add what just came to mind…' : 'Your first message will be the situation above…'}
+              rows={2}
+              disabled={isThinking}
+              aria-label="Message Anchor"
+            />
+            <div className="chat-composer-footer">
+              <span><Sparkles size={13} /> {messages.length ? 'Keep exploring at your pace.' : 'Analysis stays grounded in what you share.'}</span>
+              <button className="send-button" type="submit" disabled={isThinking || (!chatInput.trim() && messages.length > 0)} aria-label="Send message">
+                {isThinking ? <RefreshCw className="spin" size={16} /> : <Send size={16} />}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+interface SettingsViewProps {
+  settings: AISettings
+  availableModels: AIModel[]
+  modelsLoading: boolean
+  modelsError?: string
+  theme: Theme
+  onThemeChange: (theme: Theme) => void
+  onSettingsChange: (changes: Partial<AISettings>) => void
+  onSave: () => void
+  onRefreshModels: () => void
+  onReset: () => void
+}
+
+function SettingsView({
+  settings,
+  availableModels,
+  modelsLoading,
+  modelsError,
+  theme,
+  onThemeChange,
+  onSettingsChange,
+  onSave,
+  onRefreshModels,
+  onReset,
+}: SettingsViewProps) {
+  const [showKey, setShowKey] = useState(false)
+  const provider = AI_PROVIDERS.find((item) => item.id === settings.providerId) ?? AI_PROVIDERS[0]
+  const currentModelIsLoaded = availableModels.some((model) => model.id === settings.model)
+
+  return (
+    <div className="settings-view page-enter">
+      <div className="page-heading settings-heading">
+        <div>
+          <p className="eyebrow">A space that works your way</p>
+          <h1>Settings, dear Alex<span className="accent-dot">.</span></h1>
+          <p className="page-subtitle">Choose how Anchor thinks with you, and make the room feel like yours.</p>
+        </div>
+      </div>
+
+      <div className="settings-layout">
+        <section className="settings-card ai-settings-card">
+          <div className="settings-card-heading">
+            <span className="settings-card-icon ai"><SlidersHorizontal size={18} /></span>
+            <div>
+              <p className="eyebrow">Decision companion</p>
+              <h2>AI connection</h2>
+              <span>Models are discovered live from the provider you choose.</span>
+            </div>
+          </div>
+
+          <div className="settings-form-grid">
+            <label className="form-field">
+              <span>Provider</span>
+              <div className="select-wrap">
+                <select
+                  value={settings.providerId}
+                  onChange={(event) => onSettingsChange({ providerId: event.target.value, model: '', baseUrl: '' })}
+                >
+                  {AI_PROVIDERS.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
+                </select>
+                <ChevronDown size={15} />
+              </div>
+              <small className="field-help">{provider?.description}</small>
+            </label>
+            <label className="form-field">
+              <span>{provider?.keyLabel ?? 'API key'}</span>
+              <div className="secret-input-wrap">
+                <KeyRound size={14} />
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  value={settings.apiKey}
+                  onChange={(event) => onSettingsChange({ apiKey: event.target.value })}
+                  placeholder="Paste your key here"
+                  autoComplete="off"
+                />
+                <button type="button" onClick={() => setShowKey((visible) => !visible)}>{showKey ? 'Hide' : 'Show'}</button>
+              </div>
+            </label>
+          </div>
+
+          {provider?.requiresAccountId && (
+            <label className="form-field">
+              <span>Cloudflare account ID</span>
+              <input
+                value={settings.accountId}
+                onChange={(event) => onSettingsChange({ accountId: event.target.value })}
+                placeholder="The account that owns your Workers AI models"
+              />
+            </label>
+          )}
+
+          <label className="form-field">
+            <span>Base URL <em>optional override</em></span>
+            <input
+              value={settings.baseUrl}
+              onChange={(event) => onSettingsChange({ baseUrl: event.target.value })}
+              placeholder={provider?.baseUrl || 'https://your-provider.example/v1'}
+            />
+            <small className="field-help">Default: {provider?.baseUrl || 'Add a custom OpenAI-compatible endpoint.'}</small>
+          </label>
+
+          <div className="model-field-heading">
+            <div>
+              <span>Model</span>
+              <small>Fetched from {provider?.name ?? 'your provider'}</small>
+            </div>
+            <button className="refresh-models-button" type="button" onClick={onRefreshModels} disabled={modelsLoading}>
+              <RefreshCw className={modelsLoading ? 'spin' : ''} size={14} />
+              {modelsLoading ? 'Finding models…' : 'Refresh models'}
+            </button>
+          </div>
+          <div className="model-picker-row">
+            <div className="select-wrap model-select-wrap">
+              <select
+                value={currentModelIsLoaded ? settings.model : ''}
+                onChange={(event) => onSettingsChange({ model: event.target.value })}
+                disabled={availableModels.length === 0}
+              >
+                <option value="">{availableModels.length ? 'Choose a discovered model' : 'Refresh to discover models'}</option>
+                {availableModels.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}
+              </select>
+              <ChevronDown size={15} />
+            </div>
+            <input
+              className="manual-model-input"
+              value={settings.model}
+              onChange={(event) => onSettingsChange({ model: event.target.value })}
+              placeholder="Or type a model ID"
+              aria-label="Model ID"
+            />
+          </div>
+          {modelsError && (
+            <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{modelsError}</span></div>
+          )}
+          {availableModels.length > 0 && !modelsError && (
+            <div className="model-success"><Check size={14} /> {availableModels.length} live model{availableModels.length === 1 ? '' : 's'} available. No model catalog is bundled into Anchor.</div>
+          )}
+
+          <div className="settings-actions">
+            <button className="text-button reset-button" type="button" onClick={onReset}><RotateCcw size={14} /> Reset connection</button>
+            <button className="primary-button" type="button" onClick={onSave}><Check size={16} /> Save and test connection</button>
+          </div>
+        </section>
+
+        <div className="settings-side-column">
+          <section className="settings-card appearance-card">
+            <div className="settings-card-heading compact">
+              <span className="settings-card-icon appearance"><Sun size={18} /></span>
+              <div>
+                <p className="eyebrow">The atmosphere</p>
+                <h2>Appearance</h2>
+              </div>
+            </div>
+            <p className="settings-card-copy">A little light or a little night. Both are welcome here.</p>
+            <div className="theme-choice" role="group" aria-label="Choose appearance">
+              <button className={theme === 'light' ? 'selected' : ''} type="button" onClick={() => onThemeChange('light')}>
+                <Sun size={15} /> Light
+              </button>
+              <button className={theme === 'dark' ? 'selected' : ''} type="button" onClick={() => onThemeChange('dark')}>
+                <Moon size={15} /> Dark
+              </button>
+            </div>
+          </section>
+
+          <section className="settings-card privacy-card">
+            <div className="settings-card-heading compact">
+              <span className="settings-card-icon privacy"><ShieldCheck size={18} /></span>
+              <div>
+                <p className="eyebrow">Your trust matters</p>
+                <h2>Private by default</h2>
+              </div>
+            </div>
+            <p className="settings-card-copy">Your key and connection settings stay in this device&apos;s local storage. Anchor only sends your decision context when you press the thinking button.</p>
+            <div className="privacy-note"><KeyRound size={14} /> For a public production release, add a secure server-side proxy before storing keys.</div>
+          </section>
+
+          <section className="settings-card profile-card">
+            <div className="settings-card-heading compact">
+              <span className="settings-card-icon profile"><UserRound size={18} /></span>
+              <div>
+                <p className="eyebrow">This is your room</p>
+                <h2>Personal space</h2>
+              </div>
+            </div>
+            <div className="profile-preview"><span className="avatar">A</span><div><strong>Alex Morgan</strong><span>Happy to have you here.</span></div></div>
+          </section>
+        </div>
+      </div>
+    </div>
   )
 }
 

@@ -26,15 +26,36 @@ export interface Anchor {
   lastSeenAt?: string
 }
 
+export type ChatRole = 'user' | 'assistant'
+
+export interface ChatMessage {
+  id: string
+  role: ChatRole
+  content: string
+  createdAt: string
+}
+
+export interface Decision {
+  id: string
+  projectId?: string
+  situation: string
+  additionalContext: string
+  messages: ChatMessage[]
+  createdAt: string
+  updatedAt: string
+}
+
 export interface AnchorState {
   anchors: Anchor[]
   projects: Project[]
+  decisions: Decision[]
 }
 
 const daysAgo = (days: number): string =>
   new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
 
 export const initialState: AnchorState = {
+  decisions: [],
   projects: [
     {
       id: 'trading-discipline',
@@ -193,7 +214,10 @@ export function readAnchorState(): AnchorState {
       return cloneInitialState()
     }
 
-    return parsedState
+    return {
+      ...parsedState,
+      decisions: Array.isArray(parsedState.decisions) ? parsedState.decisions : [],
+    }
   } catch {
     return cloneInitialState()
   }
