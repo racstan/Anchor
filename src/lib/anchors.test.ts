@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterAnchors, getProjectAnchorCount } from './anchors'
+import { filterAnchors, getProjectAnchorCount, matchSearchText } from './anchors'
 import type { Anchor } from './anchors'
 
 const anchors: Anchor[] = [
@@ -40,6 +40,20 @@ describe('anchor filtering', () => {
   it('limits results to one project and searches its content', () => {
     expect(filterAnchors(anchors, 'projects', 'trading', 'execute')).toEqual([anchors[1]])
     expect(filterAnchors(anchors, 'projects', 'trading', 'pause')).toEqual([])
+  })
+})
+
+describe('fuzzy search', () => {
+  it('matches letters in order even when they are not next to each other', () => {
+    expect(matchSearchText('Patience', 'ptec')?.indices).toEqual([0, 2, 4, 6])
+  })
+
+  it('ranks an exact substring ahead of a loose letter match', () => {
+    const exact = filterAnchors(anchors, 'all', undefined, 'plan')
+    const loose = filterAnchors(anchors, 'all', undefined, 'tah')
+
+    expect(exact[0].id).toBe('trade-plan')
+    expect(loose[0].id).toBe('trade-plan')
   })
 })
 

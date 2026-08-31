@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   Anchor as AnchorIcon,
@@ -7,6 +7,7 @@ import {
   Bell,
   Brain,
   Check,
+  CheckCheck,
   ChevronDown,
   ChevronRight,
   CirclePlus,
@@ -19,14 +20,19 @@ import {
   Layers3,
   Lightbulb,
   Menu,
+  Moon,
   MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
   PenLine,
   Pin,
   Plus,
   Search,
+  SearchX,
   Settings2,
   ShieldCheck,
   Sparkles,
+  Sun,
   TrendingUp,
   X,
 } from 'lucide-react'
@@ -35,6 +41,7 @@ import {
   createId,
   filterAnchors,
   formatUpdatedAt,
+  matchSearchText,
   getProject,
   getProjectAnchorCount,
   readAnchorState,
@@ -58,15 +65,102 @@ type AnchorFormData = Pick<Anchor, 'title' | 'body' | 'scope' | 'tag' | 'color' 
 }
 
 type ProjectFormData = Pick<Project, 'name' | 'description' | 'color'>
+type Theme = 'light' | 'dark'
+
+interface AppNotification {
+  id: string
+  anchorId: string
+  title: string
+  body: string
+  color: AccentColor
+  updatedAt: string
+  isRead: boolean
+}
+
+const THEME_STORAGE_KEY = 'anchor-theme-v1'
+const SIDEBAR_STORAGE_KEY = 'anchor-sidebar-collapsed-v1'
+const NOTIFICATIONS_STORAGE_KEY = 'anchor-read-notifications-v1'
 
 const colorOptions: AccentColor[] = ['coral', 'sage', 'sky', 'gold', 'plum']
 
 const colorLabels: Record<AccentColor, string> = {
-  coral: 'Coral',
-  sage: 'Sage',
-  sky: 'Sky',
+  coral: 'Indigo',
+  sage: 'Mint',
+  sky: 'Azure',
   gold: 'Gold',
-  plum: 'Plum',
+  plum: 'Violet',
+}
+
+function readStoredBoolean(key: string, fallback: boolean): boolean {
+  if (typeof window === 'undefined') {
+    return fallback
+  }
+
+  try {
+    return window.localStorage.getItem(key) === 'true'
+  } catch {
+    return fallback
+  }
+}
+
+function readStoredIds(key: string): string[] {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const value = JSON.parse(window.localStorage.getItem(key) ?? '[]')
+
+    return Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : []
+  } catch {
+    return []
+  }
+}
+
+function readStoredTheme(): Theme {
+  if (typeof window === 'undefined') {
+    return 'light'
+  }
+
+  try {
+    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
+
+    if (storedTheme === 'light' || storedTheme === 'dark') {
+      return storedTheme
+    }
+  } catch {
+    return 'light'
+  }
+
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+function isToday(value: string | undefined): boolean {
+  return value !== undefined && new Date(value).toDateString() === new Date().toDateString()
+}
+
+function buildNotifications(
+  anchors: Anchor[],
+  projects: Project[],
+  readNotificationIds: string[],
+): AppNotification[] {
+  return anchors
+    .filter((anchor) => anchor.pinned)
+    .sort((first, second) => second.updatedAt.localeCompare(first.updatedAt))
+    .map((anchor) => {
+      const project = getProject(projects, anchor.projectId)
+      const id = `anchor-reminder:${anchor.id}`
+
+      return {
+        id,
+        anchorId: anchor.id,
+        title: anchor.title,
+        body: project ? `A reminder from ${project.name}.` : 'A reminder you chose to keep everywhere.',
+        color: anchor.color,
+        updatedAt: anchor.updatedAt,
+        isRead: readNotificationIds.includes(id) || isToday(anchor.lastSeenAt),
+      }
+    })
 }
 
 function App() {
@@ -75,15 +169,55 @@ function App() {
   const [activeProjectId, setActiveProjectId] = useState<string>()
   const [listFilter, setListFilter] = useState<AnchorFilter>('all')
   const [query, setQuery] = useState('')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+    readStoredBoolean(SIDEBAR_STORAGE_KEY, false),
+  )
+  const [theme, setTheme] = useState<Theme>(() => readStoredTheme())
+  const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() =>
+    readStoredIds(NOTIFICATIONS_STORAGE_KEY),
+  )
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [searchPaletteOpen, setSearchPaletteOpen] = useState(false)
   const [spotlightIndex, setSpotlightIndex] = useState(0)
   const [isComposerOpen, setIsComposerOpen] = useState(false)
   const [isProjectComposerOpen, setIsProjectComposerOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [toast, setToast] = useState<string>()
+  const topSearchRef = useRef<HTMLInputElement>(null)
+  const searchWrapRef = useRef<HTMLDivElement>(null)
+  const notificationWrapRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     writeAnchorState(state)
   }, [state])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarCollapsed))
+    } catch {
+      // Persistence is optional when storage is unavailable.
+    }
+  }, [sidebarCollapsed])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(readNotificationIds))
+    } catch {
+      // Persistence is optional when storage is unavailable.
+    }
+  }, [readNotificationIds])
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    document.documentElement.style.colorScheme = theme
+    document.body.dataset.theme = theme
+
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+    } catch {
+      // Persistence is optional when storage is unavailable.
+    }
+  }, [theme])
 
   useEffect(() => {
     if (!toast) {
@@ -95,18 +229,73 @@ function App() {
     return () => window.clearTimeout(timeout)
   }, [toast])
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setActiveView('all')
+        setActiveProjectId(undefined)
+        setListFilter('all')
+        setNotificationsOpen(false)
+        setSearchPaletteOpen(true)
+        window.requestAnimationFrame(() => topSearchRef.current?.focus())
+      }
+
+      if (event.key === 'Escape') {
+        setSearchPaletteOpen(false)
+        setNotificationsOpen(false)
+        setMobileMenuOpen(false)
+        setIsComposerOpen(false)
+        setIsProjectComposerOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  useEffect(() => {
+    if (!searchPaletteOpen && !notificationsOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node
+
+      if (searchPaletteOpen && !searchWrapRef.current?.contains(target)) {
+        setSearchPaletteOpen(false)
+      }
+
+      if (notificationsOpen && !notificationWrapRef.current?.contains(target)) {
+        setNotificationsOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [notificationsOpen, searchPaletteOpen])
+
   const pinnedAnchors = useMemo(
     () => state.anchors.filter((anchor) => anchor.pinned),
     [state.anchors],
   )
   const spotlight = pinnedAnchors[spotlightIndex % Math.max(pinnedAnchors.length, 1)]
   const activeProject = getProject(state.projects, activeProjectId)
+  const notifications = useMemo(
+    () => buildNotifications(state.anchors, state.projects, readNotificationIds),
+    [readNotificationIds, state.anchors, state.projects],
+  )
+  const unreadNotifications = notifications.filter((notification) => !notification.isRead)
 
   const navigate = (view: View, projectId?: string) => {
     setActiveView(view)
     setActiveProjectId(projectId)
     setListFilter(view === 'global' ? 'global' : 'all')
     setQuery('')
+    setSearchPaletteOpen(false)
+    setNotificationsOpen(false)
     setMobileMenuOpen(false)
   }
 
@@ -115,11 +304,14 @@ function App() {
     setActiveView(filter === 'global' ? 'global' : 'all')
     setActiveProjectId(undefined)
     setQuery('')
+    setSearchPaletteOpen(false)
   }
 
   const openAnchorComposer = (projectId?: string) => {
     setActiveProjectId(projectId)
     setIsComposerOpen(true)
+    setSearchPaletteOpen(false)
+    setNotificationsOpen(false)
     setMobileMenuOpen(false)
   }
 
@@ -143,6 +335,11 @@ function App() {
         anchor.id === anchorId ? { ...anchor, lastSeenAt: new Date().toISOString() } : anchor,
       ),
     }))
+    setReadNotificationIds((currentIds) => {
+      const notificationId = `anchor-reminder:${anchorId}`
+
+      return currentIds.includes(notificationId) ? currentIds : [...currentIds, notificationId]
+    })
     showToast('Saved as remembered for today.')
   }
 
@@ -181,6 +378,47 @@ function App() {
     setIsProjectComposerOpen(false)
     navigate('projects', newProject.id)
     showToast('Project created. Give it the context it needs.')
+  }
+
+  const markNotificationRead = (notificationId: string) => {
+    setReadNotificationIds((currentIds) =>
+      currentIds.includes(notificationId) ? currentIds : [...currentIds, notificationId],
+    )
+  }
+
+  const markAllNotificationsRead = () => {
+    setReadNotificationIds(notifications.map((notification) => notification.id))
+    setNotificationsOpen(false)
+    showToast('Your reminders are clear for now.')
+  }
+
+  const openNotification = (notification: AppNotification) => {
+    markNotificationRead(notification.id)
+    setNotificationsOpen(false)
+    const anchor = state.anchors.find((item) => item.id === notification.anchorId)
+
+    if (!anchor) {
+      return
+    }
+
+    if (anchor.scope === 'project' && anchor.projectId) {
+      navigate('projects', anchor.projectId)
+      return
+    }
+
+    navigate('global')
+  }
+
+  const openSearchResult = (anchor: Anchor) => {
+    setQuery('')
+    setSearchPaletteOpen(false)
+
+    if (anchor.scope === 'project' && anchor.projectId) {
+      navigate('projects', anchor.projectId)
+      return
+    }
+
+    navigate('global')
   }
 
   const openSettings = () => {
@@ -241,8 +479,8 @@ function App() {
   }
 
   return (
-    <div className="anchor-app">
-      <aside className={`sidebar ${mobileMenuOpen ? 'sidebar-open' : ''}`}>
+    <div className={`anchor-app ${theme === 'dark' ? 'theme-dark' : ''}`}>
+      <aside className={`sidebar ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'sidebar-open' : ''}`}>
         <div className="brand-row">
           <div className="brand-mark" aria-hidden="true">
             <AnchorIcon size={18} strokeWidth={2.5} />
@@ -251,6 +489,16 @@ function App() {
             <strong>anchor</strong>
             <span>your steady place</span>
           </div>
+          <button
+            className="sidebar-toggle"
+            type="button"
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!sidebarCollapsed}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
           <button
             className="icon-button sidebar-close"
             type="button"
@@ -378,26 +626,80 @@ function App() {
             </strong>
           </div>
           <div className="topbar-actions">
-            <label className="top-search">
-              <Search size={16} />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                onFocus={() => {
+            <div className="top-search-wrap" ref={searchWrapRef}>
+              <label
+                className={`top-search ${searchPaletteOpen ? 'search-active' : ''}`}
+                onClick={() => {
                   if (activeView === 'home') {
                     navigate('all')
                   }
+                  setSearchPaletteOpen(true)
+                  window.requestAnimationFrame(() => topSearchRef.current?.focus())
                 }}
-                placeholder="Search your anchors"
-                aria-label="Search your anchors"
-              />
-              <kbd>
-                <Command size={11} /> K
-              </kbd>
-            </label>
-            <button className="icon-button notification-button" type="button" aria-label="Notifications" onClick={() => showToast('You are all caught up.') }>
-              <Bell size={18} />
-              <span className="notification-dot" />
+              >
+                <Search size={16} />
+                <input
+                  ref={topSearchRef}
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onFocus={() => {
+                    setSearchPaletteOpen(true)
+                    if (activeView === 'home') {
+                      navigate('all')
+                      setSearchPaletteOpen(true)
+                    }
+                  }}
+                  placeholder="Search your anchors"
+                  aria-label="Search your anchors"
+                />
+                <kbd>
+                  <Command size={11} /> K
+                </kbd>
+              </label>
+              {searchPaletteOpen && (
+                <SearchPalette
+                  anchors={state.anchors}
+                  projects={state.projects}
+                  query={query}
+                  onQueryChange={setQuery}
+                  onSelect={openSearchResult}
+                />
+              )}
+            </div>
+            <div className="notification-wrap" ref={notificationWrapRef}>
+              <button
+                className={`icon-button notification-button ${notificationsOpen ? 'active' : ''}`}
+                type="button"
+                aria-label={`Notifications${unreadNotifications.length > 0 ? `, ${unreadNotifications.length} unread` : ''}`}
+                aria-expanded={notificationsOpen}
+                onClick={() => {
+                  setNotificationsOpen((open) => !open)
+                  setSearchPaletteOpen(false)
+                }}
+              >
+                <Bell size={18} />
+                {unreadNotifications.length > 0 && (
+                  <span className="notification-badge">
+                    {unreadNotifications.length > 9 ? '9+' : unreadNotifications.length}
+                  </span>
+                )}
+              </button>
+              {notificationsOpen && (
+                <NotificationPanel
+                  notifications={notifications}
+                  onSelect={openNotification}
+                  onMarkAllRead={markAllNotificationsRead}
+                />
+              )}
+            </div>
+            <button
+              className="icon-button theme-toggle"
+              type="button"
+              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+              onClick={() => setTheme((currentTheme) => (currentTheme === 'dark' ? 'light' : 'dark'))}
+            >
+              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             <div className="top-avatar">A</div>
           </div>
@@ -483,6 +785,183 @@ function ProjectIcon({ icon, size = 18 }: ProjectIconProps) {
     icon === 'chart' ? TrendingUp : icon === 'pen' ? PenLine : icon === 'heart' ? Heart : Sparkles
 
   return <Icon size={size} />
+}
+
+interface HighlightedTextProps {
+  value: string
+  query?: string
+}
+
+function HighlightedText({ value, query }: HighlightedTextProps) {
+  const match = query ? matchSearchText(value, query) : null
+
+  if (!match || match.indices.length === 0) {
+    return <>{value}</>
+  }
+
+  const matchedIndices = new Set(match.indices)
+
+  return (
+    <>
+      {Array.from(value).map((character, index) =>
+        matchedIndices.has(index) ? (
+          <mark key={`${character}-${index}`}>{character}</mark>
+        ) : (
+          character
+        ),
+      )}
+    </>
+  )
+}
+
+interface SearchPaletteProps {
+  anchors: Anchor[]
+  projects: Project[]
+  query: string
+  onQueryChange: (query: string) => void
+  onSelect: (anchor: Anchor) => void
+}
+
+function SearchPalette({ anchors, projects, query, onQueryChange, onSelect }: SearchPaletteProps) {
+  const hasQuery = query.trim().length > 0
+  const results = filterAnchors(anchors, 'all', undefined, query).slice(0, 6)
+  const quickAnchors = anchors.filter((anchor) => anchor.pinned).slice(0, 3)
+  const suggestions = ['patience', 'strategy', 'energy']
+
+  return (
+    <div className="search-palette" role="dialog" aria-label="Anchor search">
+      <div className="search-palette-header">
+        <span>
+          <Search size={14} />
+          {hasQuery ? 'Matching anchors' : 'Quick find'}
+        </span>
+        <small>{hasQuery ? `${results.length} found` : '⌘ K anytime'}</small>
+      </div>
+      {hasQuery ? (
+        results.length > 0 ? (
+          <div className="search-results">
+            {results.map((anchor) => {
+              const project = getProject(projects, anchor.projectId)
+
+              return (
+                <button className="search-result" type="button" key={anchor.id} onClick={() => onSelect(anchor)}>
+                  <span className={`search-result-mark ${anchor.color}`} />
+                  <span className="search-result-copy">
+                    <strong><HighlightedText value={anchor.title} query={query} /></strong>
+                    <small>
+                      {project?.name ?? 'Global context'} <span>·</span>{' '}
+                      <HighlightedText value={anchor.tag} query={query} />
+                    </small>
+                  </span>
+                  <ArrowUpRight size={15} />
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="search-palette-empty">
+            <div className="search-empty-graphic"><SearchX size={21} /></div>
+            <strong>No anchor holds those letters yet.</strong>
+            <span>Try a shorter sequence or capture the thought.</span>
+          </div>
+        )
+      ) : (
+        <>
+          <div className="search-visual">
+            <div className="search-visual-core"><Search size={19} /></div>
+            <span className="search-visual-ring ring-a" />
+            <span className="search-visual-ring ring-b" />
+            <span className="search-visual-spark spark-a" />
+            <span className="search-visual-spark spark-b" />
+          </div>
+          <div className="search-palette-message">
+            <strong>Search by the letters you remember.</strong>
+            <span>Title, context, and tags all count. Exact words aren&apos;t required.</span>
+          </div>
+          <div className="search-suggestions">
+            {suggestions.map((suggestion) => (
+              <button type="button" key={suggestion} onClick={() => onQueryChange(suggestion)}>
+                {suggestion}
+              </button>
+            ))}
+          </div>
+          {quickAnchors.length > 0 && (
+            <div className="search-quick-list">
+              <span className="search-quick-label">Keep close</span>
+              {quickAnchors.map((anchor) => (
+                <button className="search-quick-item" type="button" key={anchor.id} onClick={() => onSelect(anchor)}>
+                  <span className={`search-result-mark ${anchor.color}`} />
+                  <span>{anchor.title}</span>
+                  <ChevronRight size={13} />
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+interface NotificationPanelProps {
+  notifications: AppNotification[]
+  onSelect: (notification: AppNotification) => void
+  onMarkAllRead: () => void
+}
+
+function NotificationPanel({ notifications, onSelect, onMarkAllRead }: NotificationPanelProps) {
+  const unreadCount = notifications.filter((notification) => !notification.isRead).length
+
+  return (
+    <div className="notification-panel" role="dialog" aria-label="Notifications">
+      <div className="notification-panel-header">
+        <div>
+          <p className="eyebrow">Your reminders</p>
+          <h2>Notifications</h2>
+        </div>
+        <button
+          className="mark-read-button"
+          type="button"
+          disabled={unreadCount === 0}
+          onClick={onMarkAllRead}
+        >
+          <CheckCheck size={14} />
+          Mark all read
+        </button>
+      </div>
+      {notifications.length > 0 ? (
+        <div className="notification-list">
+          {notifications.slice(0, 8).map((notification) => (
+            <button
+              className={`notification-item ${notification.isRead ? '' : 'unread'}`}
+              type="button"
+              key={notification.id}
+              onClick={() => onSelect(notification)}
+            >
+              <span className={`notification-item-icon ${notification.color}`}>
+                <Bell size={14} />
+              </span>
+              <span className="notification-item-copy">
+                <strong>{notification.title}</strong>
+                <small>{notification.body} · {formatUpdatedAt(notification.updatedAt)}</small>
+              </span>
+              {!notification.isRead && <span className="notification-unread-dot" />}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="notification-empty">
+          <CheckCheck size={23} />
+          <strong>Nothing asking for you.</strong>
+          <span>Your pinned anchors will appear here when they need a return.</span>
+        </div>
+      )}
+      <div className="notification-panel-footer">
+        <ShieldCheck size={13} />
+        <span>Notifications are built from what you choose to keep close.</span>
+      </div>
+    </div>
+  )
 }
 
 interface HomeViewProps {
@@ -757,6 +1236,7 @@ function AnchorsView({
             <AnchorListItem
               anchor={anchor}
               projects={projects}
+              query={query}
               key={anchor.id}
               onTogglePinned={onTogglePinned}
             />
@@ -782,10 +1262,11 @@ function AnchorsView({
 interface AnchorListItemProps {
   anchor: Anchor
   projects: Project[]
+  query?: string
   onTogglePinned: (anchorId: string) => void
 }
 
-function AnchorListItem({ anchor, projects, onTogglePinned }: AnchorListItemProps) {
+function AnchorListItem({ anchor, projects, query, onTogglePinned }: AnchorListItemProps) {
   const project = getProject(projects, anchor.projectId)
 
   return (
@@ -804,10 +1285,10 @@ function AnchorListItem({ anchor, projects, onTogglePinned }: AnchorListItemProp
           <Pin size={16} fill={anchor.pinned ? 'currentColor' : 'none'} />
         </button>
       </div>
-      <h3>{anchor.title}</h3>
-      <p>{anchor.body}</p>
+      <h3><HighlightedText value={anchor.title} query={query} /></h3>
+      <p><HighlightedText value={anchor.body} query={query} /></p>
       <div className="anchor-item-footer">
-        <span className="anchor-tag">{anchor.tag}</span>
+        <span className="anchor-tag"><HighlightedText value={anchor.tag} query={query} /></span>
         <span className="updated-label">
           <Clock3 size={12} />
           {formatUpdatedAt(anchor.updatedAt)}

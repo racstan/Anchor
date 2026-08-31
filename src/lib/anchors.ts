@@ -207,25 +207,106 @@ export function writeAnchorState(state: AnchorState): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
 }
 
+export interface TextSearchMatch {
+  indices: number[]
+  score: number
+}
+
+export interface AnchorSearchMatch {
+  score: number
+  title: TextSearchMatch | null
+  body: TextSearchMatch | null
+  tag: TextSearchMatch | null
+}
+
+export function matchSearchText(value: string, query: string): TextSearchMatch | null {
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+
+  if (!normalizedQuery) {
+    return { indices: [], score: 0 }
+  }
+
+  const normalizedValue = value.toLocaleLowerCase()
+  const indices: number[] = []
+  let valueIndex = 0
+
+  for (const character of normalizedQuery) {
+    const matchIndex = normalizedValue.indexOf(character, valueIndex)
+
+    if (matchIndex === -1) {
+      return null
+    }
+
+    indices.push(matchIndex)
+    valueIndex = matchIndex + 1
+  }
+
+  const span = indices[indices.length - 1] - indices[0]
+  const consecutiveCharacters = indices.reduce(
+    (total, index, position) => total + (position > 0 && index === indices[position - 1] + 1 ? 1 : 0),
+    0,
+  )
+  const isSubstring = normalizedValue.includes(normalizedQuery)
+  const startsWithQuery = normalizedValue.startsWith(normalizedQuery)
+  const score =
+    (isSubstring ? 1000 : 500) +
+    (startsWithQuery ? 140 : 0) +
+    consecutiveCharacters * 20 -
+    indices[0] * 1.5 -
+    span * 2
+
+  return { indices, score }
+}
+
+export function getAnchorSearchMatch(anchor: Anchor, query: string): AnchorSearchMatch | null {
+  if (!query.trim()) {
+    return { score: 0, title: null, body: null, tag: null }
+  }
+
+  const title = matchSearchText(anchor.title, query)
+  const body = matchSearchText(anchor.body, query)
+  const tag = matchSearchText(anchor.tag, query)
+  const weightedMatches = [
+    { match: title, weight: 150 },
+    { match: tag, weight: 80 },
+    { match: body, weight: 20 },
+  ].filter((entry): entry is { match: TextSearchMatch; weight: number } => entry.match !== null)
+
+  if (weightedMatches.length === 0) {
+    return null
+  }
+
+  const score = Math.max(...weightedMatches.map((entry) => entry.match.score + entry.weight))
+
+  return { score, title, body, tag }
+}
+
 export function filterAnchors(
   anchors: Anchor[],
   filter: AnchorFilter,
   projectId: string | undefined,
   query: string,
 ): Anchor[] {
-  const normalizedQuery = query.trim().toLowerCase()
+  const matches = anchors
+    .filter((anchor) => {
+      const matchesFilter =
+        filter === 'all' ||
+        (filter === 'global' && anchor.scope === 'global') ||
+        (filter === 'projects' && anchor.scope === 'project')
+      const matchesProject = !projectId || anchor.projectId === projectId
 
-  return anchors.filter((anchor) => {
-    const matchesFilter =
-      filter === 'all' ||
-      (filter === 'global' && anchor.scope === 'global') ||
-      (filter === 'projects' && anchor.scope === 'project')
-    const matchesProject = !projectId || anchor.projectId === projectId
-    const searchableText = `${anchor.title} ${anchor.body} ${anchor.tag}`.toLowerCase()
-    const matchesQuery = !normalizedQuery || searchableText.includes(normalizedQuery)
+      return matchesFilter && matchesProject
+    })
+    .map((anchor) => ({ anchor, match: getAnchorSearchMatch(anchor, query) }))
+    .filter((entry): entry is { anchor: Anchor; match: AnchorSearchMatch } => entry.match !== null)
 
-    return matchesFilter && matchesProject && matchesQuery
-  })
+  if (!query.trim()) {
+    return matches.map((entry) => entry.anchor)
+  }
+
+  return matches
+    .sort((first, second) => second.match.score - first.match.score)
+    .map((entry) => entry.anchor)
 }
 
 export function getProjectAnchorCount(anchors: Anchor[], projectId: string): number {
