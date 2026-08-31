@@ -2,12 +2,14 @@ import { request as httpRequest } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 
-interface ProxyPayload {
+export interface ProxyPayload {
   url?: string
   method?: string
   headers?: Record<string, string>
   body?: string
 }
+
+type ProxyRequest = IncomingMessage & { body?: unknown }
 
 function readRequestBody(request: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -30,14 +32,19 @@ function isAllowedTarget(target: URL): boolean {
     (target.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(target.hostname))
 }
 
-export async function handleAIProxy(request: IncomingMessage, response: ServerResponse): Promise<void> {
+export async function handleAIProxy(request: ProxyRequest, response: ServerResponse): Promise<void> {
   if (request.method !== 'POST') {
     sendError(response, 405, 'The Anchor AI proxy only accepts POST requests.')
     return
   }
 
   try {
-    const body = await readRequestBody(request)
+    const parsedBody = request.body
+    const body = parsedBody === undefined
+      ? await readRequestBody(request)
+      : typeof parsedBody === 'string'
+        ? parsedBody
+        : JSON.stringify(parsedBody)
     const payload = JSON.parse(body) as ProxyPayload
 
     if (!payload.url) {
