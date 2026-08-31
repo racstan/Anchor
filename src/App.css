@@ -4988,3 +4988,674 @@ body[data-theme='dark'] {
 .theme-dark .profile-preview {
   background: #182a41;
 }
+
+/* Decision space polish */
+.decision-view {
+  --decision-warm: #d57955;
+  --decision-warm-soft: #fff0e8;
+}
+
+.decision-view .page-heading {
+  margin-bottom: 29px;
+}
+
+.decision-view .page-heading h1 {
+  font-size: clamp(34px, 3.6vw, 46px);
+  letter-spacing: -0.06em;
+}
+
+.decision-view .page-subtitle {
+  max-width: 600px;
+  font-size: 14px;
+}
+
+.decision-view .eyebrow {
+  margin-bottom: 9px;
+  font-size: 10px;
+  letter-spacing: 0.11em;
+}
+
+.decision-view .decision-layout {
+  grid-template-columns: minmax(320px, 370px) minmax(0, 1fr);
+  gap: 19px;
+  align-items: stretch;
+}
+
+.decision-view .decision-brief,
+.decision-view .decision-chat {
+  border-color: #d8e1ec;
+  border-radius: 18px;
+  box-shadow: 0 8px 25px rgba(41, 63, 89, 0.055);
+}
+
+.decision-view .decision-brief {
+  display: flex;
+  min-height: 720px;
+  flex-direction: column;
+  padding: 25px 24px 22px;
+  background: #fffdfa;
+}
+
+.decision-view .decision-panel-heading {
+  gap: 12px;
+}
+
+.decision-view .step-badge {
+  width: 36px;
+  height: 36px;
+  color: var(--decision-warm);
+  border: 1px solid #f3d7c9;
+  border-radius: 11px;
+  background: var(--decision-warm-soft);
+  font-size: 10px;
+}
+
+.decision-view .decision-panel-heading .eyebrow {
+  margin-bottom: 5px;
+}
+
+.decision-view .decision-panel-heading h2 {
+  color: #263b58;
+  font-size: 20px;
+}
+
+.decision-view .decision-panel-copy {
+  margin: 13px 0 23px;
+  color: #73849a;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.decision-view .decision-field {
+  gap: 7px;
+  margin-top: 18px;
+}
+
+.decision-view .decision-field > span,
+.decision-view .form-field legend {
+  color: #53647c;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.decision-view .decision-field em {
+  color: #a0adbb;
+  font-size: 10px;
+}
+
+.decision-view .decision-field input,
+.decision-view .decision-field select,
+.decision-view .decision-field textarea {
+  color: #314762;
+  border-color: #d7e0e9;
+  border-radius: 10px;
+  background: #ffffff;
+  font-size: 13px;
+}
+
+.decision-view .decision-field input,
+.decision-view .decision-field select {
+  height: 44px;
+}
+
+.decision-view .decision-field textarea {
+  min-height: 108px;
+  padding: 12px 13px;
+  line-height: 1.55;
+}
+
+.decision-view .decision-field:first-of-type {
+  margin-top: 0;
+}
+
+.decision-view .decision-field > small:not(.field-help) {
+  position: static;
+  right: auto;
+  bottom: auto;
+  display: block;
+  margin-top: -3px;
+  color: #9aa8b8;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 9px;
+  line-height: 1;
+  text-align: right;
+}
+
+.decision-view .decision-project-picker {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.decision-view .import-project-button {
+  height: 44px;
+  min-width: 84px;
+  border-radius: 10px;
+  font-size: 10px;
+}
+
+.decision-view .imported-context {
+  margin: 16px 0 1px;
+  padding: 13px;
+  border-radius: 11px;
+}
+
+.decision-view .imported-context-header strong {
+  font-size: 10px;
+}
+
+.decision-view .imported-context-header span:not(.mini-project-icon) {
+  font-size: 9px;
+}
+
+.decision-view .imported-anchor-list > span {
+  font-size: 9px;
+}
+
+.decision-view .decision-connection-note {
+  gap: 9px;
+  margin-top: 20px;
+  padding: 12px;
+  border-radius: 11px;
+}
+
+.decision-view .decision-connection-note strong {
+  font-size: 10px;
+}
+
+.decision-view .decision-connection-note span:not(.connection-dot) {
+  font-size: 9px;
+}
+
+.decision-view .decision-connection-note button {
+  font-size: 9px;
+}
+
+.decision-view .decision-submit {
+  min-height: 44px;
+  margin-top: 16px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.decision-view .decision-history {
+  margin-top: auto;
+  padding-top: 19px;
+}
+
+.decision-view .decision-history-heading {
+  margin-bottom: 9px;
+  color: #8796a7;
+  font-size: 10px;
+}
+
+.decision-view .decision-history-heading small {
+  color: #a2afbd;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 9px;
+}
+
+.decision-view .decision-history-item {
+  min-height: 40px;
+  gap: 9px;
+  padding: 7px 8px;
+  font-size: 10px;
+}
+
+.decision-view .history-orb {
+  width: 27px;
+  height: 27px;
+  border-radius: 8px;
+}
+
+.decision-view .decision-chat {
+  min-height: 720px;
+  height: 100%;
+  background: #ffffff;
+}
+
+.decision-view .chat-header {
+  min-height: 76px;
+  padding: 18px 22px;
+  background: #ffffff;
+}
+
+.decision-view .chat-bot-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #6971e9, #479bc0);
+}
+
+.decision-view .chat-title {
+  gap: 11px;
+}
+
+.decision-view .chat-title strong {
+  font-size: 14px;
+}
+
+.decision-view .chat-title span:not(.chat-bot-mark) {
+  font-size: 10px;
+}
+
+.decision-view .connection-pill {
+  max-width: 48%;
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 10px;
+}
+
+.decision-view .chat-messages {
+  min-height: 480px;
+  padding: 28px 30px 22px;
+  background: #f7f9fc;
+}
+
+.decision-view .chat-welcome {
+  width: min(100%, 620px);
+  max-width: 620px;
+  min-height: 440px;
+  align-items: center;
+  padding: 38px 24px;
+  text-align: center;
+}
+
+.decision-view .chat-welcome-icon {
+  width: 54px;
+  height: 54px;
+  margin-bottom: 20px;
+  border-radius: 16px;
+  color: #5d64d9;
+  background: #eef0ff;
+}
+
+.decision-view .chat-welcome .eyebrow {
+  justify-content: center;
+  margin-bottom: 10px;
+  color: #7d86c8;
+}
+
+.decision-view .chat-welcome h2 {
+  font-size: clamp(27px, 3vw, 35px);
+  color: #304768;
+}
+
+.decision-view .chat-welcome > p:not(.eyebrow) {
+  max-width: 520px;
+  margin-top: 15px;
+  color: #73849a;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.decision-view .chat-welcome-points {
+  gap: 18px;
+  width: min(100%, 500px);
+  margin-top: 30px;
+  padding-top: 19px;
+  text-align: left;
+}
+
+.decision-view .chat-welcome-points span {
+  gap: 8px;
+  color: #61758e;
+  font-size: 11px;
+}
+
+.decision-view .chat-welcome-points span > span {
+  font-size: 10px;
+}
+
+.decision-view .chat-message-row {
+  width: min(100%, 790px);
+  max-width: 790px;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.decision-view .chat-message-bubble {
+  max-width: min(720px, 86%);
+  padding: 14px 17px;
+  color: #52677f;
+  border-color: #e0e6ee;
+  border-radius: 7px 14px 14px 14px;
+  background: #ffffff;
+  box-shadow: 0 4px 11px rgba(47, 69, 95, 0.055);
+}
+
+.decision-view .chat-message-row.user .chat-message-bubble {
+  border-color: #626bd2;
+  border-radius: 14px 7px 14px 14px;
+  background: #5f68d1;
+  box-shadow: 0 4px 11px rgba(78, 87, 190, 0.14);
+}
+
+.decision-view .chat-message-label {
+  margin-bottom: 7px;
+  color: #7d8fa4;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.decision-view .chat-message-row.user .chat-message-label {
+  color: #d4d9ff;
+}
+
+.decision-view .chat-message-bubble p {
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.chat-rich-text {
+  display: grid;
+  gap: 11px;
+  color: inherit;
+}
+
+.chat-rich-text p {
+  margin: 0;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.chat-rich-text h3 {
+  margin: 6px 0 -3px;
+  color: #3d5270;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.chat-rich-text ul,
+.chat-rich-text ol {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 21px;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.chat-rich-text li::marker {
+  color: #8187e6;
+  font-weight: 700;
+}
+
+.chat-rich-text strong {
+  color: #3d5270;
+  font-weight: 700;
+}
+
+.chat-rich-text code {
+  padding: 2px 5px;
+  color: #5965c7;
+  border-radius: 4px;
+  background: #eef0ff;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 0.9em;
+}
+
+.decision-view .chat-message-row.user .chat-rich-text strong,
+.decision-view .chat-message-row.user .chat-rich-text h3 {
+  color: #ffffff;
+}
+
+.decision-view .typing-bubble {
+  min-width: 170px;
+}
+
+.decision-view .chat-composer {
+  padding: 16px 20px 18px;
+  background: #ffffff;
+}
+
+.decision-view .chat-composer textarea {
+  min-height: 68px;
+  padding: 12px 13px;
+  color: #435a75;
+  border-color: #d5dfe9;
+  border-radius: 11px;
+  background: #fbfcfe;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.decision-view .chat-composer-footer {
+  margin-top: 10px;
+}
+
+.decision-view .chat-composer-footer > span {
+  font-size: 10px;
+}
+
+.decision-view .chat-shortcut {
+  margin-left: auto;
+  color: #9eacbb;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.decision-view .send-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+
+/* The decision room gets its own readable dark surfaces without losing warmth. */
+.theme-dark .decision-view .decision-brief,
+.theme-dark .decision-view .decision-chat {
+  border-color: #2a3d55;
+  background: #142237;
+}
+
+.theme-dark .decision-view .decision-brief {
+  background: #142237;
+}
+
+.theme-dark .decision-view .step-badge {
+  color: #ffb18d;
+  border-color: #694337;
+  background: #3d2929;
+}
+
+.theme-dark .decision-view .decision-panel-heading h2,
+.theme-dark .decision-view .decision-field > span,
+.theme-dark .decision-view .form-field legend,
+.theme-dark .decision-view .chat-title strong,
+.theme-dark .decision-view .chat-welcome h2,
+.theme-dark .chat-rich-text h3,
+.theme-dark .chat-rich-text strong {
+  color: #e2ecf7;
+}
+
+.theme-dark .decision-view .decision-panel-copy,
+.theme-dark .decision-view .decision-field em,
+.theme-dark .decision-view .decision-field > small:not(.field-help),
+.theme-dark .decision-view .chat-title span:not(.chat-bot-mark),
+.theme-dark .decision-view .chat-welcome > p:not(.eyebrow),
+.theme-dark .decision-view .chat-welcome-points span,
+.theme-dark .decision-view .chat-composer-footer > span {
+  color: #8da1b6;
+}
+
+.theme-dark .decision-view .decision-field input,
+.theme-dark .decision-view .decision-field select,
+.theme-dark .decision-view .decision-field textarea,
+.theme-dark .decision-view .chat-composer textarea {
+  color: #dfebf5;
+  border-color: #30455d;
+  background: #0e1d31;
+}
+
+.theme-dark .decision-view .decision-connection-note.ready,
+.theme-dark .decision-view .imported-context {
+  background: #153b3b;
+}
+
+.theme-dark .decision-view .decision-connection-note {
+  background: #332c1e;
+}
+
+.theme-dark .decision-view .decision-history,
+.theme-dark .decision-view .chat-header,
+.theme-dark .decision-view .chat-composer {
+  border-color: #2a3d55;
+}
+
+.theme-dark .decision-view .decision-history-item {
+  color: #8fa3b8;
+}
+
+.theme-dark .decision-view .decision-history-item:hover,
+.theme-dark .decision-view .decision-history-item.active {
+  color: #deebf6;
+  background: #1b3049;
+}
+
+.theme-dark .decision-view .chat-header,
+.theme-dark .decision-view .chat-composer {
+  background: #142237;
+}
+
+.theme-dark .decision-view .chat-messages {
+  background: #0c192b;
+}
+
+.theme-dark .decision-view .chat-message-bubble {
+  color: #aebfd0;
+  border-color: #30455e;
+  background: #172a42;
+  box-shadow: 0 4px 11px rgba(0, 0, 0, 0.18);
+}
+
+.theme-dark .decision-view .chat-message-row.user .chat-message-bubble {
+  color: #f3f6ff;
+  border-color: #656dd3;
+  background: #4e59bd;
+}
+
+.theme-dark .decision-view .chat-rich-text h3,
+.theme-dark .decision-view .chat-rich-text strong {
+  color: #d7e5f2;
+}
+
+.theme-dark .decision-view .chat-rich-text code {
+  color: #c7cbff;
+  background: #2e3471;
+}
+
+@media (max-width: 1060px) {
+  .decision-view .decision-layout {
+    grid-template-columns: minmax(290px, 340px) minmax(0, 1fr);
+  }
+
+  .decision-view .decision-brief,
+  .decision-view .decision-chat {
+    min-height: 700px;
+  }
+}
+
+@media (max-width: 900px) and (min-width: 701px) {
+  .decision-view .decision-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .decision-view .decision-chat {
+    order: -1;
+    min-height: 610px;
+  }
+
+  .decision-view .chat-messages {
+    min-height: 390px;
+  }
+
+  .decision-view .decision-brief {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 700px) {
+  .decision-view .page-heading h1 {
+    font-size: 32px;
+  }
+
+  .decision-view .page-subtitle {
+    font-size: 13px;
+  }
+
+  .decision-view .decision-layout {
+    gap: 14px;
+  }
+
+  .decision-view .decision-brief {
+    min-height: auto;
+    padding: 20px 17px 18px;
+  }
+
+  .decision-view .decision-chat {
+    order: 0;
+    min-height: 610px;
+  }
+
+  .decision-view .chat-header {
+    min-height: 0;
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 16px;
+  }
+
+  .decision-view .connection-pill {
+    max-width: 100%;
+  }
+
+  .decision-view .chat-messages {
+    min-height: 370px;
+    padding: 20px 13px 17px;
+  }
+
+  .decision-view .chat-welcome {
+    min-height: 315px;
+    padding: 22px 8px;
+  }
+
+  .decision-view .chat-welcome h2 {
+    font-size: 27px;
+  }
+
+  .decision-view .chat-welcome > p:not(.eyebrow) {
+    font-size: 12px;
+  }
+
+  .decision-view .chat-welcome-points {
+    gap: 10px;
+    margin-top: 22px;
+  }
+
+  .decision-view .chat-welcome-points span {
+    font-size: 10px;
+  }
+
+  .decision-view .chat-message-bubble {
+    max-width: 89%;
+    padding: 12px 13px;
+  }
+
+  .decision-view .chat-message-bubble p,
+  .decision-view .chat-rich-text p,
+  .decision-view .chat-rich-text ul,
+  .decision-view .chat-rich-text ol {
+    font-size: 12px;
+  }
+
+  .decision-view .chat-composer {
+    padding: 12px 12px 14px;
+  }
+
+  .decision-view .chat-shortcut {
+    display: none;
+  }
+}

@@ -1541,6 +1541,93 @@ function decisionPreview(decision: Decision): string {
   return decision.situation.replace(/\s+/g, ' ').trim() || 'Untitled decision'
 }
 
+function inlineMarkdown(value: string): React.ReactNode {
+  return value.split(/(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`)/g).map((part, index) => {
+    if ((part.startsWith('**') && part.endsWith('**')) || (part.startsWith('__') && part.endsWith('__'))) {
+      return <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong>
+    }
+
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return <code key={`${part}-${index}`}>{part.slice(1, -1)}</code>
+    }
+
+    return part
+  })
+}
+
+function ChatRichText({ content }: { content: string }) {
+  const blocks: React.ReactNode[] = []
+  const paragraphLines: string[] = []
+  const listItems: string[] = []
+  let listType: 'ul' | 'ol' | undefined
+  let blockIndex = 0
+
+  const flushParagraph = () => {
+    if (paragraphLines.length === 0) {
+      return
+    }
+
+    blocks.push(<p key={`paragraph-${blockIndex++}`}>{inlineMarkdown(paragraphLines.join(' '))}</p>)
+    paragraphLines.length = 0
+  }
+
+  const flushList = () => {
+    if (!listType || listItems.length === 0) {
+      return
+    }
+
+    const List = listType
+    blocks.push(
+      <List key={`list-${blockIndex++}`}>
+        {listItems.map((item, index) => <li key={`${item}-${index}`}>{inlineMarkdown(item)}</li>)}
+      </List>,
+    )
+    listType = undefined
+    listItems.length = 0
+  }
+
+  content.split(/\r?\n/).forEach((line) => {
+    const trimmedLine = line.trim()
+
+    if (!trimmedLine) {
+      flushParagraph()
+      flushList()
+      return
+    }
+
+    const heading = trimmedLine.match(/^#{1,3}\s+(.+)$/)
+    const unorderedItem = trimmedLine.match(/^[-*]\s+(.+)$/)
+    const orderedItem = trimmedLine.match(/^\d+[.)]\s+(.+)$/)
+
+    if (heading) {
+      flushParagraph()
+      flushList()
+      blocks.push(<h3 key={`heading-${blockIndex++}`}>{inlineMarkdown(heading[1])}</h3>)
+      return
+    }
+
+    if (unorderedItem || orderedItem) {
+      const nextListType = unorderedItem ? 'ul' : 'ol'
+
+      flushParagraph()
+      if (listType && listType !== nextListType) {
+        flushList()
+      }
+      listType = nextListType
+      listItems.push((unorderedItem ?? orderedItem)?.[1] ?? '')
+      return
+    }
+
+    flushList()
+    paragraphLines.push(trimmedLine)
+  })
+
+  flushParagraph()
+  flushList()
+
+  return <div className="chat-rich-text">{blocks}</div>
+}
+
 function DecisionView({
   projects,
   anchors,
@@ -1833,7 +1920,7 @@ function DecisionView({
             <div className="decision-history">
               <div className="decision-history-heading">
                 <span>Previous rooms</span>
-                <button type="button" onClick={startNewDecision}><Plus size={13} /> New</button>
+                <small>{decisions.length}</small>
               </div>
               {decisions.slice(0, 4).map((decision) => (
                 <button
@@ -1888,7 +1975,7 @@ function DecisionView({
                   </span>
                   <div className="chat-message-bubble">
                     <span className="chat-message-label">{message.role === 'assistant' ? 'Anchor' : 'You'}</span>
-                    <p>{message.content}</p>
+                    {message.role === 'assistant' ? <ChatRichText content={message.content} /> : <p>{message.content}</p>}
                   </div>
                 </div>
               ))
@@ -1921,6 +2008,7 @@ function DecisionView({
             />
             <div className="chat-composer-footer">
               <span><Sparkles size={13} /> {messages.length ? 'Keep exploring at your pace.' : 'Analysis stays grounded in what you share.'}</span>
+              <span className="chat-shortcut">⌘ / Ctrl + Enter to send</span>
               <button className="send-button" type="submit" disabled={isThinking || (!chatInput.trim() && messages.length > 0)} aria-label="Send message">
                 {isThinking ? <RefreshCw className="spin" size={16} /> : <Send size={16} />}
               </button>
