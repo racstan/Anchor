@@ -204,8 +204,55 @@ function getAccountId(settings: AISettings): string {
   return accountId
 }
 
+async function fetchThroughAnchorProxy(url: string, init: RequestInit): Promise<Response | undefined> {
+  if (typeof window === 'undefined') {
+    return undefined
+  }
+
+  try {
+    const proxyResponse = await fetch('/api/anchor-ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url,
+        method: init.method ?? 'GET',
+        headers: Object.fromEntries(new Headers(init.headers).entries()),
+        body: typeof init.body === 'string' ? init.body : undefined,
+      }),
+      signal: init.signal,
+    })
+    const contentType = proxyResponse.headers.get('content-type') ?? ''
+
+    if (proxyResponse.status === 404 && contentType.includes('text/html')) {
+      return undefined
+    }
+
+    if (proxyResponse.status === 200 && contentType.includes('text/html')) {
+      return undefined
+    }
+
+    return proxyResponse
+  } catch (error) {
+    if (init.signal?.aborted) {
+      throw error
+    }
+
+    return undefined
+  }
+}
+
 async function fetchJson(url: string, init: RequestInit): Promise<unknown> {
-  const response = await fetch(url, init)
+  let response: Response
+
+  try {
+    response = (await fetchThroughAnchorProxy(url, init)) ?? await fetch(url, init)
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error('Anchor could not reach this provider. The local AI relay may be unavailable, or the provider may be blocking browser requests.')
+    }
+
+    throw error
+  }
 
   if (!response.ok) {
     let detail = ''

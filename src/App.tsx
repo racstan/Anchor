@@ -780,20 +780,21 @@ function App() {
             </div>
             <p>The point isn't to remember everything. Just what matters.</p>
           </div>
-          <button className={`settings-link ${activeView === 'settings' ? 'active' : ''}`} type="button" onClick={openSettings}>
-            <Settings2 size={16} />
-            <span>Settings</span>
-          </button>
-          <div className="user-row">
-            <div className="avatar">A</div>
-            <div className="user-copy">
+          <button
+            className={`user-row ${activeView === 'settings' ? 'active' : ''}`}
+            type="button"
+            aria-label="Open account settings"
+            onClick={openSettings}
+          >
+            <span className="avatar">A</span>
+            <span className="user-copy">
               <strong>Alex Morgan</strong>
               <span>Personal space</span>
-            </div>
-            <button className="user-more" type="button" aria-label="Open profile menu" onClick={openSettings}>
+            </span>
+            <span className="user-more" aria-hidden="true">
               <MoreHorizontal size={17} />
-            </button>
-          </div>
+            </span>
+          </button>
         </div>
       </aside>
 
@@ -1640,6 +1641,7 @@ function DecisionView({
   const [activeDecisionId, setActiveDecisionId] = useState<string | undefined>(firstDecision?.id)
   const [projectId, setProjectId] = useState(firstDecision?.projectId ?? '')
   const [projectImported, setProjectImported] = useState(Boolean(firstDecision?.projectId))
+  const [briefCollapsed, setBriefCollapsed] = useState(false)
   const [situation, setSituation] = useState(firstDecision?.situation ?? '')
   const [additionalContext, setAdditionalContext] = useState(firstDecision?.additionalContext ?? '')
   const [messages, setMessages] = useState<ChatMessage[]>(firstDecision?.messages ?? [])
@@ -1770,6 +1772,7 @@ function DecisionView({
     requestControllerRef.current?.abort()
     requestControllerRef.current = undefined
     setIsThinking(false)
+    setBriefCollapsed(false)
     setActiveDecisionId(undefined)
     setProjectId('')
     setProjectImported(false)
@@ -1784,6 +1787,7 @@ function DecisionView({
     requestControllerRef.current?.abort()
     requestControllerRef.current = undefined
     setIsThinking(false)
+    setBriefCollapsed(false)
     setActiveDecisionId(decision.id)
     setProjectId(decision.projectId ?? '')
     setProjectImported(Boolean(decision.projectId))
@@ -1808,7 +1812,7 @@ function DecisionView({
         </button>
       </div>
 
-      <div className="decision-layout">
+      <div className={`decision-layout ${briefCollapsed ? 'brief-collapsed' : ''}`}>
         <section className="decision-brief">
           <div className="decision-panel-heading">
             <span className="step-badge">01</span>
@@ -1816,6 +1820,16 @@ function DecisionView({
               <p className="eyebrow">Set the scene</p>
               <h2>What is going on?</h2>
             </div>
+            <span className="brief-rail-label">Setup</span>
+            <button
+              className="brief-collapse-toggle"
+              type="button"
+              aria-label={briefCollapsed ? 'Expand decision setup' : 'Collapse decision setup'}
+              title={briefCollapsed ? 'Expand decision setup' : 'Collapse decision setup'}
+              onClick={() => setBriefCollapsed((collapsed) => !collapsed)}
+            >
+              {briefCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            </button>
           </div>
           <p className="decision-panel-copy">You don&apos;t have to make it neat. Start where your mind is.</p>
 

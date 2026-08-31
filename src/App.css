@@ -5548,6 +5548,197 @@ body[data-theme='dark'] {
   background: #2e3471;
 }
 
+/* The decision brief is a real sidebar: give the chat room when it is collapsed. */
+.user-row {
+  cursor: pointer;
+  text-align: left;
+  border: 0;
+  border-top: 1px solid #34403f;
+  background: transparent;
+  font: inherit;
+}
+
+.user-row:hover,
+.user-row.active {
+  border-radius: 9px;
+  background: #2d3939;
+}
+
+.brief-collapse-toggle {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0;
+  color: #8798ab;
+  border: 1px solid #dce4ed;
+  border-radius: 8px;
+  background: #f7f9fc;
+}
+
+.brief-collapse-toggle:hover {
+  color: var(--coral);
+  border-color: #c7ceff;
+  background: #eef0ff;
+}
+
+.brief-rail-label {
+  display: none;
+}
+
+@media (min-width: 901px) {
+  .decision-view .decision-layout.brief-collapsed {
+    grid-template-columns: 74px minmax(0, 1fr);
+  }
+
+  .decision-view .decision-layout.brief-collapsed .decision-brief {
+    position: relative;
+    min-height: 720px;
+    align-items: center;
+    padding: 18px 8px;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .decision-panel-heading {
+    width: 100%;
+    min-height: 100%;
+    flex: 1;
+    align-items: center;
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .step-badge {
+    margin-top: 41px;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .decision-panel-heading > div {
+    display: none;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .brief-rail-label {
+    display: block;
+    margin: auto 0;
+    color: #8595a7;
+    font-family: 'DM Mono', ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+  }
+
+  .decision-view .decision-layout.brief-collapsed .brief-collapse-toggle {
+    position: absolute;
+    top: 16px;
+    right: 8px;
+    margin: 0;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .decision-panel-copy,
+  .decision-view .decision-layout.brief-collapsed .decision-field,
+  .decision-view .decision-layout.brief-collapsed .imported-context,
+  .decision-view .decision-layout.brief-collapsed .decision-connection-note,
+  .decision-view .decision-layout.brief-collapsed .decision-error,
+  .decision-view .decision-layout.brief-collapsed .decision-submit,
+  .decision-view .decision-layout.brief-collapsed .decision-history {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .decision-view .brief-collapse-toggle {
+    display: none;
+  }
+
+  .decision-view .decision-layout.brief-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .decision-brief {
+    min-height: auto;
+    align-items: stretch;
+    padding: 20px 17px 18px;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .decision-panel-heading {
+    min-height: 0;
+    flex: none;
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .step-badge {
+    margin-top: 0;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .decision-panel-heading > div,
+  .decision-view .decision-layout.brief-collapsed .decision-panel-copy,
+  .decision-view .decision-layout.brief-collapsed .decision-field,
+  .decision-view .decision-layout.brief-collapsed .imported-context,
+  .decision-view .decision-layout.brief-collapsed .decision-connection-note,
+  .decision-view .decision-layout.brief-collapsed .decision-error,
+  .decision-view .decision-layout.brief-collapsed .decision-submit,
+  .decision-view .decision-layout.brief-collapsed .decision-history {
+    display: initial;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .decision-panel-heading > div {
+    display: grid;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .decision-panel-heading .brief-rail-label {
+    display: none;
+  }
+}
+
+.theme-dark .user-row:hover,
+.theme-dark .user-row.active {
+  background: #1c2d44;
+}
+
+.theme-dark .brief-collapse-toggle {
+  color: #8da2b8;
+  border-color: #30455e;
+  background: #15273e;
+}
+
+.theme-dark .brief-collapse-toggle:hover {
+  color: #c4c8ff;
+  border-color: #5964ab;
+  background: #252d63;
+}
+
+.theme-dark .decision-view .decision-layout.brief-collapsed .brief-rail-label {
+  color: #879bb0;
+}
+
+@media (max-width: 900px) {
+  .decision-view .decision-layout.brief-collapsed .decision-panel-copy {
+    display: block;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .decision-field {
+    display: grid;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .imported-context,
+  .decision-view .decision-layout.brief-collapsed .decision-history {
+    display: block;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .decision-connection-note,
+  .decision-view .decision-layout.brief-collapsed .decision-error {
+    display: flex;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .decision-submit {
+    display: inline-flex;
+  }
+}
+
 @media (max-width: 1060px) {
   .decision-view .decision-layout {
     grid-template-columns: minmax(290px, 340px) minmax(0, 1fr);
