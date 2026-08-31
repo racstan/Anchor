@@ -1,0 +1,17 @@
+{
+  "name": "Anchor — your steady place",
+  "short_name": "Anchor",
+  "description": "Keep the thoughts and context you want to remember close.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f4f0",
+  "theme_color": "#20292a",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
