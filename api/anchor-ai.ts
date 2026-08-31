@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 import type { ServerResponse } from 'node:http'
 import { handleAIProxy } from '../vite-ai-proxy.js'
 

@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 import { request as httpRequest } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { request as httpsRequest } from 'node:https'
