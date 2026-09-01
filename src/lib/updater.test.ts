@@ -4,12 +4,12 @@ import type { ReleaseAsset } from './updater'
 
 describe('updater module', () => {
   it('correctly compares semantic versions', () => {
-    expect(isNewerVersion('0.1.2', '0.1.1')).toBe(true)
-    expect(isNewerVersion('v0.2.0', '0.1.1')).toBe(true)
-    expect(isNewerVersion('1.0.0', '0.1.1')).toBe(true)
-    expect(isNewerVersion('0.1.1', '0.1.1')).toBe(false)
-    expect(isNewerVersion('0.1.0', '0.1.1')).toBe(false)
-    expect(isNewerVersion('v0.1.1', 'v0.1.1')).toBe(false)
+    expect(isNewerVersion('0.1.3', '0.1.2')).toBe(true)
+    expect(isNewerVersion('v0.2.0', '0.1.2')).toBe(true)
+    expect(isNewerVersion('1.0.0', '0.1.2')).toBe(true)
+    expect(isNewerVersion('0.1.2', '0.1.2')).toBe(false)
+    expect(isNewerVersion('0.1.1', '0.1.2')).toBe(false)
+    expect(isNewerVersion('v0.1.2', 'v0.1.2')).toBe(false)
   })
 
   it('selects platform-specific assets appropriately', () => {
