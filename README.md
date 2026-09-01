@@ -1,32 +1,59 @@
-# React + TypeScript + Vite
+# Anchor
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Anchor is a calm, local-first workspace for the ideas, principles, and decisions you want to keep close. The same React frontend runs on the web and inside the Tauri 2 desktop/mobile shell.
 
-Currently, two official plugins are available:
+## Run it
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Validation and production build:
+
+```bash
+npm run lint
+npm test
+npm run build
+```
+
+The live web app is deployed at [anchor-chi-eight.vercel.app](https://anchor-chi-eight.vercel.app).
+
+## First launch
+
+Anchor asks what to call you once, stores that profile on the device, and uses it for greetings and your avatar. You can change it later from the profile button in the bottom-left sidebar or from Settings.
+
+Onboarding also lets you start with a blank workspace or keep the gentle starter examples.
+
+## AI connection
+
+Open **Settings → AI connection**, choose a provider, enter its credentials, discover or type a model ID, and save the connection. Anchor supports OpenAI-compatible providers, Gemini, and Cloudflare Workers AI through the adapters in `src/lib/ai.ts`.
+
+Browser requests use `/api/anchor-ai`, a short-lived Vercel/server development relay that avoids provider CORS restrictions. The relay does not persist keys or decision context. API credentials remain in the browser's local storage, so use a private device and deploy your own relay for a production setup with stricter secrets management.
+
+## Workspace backups
+
+**Settings → Workspace data** can export anchors, projects, decisions, and your profile to a readable JSON file. API keys are deliberately excluded. Imports are validated and can either merge records by ID or replace the current workspace. Older state-only JSON backups are accepted too.
+
+## Project structure
+
+- `src/App.tsx` — responsive application shell and views
+- `src/App.css` — shared visual system and responsive styles
+- `src/lib/anchors.ts` — anchor/project/decision models and local persistence
+- `src/lib/workspace.ts` — profile persistence and validated backup format
+- `src/lib/ai.ts` — provider adapters and live model discovery
+- `api/anchor-ai.ts` — Vercel production AI relay
+- `vite-ai-proxy.ts` — local development/preview AI relay
+- `src-tauri/` — Tauri 2 packaging shell
+
+## Template research
+
+Anchor stays on Vite + React because that keeps the web, desktop, Android, and iOS builds on one frontend. A wholesale copy of a Next.js or Tailwind admin template would make the Tauri build and the existing calm visual identity harder to maintain.
+
+The most useful references reviewed were:
+
+- [shadcn/ui](https://ui.shadcn.com/) — accessible, copy-in components under the MIT license
+- [shadcn dashboard landing template](https://github.com/shadcnstore/shadcn-dashboard-landing-template) — MIT Vite/React dashboard reference
+- [modern-desktop-app-template](https://github.com/elibroftw/modern-desktop-app-template) — CC0 Tauri 2 + React 19 shell reference
+
+Anchor uses those as implementation references rather than importing an unrelated admin shell wholesale.

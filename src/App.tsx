@@ -14,6 +14,7 @@ import {
   CircleAlert,
   CirclePlus,
   Clock3,
+  Download,
   Command,
   Compass,
   FolderOpen,
@@ -42,6 +43,7 @@ import {
   SlidersHorizontal,
   Sun,
   TrendingUp,
+  Upload,
   UserRound,
   WandSparkles,
   X,
@@ -77,6 +79,14 @@ import {
   writeAISettings,
 } from './lib/ai'
 import type { AIMessage, AIModel, AISettings } from './lib/ai'
+import {
+  mergeWorkspaceState,
+  parseWorkspaceExport,
+  readUserProfile,
+  serializeWorkspaceExport,
+  writeUserProfile,
+} from './lib/workspace'
+import type { UserProfile } from './lib/workspace'
 import './App.css'
 
 type View = 'home' | 'all' | 'global' | 'projects' | 'decide' | 'settings'
@@ -87,6 +97,7 @@ type AnchorFormData = Pick<Anchor, 'title' | 'body' | 'scope' | 'tag' | 'color' 
 
 type ProjectFormData = Pick<Project, 'name' | 'description' | 'color'>
 type Theme = 'light' | 'dark'
+type ImportMode = 'replace' | 'merge'
 
 interface AppNotification {
   id: string
@@ -111,6 +122,16 @@ const colorLabels: Record<AccentColor, string> = {
   sky: 'Azure',
   gold: 'Gold',
   plum: 'Violet',
+}
+
+function displayName(name: string): string {
+  return name.trim() || 'friend'
+}
+
+function profileInitial(name: string): string {
+  const trimmedName = name.trim()
+
+  return trimmedName ? trimmedName.charAt(0).toUpperCase() : '?'
 }
 
 function readStoredBoolean(key: string, fallback: boolean): boolean {
@@ -238,8 +259,89 @@ function buildNotifications(
     })
 }
 
+interface OnboardingViewProps {
+  theme: Theme
+  onComplete: (name: string, keepExamples: boolean) => void
+}
+
+function OnboardingView({ theme, onComplete }: OnboardingViewProps) {
+  const [name, setName] = useState('')
+  const [starterChoice, setStarterChoice] = useState<'examples' | 'fresh'>('fresh')
+  const [error, setError] = useState<string>()
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const trimmedName = name.trim()
+
+    if (!trimmedName) {
+      setError('Tell me what to call you, and I’ll remember it.')
+      return
+    }
+
+    onComplete(trimmedName, starterChoice === 'examples')
+  }
+
+  return (
+    <div className={`onboarding-shell ${theme === 'dark' ? 'theme-dark' : ''}`}>
+      <main className="onboarding-card">
+        <div className="onboarding-brand">
+          <span className="brand-mark" aria-hidden="true"><AnchorIcon size={19} strokeWidth={2.5} /></span>
+          <span>anchor</span>
+        </div>
+        <div className="onboarding-symbol"><Sparkles size={22} /></div>
+        <p className="eyebrow">A steady place to return to</p>
+        <h1>Let&apos;s make this yours.</h1>
+        <p className="onboarding-copy">Before we put anything down, what should Anchor call you?</p>
+        <form className="onboarding-form" onSubmit={handleSubmit}>
+          <div className="onboarding-choice-group" role="group" aria-label="Choose how to begin">
+            <span className="onboarding-choice-label">How would you like to begin?</span>
+            <button
+              className={`onboarding-choice ${starterChoice === 'fresh' ? 'selected' : ''}`}
+              type="button"
+              aria-pressed={starterChoice === 'fresh'}
+              onClick={() => setStarterChoice('fresh')}
+            >
+              <span className="onboarding-choice-mark" />
+              <span><strong>A blank room</strong><small>Start with only what matters to you.</small></span>
+            </button>
+            <button
+              className={`onboarding-choice ${starterChoice === 'examples' ? 'selected' : ''}`}
+              type="button"
+              aria-pressed={starterChoice === 'examples'}
+              onClick={() => setStarterChoice('examples')}
+            >
+              <span className="onboarding-choice-mark" />
+              <span><strong>A few examples</strong><small>Keep gentle starter anchors to explore.</small></span>
+            </button>
+          </div>
+          <label className="form-field" htmlFor="onboarding-name">
+            <span>Your name</span>
+            <input
+              id="onboarding-name"
+              value={name}
+              onChange={(event) => {
+                setName(event.target.value)
+                setError(undefined)
+              }}
+              placeholder="e.g. Maya"
+              autoComplete="name"
+              autoFocus
+            />
+          </label>
+          {error && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{error}</span></div>}
+          <button className="primary-button onboarding-submit" type="submit">
+            Enter my space <ArrowUpRight size={16} />
+          </button>
+        </form>
+        <p className="onboarding-note"><ShieldCheck size={14} /> We&apos;ll remember your name on this device. You can change it later.</p>
+      </main>
+    </div>
+  )
+}
+
 function App() {
   const [state, setState] = useState<AnchorState>(() => readAnchorState())
+  const [profile, setProfile] = useState<UserProfile>(() => readUserProfile())
   const [aiSettings, setAISettings] = useState<AISettings>(() => readAISettings())
   const [availableModels, setAvailableModels] = useState<AIModel[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
@@ -269,6 +371,10 @@ function App() {
   useEffect(() => {
     writeAnchorState(state)
   }, [state])
+
+  useEffect(() => {
+    writeUserProfile(profile)
+  }, [profile])
 
   useEffect(() => {
     writeAISettings(aiSettings)
@@ -579,6 +685,64 @@ function App() {
     navigate('settings')
   }
 
+  const saveProfile = (nextProfile: UserProfile) => {
+    const name = nextProfile.name.trim()
+
+    if (!name) {
+      return
+    }
+
+    setProfile({ name })
+    showToast(`I’ll call you ${name} from here on.`)
+  }
+
+  const exportWorkspace = () => {
+    const file = new Blob([serializeWorkspaceExport(state, profile)], { type: 'application/json' })
+    const url = URL.createObjectURL(file)
+    const link = document.createElement('a')
+    const date = new Date().toISOString().slice(0, 10)
+
+    link.href = url
+    link.download = `anchor-workspace-${date}.json`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 0)
+    showToast('Your Anchor workspace is ready to keep safe.')
+  }
+
+  const importWorkspace = async (file: File, mode: 'replace' | 'merge'): Promise<string> => {
+    const imported = parseWorkspaceExport(await file.text())
+    const nextState = mode === 'merge' ? mergeWorkspaceState(state, imported.state) : imported.state
+
+    setState(nextState)
+
+    if (imported.profile.name) {
+      setProfile(imported.profile)
+    }
+
+    const summary = `${nextState.anchors.length} anchors, ${nextState.projects.length} projects, and ${nextState.decisions.length} decisions`
+    const message = mode === 'merge' ? `Merged ${summary} into this workspace.` : `Restored ${summary}.`
+
+    showToast(message)
+    return message
+  }
+
+  if (!profile.name.trim()) {
+    return (
+      <OnboardingView
+        theme={theme}
+        onComplete={(name, keepExamples) => {
+          setProfile({ name })
+          if (!keepExamples) {
+            setState({ anchors: [], projects: [], decisions: [] })
+            setSpotlightAnchorId(undefined)
+          }
+        }}
+      />
+    )
+  }
+
   let pageContent: React.ReactNode
 
   if (activeProjectId && activeProject) {
@@ -594,6 +758,7 @@ function App() {
   } else if (activeView === 'home') {
     pageContent = (
       <HomeView
+        name={profile.name}
         anchors={state.anchors}
         projects={state.projects}
         spotlight={spotlight}
@@ -622,6 +787,7 @@ function App() {
   } else if (activeView === 'decide') {
     pageContent = (
       <DecisionView
+        name={profile.name}
         projects={state.projects}
         anchors={state.anchors}
         settings={aiSettings}
@@ -633,6 +799,8 @@ function App() {
   } else if (activeView === 'settings') {
     pageContent = (
       <SettingsView
+        key={profile.name}
+        profile={profile}
         settings={aiSettings}
         availableModels={availableModels}
         modelsLoading={modelsLoading}
@@ -648,6 +816,9 @@ function App() {
           setModelsError(undefined)
           showToast('AI connection settings reset.')
         }}
+        onSaveProfile={saveProfile}
+        onExportWorkspace={exportWorkspace}
+        onImportWorkspace={importWorkspace}
       />
     )
   } else if (activeView === 'projects') {
@@ -786,9 +957,9 @@ function App() {
             aria-label="Open account settings"
             onClick={openSettings}
           >
-            <span className="avatar">A</span>
+            <span className="avatar">{profileInitial(profile.name)}</span>
             <span className="user-copy">
-              <strong>Alex Morgan</strong>
+              <strong>{profile.name}</strong>
               <span>Personal space</span>
             </span>
             <span className="user-more" aria-hidden="true">
@@ -908,7 +1079,9 @@ function App() {
             >
               {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            <div className="top-avatar">A</div>
+            <button className="top-avatar" type="button" aria-label="Open account settings" onClick={openSettings}>
+              {profileInitial(profile.name)}
+            </button>
           </div>
         </header>
 
@@ -1172,6 +1345,7 @@ function NotificationPanel({ notifications, onSelect, onMarkAllRead }: Notificat
 }
 
 interface HomeViewProps {
+  name: string
   anchors: Anchor[]
   projects: Project[]
   spotlight?: Anchor
@@ -1188,6 +1362,7 @@ interface HomeViewProps {
 }
 
 function HomeView({
+  name,
   anchors,
   projects,
   spotlight,
@@ -1216,7 +1391,7 @@ function HomeView({
         <div>
           <p className="eyebrow">{dateLabel}</p>
           <h1>
-            Happy morning, dear Alex<span className="accent-dot">.</span>
+            Happy morning, dear {displayName(name)}<span className="accent-dot">.</span>
           </h1>
           <p className="page-subtitle">Keep the things you&apos;ve learned close.</p>
         </div>
@@ -1242,9 +1417,6 @@ function HomeView({
                 <span className="eyebrow light-eyebrow">
                   <Sparkles size={13} /> Anchor for now
                 </span>
-                <button className="spotlight-menu" type="button" aria-label="More spotlight options">
-                  <MoreHorizontal size={18} />
-                </button>
               </div>
               {spotlight ? (
                 <>
@@ -1515,6 +1687,7 @@ function AnchorListItem({ anchor, projects, query, onTogglePinned }: AnchorListI
 }
 
 interface DecisionViewProps {
+  name: string
   projects: Project[]
   anchors: Anchor[]
   settings: AISettings
@@ -1630,6 +1803,7 @@ function ChatRichText({ content }: { content: string }) {
 }
 
 function DecisionView({
+  name,
   projects,
   anchors,
   settings,
@@ -1803,7 +1977,7 @@ function DecisionView({
       <div className="page-heading decision-heading">
         <div>
           <p className="eyebrow">A little room before the next move</p>
-          <h1>Happy thinking, dear Alex<span className="accent-dot">.</span></h1>
+          <h1>Happy thinking, dear {displayName(name)}<span className="accent-dot">.</span></h1>
           <p className="page-subtitle">Bring the whole situation here. We&apos;ll look at it gently, together.</p>
         </div>
         <button className="secondary-button" type="button" onClick={startNewDecision}>
@@ -2035,6 +2209,7 @@ function DecisionView({
 }
 
 interface SettingsViewProps {
+  profile: UserProfile
   settings: AISettings
   availableModels: AIModel[]
   modelsLoading: boolean
@@ -2045,9 +2220,13 @@ interface SettingsViewProps {
   onSave: () => void
   onRefreshModels: () => void
   onReset: () => void
+  onSaveProfile: (profile: UserProfile) => void
+  onExportWorkspace: () => void
+  onImportWorkspace: (file: File, mode: ImportMode) => Promise<string>
 }
 
 function SettingsView({
+  profile,
   settings,
   availableModels,
   modelsLoading,
@@ -2058,9 +2237,71 @@ function SettingsView({
   onSave,
   onRefreshModels,
   onReset,
+  onSaveProfile,
+  onExportWorkspace,
+  onImportWorkspace,
 }: SettingsViewProps) {
   const [showKey, setShowKey] = useState(false)
+  const [profileName, setProfileName] = useState(profile.name)
+  const [profileError, setProfileError] = useState<string>()
+  const [profileSaved, setProfileSaved] = useState(false)
+  const [pendingImport, setPendingImport] = useState<File>()
+  const [dataBusy, setDataBusy] = useState(false)
+  const [dataError, setDataError] = useState<string>()
+  const [dataMessage, setDataMessage] = useState<string>()
+  const importInputRef = useRef<HTMLInputElement>(null)
   const provider = AI_PROVIDERS.find((item) => item.id === settings.providerId) ?? AI_PROVIDERS[0]
+
+  const saveProfile = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const name = profileName.trim()
+
+    if (!name) {
+      setProfileError('Tell me what to call you before saving.')
+      setProfileSaved(false)
+      return
+    }
+
+    onSaveProfile({ name })
+    setProfileName(name)
+    setProfileError(undefined)
+    setProfileSaved(true)
+  }
+
+  const chooseImportFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+
+    if (!file) {
+      return
+    }
+
+    setPendingImport(file)
+    setDataError(undefined)
+    setDataMessage(undefined)
+  }
+
+  const importFile = async (mode: ImportMode) => {
+    if (!pendingImport) {
+      return
+    }
+
+    setDataBusy(true)
+    setDataError(undefined)
+    setDataMessage(undefined)
+
+    try {
+      const message = await onImportWorkspace(pendingImport, mode)
+      setDataMessage(message)
+      setPendingImport(undefined)
+      if (importInputRef.current) {
+        importInputRef.current.value = ''
+      }
+    } catch (importError) {
+      setDataError(importError instanceof Error ? importError.message : 'That backup could not be imported.')
+    } finally {
+      setDataBusy(false)
+    }
+  }
   const currentModelIsLoaded = availableModels.some((model) => model.id === settings.model)
 
   return (
@@ -2068,7 +2309,7 @@ function SettingsView({
       <div className="page-heading settings-heading">
         <div>
           <p className="eyebrow">A space that works your way</p>
-          <h1>Settings, dear Alex<span className="accent-dot">.</span></h1>
+          <h1>Settings, dear {displayName(profile.name)}<span className="accent-dot">.</span></h1>
           <p className="page-subtitle">Choose how Anchor thinks with you, and make the room feel like yours.</p>
         </div>
       </div>
@@ -2206,8 +2447,8 @@ function SettingsView({
                 <h2>Private by default</h2>
               </div>
             </div>
-            <p className="settings-card-copy">Your key and connection settings stay in this device&apos;s local storage. Anchor only sends your decision context when you press the thinking button.</p>
-            <div className="privacy-note"><KeyRound size={14} /> For a public production release, add a secure server-side proxy before storing keys.</div>
+            <p className="settings-card-copy">Your key and connection settings stay in this device&apos;s local storage. Anchor only sends them to your chosen provider when you test or think.</p>
+            <div className="privacy-note"><ShieldCheck size={14} /> The relay forwards requests without saving your key or decision context.</div>
           </section>
 
           <section className="settings-card profile-card">
@@ -2218,7 +2459,72 @@ function SettingsView({
                 <h2>Personal space</h2>
               </div>
             </div>
-            <div className="profile-preview"><span className="avatar">A</span><div><strong>Alex Morgan</strong><span>Happy to have you here.</span></div></div>
+            <form className="profile-form" onSubmit={saveProfile}>
+              <div className="profile-preview">
+                <span className="avatar">{profileInitial(profileName)}</span>
+                <div><strong>{profileName.trim() || 'Your name'}</strong><span>Happy to have you here.</span></div>
+              </div>
+              <label className="form-field">
+                <span>What should Anchor call you?</span>
+                <input
+                  value={profileName}
+                  onChange={(event) => {
+                    setProfileName(event.target.value)
+                    setProfileError(undefined)
+                    setProfileSaved(false)
+                  }}
+                  placeholder="Your name"
+                  autoComplete="name"
+                />
+              </label>
+              {profileError && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{profileError}</span></div>}
+              <div className="profile-form-footer">
+                {profileSaved && <span className="model-success"><Check size={13} /> Saved</span>}
+                <button className="secondary-button" type="submit"><Check size={15} /> Save name</button>
+              </div>
+            </form>
+          </section>
+
+          <section className="settings-card data-card">
+            <div className="settings-card-heading compact">
+              <span className="settings-card-icon data"><Download size={18} /></span>
+              <div>
+                <p className="eyebrow">Keep your context close</p>
+                <h2>Workspace data</h2>
+              </div>
+            </div>
+            <p className="settings-card-copy">Export your anchors, projects, decisions, and profile as a portable JSON backup. API keys are never included.</p>
+            <input
+              ref={importInputRef}
+              className="visually-hidden"
+              type="file"
+              accept="application/json,.json"
+              onChange={chooseImportFile}
+            />
+            <div className="data-actions">
+              <button className="secondary-button" type="button" onClick={onExportWorkspace}>
+                <Download size={15} /> Export workspace
+              </button>
+              <button className="text-button" type="button" onClick={() => importInputRef.current?.click()} disabled={dataBusy}>
+                <Upload size={15} /> Import backup
+              </button>
+            </div>
+            {pendingImport && (
+              <div className="import-staging">
+                <strong>{pendingImport.name}</strong>
+                <span>Choose whether to add it or replace this workspace.</span>
+                <div className="import-staging-actions">
+                  <button className="text-button" type="button" onClick={() => void importFile('merge')} disabled={dataBusy}>
+                    Merge into current
+                  </button>
+                  <button className="primary-button" type="button" onClick={() => void importFile('replace')} disabled={dataBusy}>
+                    Replace workspace
+                  </button>
+                </div>
+              </div>
+            )}
+            {dataError && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{dataError}</span></div>}
+            {dataMessage && <div className="model-success"><Check size={14} /> {dataMessage}</div>}
           </section>
         </div>
       </div>
@@ -2342,9 +2648,6 @@ function ProjectView({ project, anchors, onBack, onAddAnchor, onTogglePinned }: 
             <p>{project.description}</p>
           </div>
         </div>
-        <button className="project-hero-more" type="button" aria-label="More project options">
-          <MoreHorizontal size={19} />
-        </button>
       </div>
 
       <div className="project-summary-row">
