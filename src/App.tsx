@@ -2595,11 +2595,119 @@ function SettingsView({
       </div>
 
       <div className="settings-layout">
+        <section className="settings-card profile-card">
+          <div className="settings-card-heading compact">
+            <span className="settings-card-icon profile"><UserRound size={18} /></span>
+            <div>
+              <p className="eyebrow">01 — This is your room</p>
+              <h2>Personal space</h2>
+            </div>
+          </div>
+          <form className="profile-form" onSubmit={saveProfile}>
+            <div className="profile-preview">
+              <span className="avatar">{profileInitial(profileName)}</span>
+              <div><strong>{profileName.trim() || 'Your name'}</strong><span>Happy to have you here.</span></div>
+            </div>
+            <label className="form-field">
+              <span>What should Anchor call you?</span>
+              <input
+                value={profileName}
+                onChange={(event) => {
+                  setProfileName(event.target.value)
+                  setProfileError(undefined)
+                  setProfileSaved(false)
+                }}
+                placeholder="Your name"
+                autoComplete="name"
+              />
+            </label>
+            {profileError && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{profileError}</span></div>}
+            <div className="profile-form-footer">
+              {profileSaved && <span className="model-success"><Check size={13} /> Saved</span>}
+              <button className="secondary-button" type="submit"><Check size={15} /> Save name</button>
+            </div>
+          </form>
+        </section>
+
+        <section className="settings-card appearance-card">
+          <div className="settings-card-heading compact">
+            <span className="settings-card-icon appearance"><Sun size={18} /></span>
+            <div>
+              <p className="eyebrow">02 — The atmosphere</p>
+              <h2>Appearance</h2>
+            </div>
+          </div>
+          <p className="settings-card-copy">A little light or a little night. Both are welcome here.</p>
+          <div className="theme-choice" role="group" aria-label="Choose appearance">
+            <button className={theme === 'light' ? 'selected' : ''} type="button" onClick={() => onThemeChange('light')}>
+              <Sun size={15} /> Light
+            </button>
+            <button className={theme === 'dark' ? 'selected' : ''} type="button" onClick={() => onThemeChange('dark')}>
+              <Moon size={15} /> Dark
+            </button>
+          </div>
+        </section>
+
+        <section className="settings-card security-card">
+          <div className="settings-card-heading compact">
+            <span className="settings-card-icon security"><KeyRound size={18} /></span>
+            <div>
+              <p className="eyebrow">03 — Optional device lock</p>
+              <h2>{security.pinHash ? 'Change device PIN' : 'Set a device PIN'}</h2>
+            </div>
+          </div>
+          <p className="settings-card-copy">A PIN keeps this local Anchor space private when you open it again. It is stored as a one-way digest and never sent anywhere.</p>
+          <form className="pin-settings-form" onSubmit={saveDevicePin}>
+            <label className="form-field">
+              <span>{security.pinHash ? 'New PIN' : 'Device PIN'} <em>4–6 digits</em></span>
+              <input
+                type="password"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                value={pin}
+                onChange={(event) => {
+                  setPin(event.target.value.replace(/\D/g, '').slice(0, 6))
+                  setPinError(undefined)
+                  setPinSaved(false)
+                }}
+                placeholder="Enter a PIN"
+                autoComplete="new-password"
+              />
+            </label>
+            <label className="form-field">
+              <span>Confirm PIN</span>
+              <input
+                type="password"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                value={pinConfirmation}
+                onChange={(event) => {
+                  setPinConfirmation(event.target.value.replace(/\D/g, '').slice(0, 6))
+                  setPinError(undefined)
+                  setPinSaved(false)
+                }}
+                placeholder="Enter it again"
+                autoComplete="new-password"
+              />
+            </label>
+            {pinError && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{pinError}</span></div>}
+            <div className="pin-settings-footer">
+              {pinSaved && <span className="model-success"><Check size={13} /> PIN saved</span>}
+              <button className="primary-button" type="submit" disabled={pinBusy}>
+                {pinBusy ? 'Saving…' : security.pinHash ? 'Change PIN' : 'Set PIN'}
+              </button>
+              {security.pinHash && <button className="text-button pin-remove" type="button" onClick={removeDevicePin}>Remove PIN</button>}
+            </div>
+          </form>
+        </section>
+
         <section className="settings-card ai-settings-card">
           <div className="settings-card-heading">
             <span className="settings-card-icon ai"><SlidersHorizontal size={18} /></span>
             <div>
-              <p className="eyebrow">Decision companion</p>
+              <p className="eyebrow">04 — Decision companion</p>
               <h2>AI connection</h2>
               <span>Models are discovered live from the provider you choose.</span>
             </div>
@@ -2699,169 +2807,59 @@ function SettingsView({
           </div>
         </section>
 
-        <div className="settings-side-column">
-          <section className="settings-card appearance-card">
-            <div className="settings-card-heading compact">
-              <span className="settings-card-icon appearance"><Sun size={18} /></span>
-              <div>
-                <p className="eyebrow">The atmosphere</p>
-                <h2>Appearance</h2>
-              </div>
+        <section className="settings-card privacy-card">
+          <div className="settings-card-heading compact">
+            <span className="settings-card-icon privacy"><ShieldCheck size={18} /></span>
+            <div>
+              <p className="eyebrow">05 — Your trust matters</p>
+              <h2>Private by default</h2>
             </div>
-            <p className="settings-card-copy">A little light or a little night. Both are welcome here.</p>
-            <div className="theme-choice" role="group" aria-label="Choose appearance">
-              <button className={theme === 'light' ? 'selected' : ''} type="button" onClick={() => onThemeChange('light')}>
-                <Sun size={15} /> Light
-              </button>
-              <button className={theme === 'dark' ? 'selected' : ''} type="button" onClick={() => onThemeChange('dark')}>
-                <Moon size={15} /> Dark
-              </button>
-            </div>
-          </section>
+          </div>
+          <p className="settings-card-copy">Your key and connection settings stay in this device&apos;s local storage. Anchor only sends them to your chosen provider when you test or think.</p>
+          <div className="privacy-note"><ShieldCheck size={14} /> The relay forwards requests without saving your key or decision context.</div>
+        </section>
 
-          <section className="settings-card privacy-card">
-            <div className="settings-card-heading compact">
-              <span className="settings-card-icon privacy"><ShieldCheck size={18} /></span>
-              <div>
-                <p className="eyebrow">Your trust matters</p>
-                <h2>Private by default</h2>
-              </div>
+        <section className="settings-card data-card">
+          <div className="settings-card-heading compact">
+            <span className="settings-card-icon data"><Download size={18} /></span>
+            <div>
+              <p className="eyebrow">06 — Keep your context close</p>
+              <h2>Workspace data</h2>
             </div>
-            <p className="settings-card-copy">Your key and connection settings stay in this device&apos;s local storage. Anchor only sends them to your chosen provider when you test or think.</p>
-            <div className="privacy-note"><ShieldCheck size={14} /> The relay forwards requests without saving your key or decision context.</div>
-          </section>
-
-          <section className="settings-card profile-card">
-            <div className="settings-card-heading compact">
-              <span className="settings-card-icon profile"><UserRound size={18} /></span>
-              <div>
-                <p className="eyebrow">This is your room</p>
-                <h2>Personal space</h2>
-              </div>
-            </div>
-            <form className="profile-form" onSubmit={saveProfile}>
-              <div className="profile-preview">
-                <span className="avatar">{profileInitial(profileName)}</span>
-                <div><strong>{profileName.trim() || 'Your name'}</strong><span>Happy to have you here.</span></div>
-              </div>
-              <label className="form-field">
-                <span>What should Anchor call you?</span>
-                <input
-                  value={profileName}
-                  onChange={(event) => {
-                    setProfileName(event.target.value)
-                    setProfileError(undefined)
-                    setProfileSaved(false)
-                  }}
-                  placeholder="Your name"
-                  autoComplete="name"
-                />
-              </label>
-              {profileError && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{profileError}</span></div>}
-              <div className="profile-form-footer">
-                {profileSaved && <span className="model-success"><Check size={13} /> Saved</span>}
-                <button className="secondary-button" type="submit"><Check size={15} /> Save name</button>
-              </div>
-            </form>
-          </section>
-
-          <section className="settings-card security-card">
-            <div className="settings-card-heading compact">
-              <span className="settings-card-icon security"><KeyRound size={18} /></span>
-              <div>
-                <p className="eyebrow">Optional device lock</p>
-                <h2>{security.pinHash ? 'Change device PIN' : 'Set a device PIN'}</h2>
-              </div>
-            </div>
-            <p className="settings-card-copy">A PIN keeps this local Anchor space private when you open it again. It is stored as a one-way digest and never sent anywhere.</p>
-            <form className="pin-settings-form" onSubmit={saveDevicePin}>
-              <label className="form-field">
-                <span>{security.pinHash ? 'New PIN' : 'Device PIN'} <em>4–6 digits</em></span>
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength={6}
-                  value={pin}
-                  onChange={(event) => {
-                    setPin(event.target.value.replace(/\D/g, '').slice(0, 6))
-                    setPinError(undefined)
-                    setPinSaved(false)
-                  }}
-                  placeholder="Enter a PIN"
-                  autoComplete="new-password"
-                />
-              </label>
-              <label className="form-field">
-                <span>Confirm PIN</span>
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength={6}
-                  value={pinConfirmation}
-                  onChange={(event) => {
-                    setPinConfirmation(event.target.value.replace(/\D/g, '').slice(0, 6))
-                    setPinError(undefined)
-                    setPinSaved(false)
-                  }}
-                  placeholder="Enter it again"
-                  autoComplete="new-password"
-                />
-              </label>
-              {pinError && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{pinError}</span></div>}
-              <div className="pin-settings-footer">
-                {pinSaved && <span className="model-success"><Check size={13} /> PIN saved</span>}
-                <button className="primary-button" type="submit" disabled={pinBusy}>
-                  {pinBusy ? 'Saving…' : security.pinHash ? 'Change PIN' : 'Set PIN'}
+          </div>
+          <p className="settings-card-copy">Export your anchors, projects, decisions, and profile as a portable JSON backup. API keys are never included.</p>
+          <input
+            ref={importInputRef}
+            className="visually-hidden"
+            type="file"
+            accept="application/json,.json"
+            onChange={chooseImportFile}
+          />
+          <div className="data-actions">
+            <button className="secondary-button" type="button" onClick={onExportWorkspace}>
+              <Download size={15} /> Export workspace
+            </button>
+            <button className="text-button" type="button" onClick={() => importInputRef.current?.click()} disabled={dataBusy}>
+              <Upload size={15} /> Import backup
+            </button>
+          </div>
+          {pendingImport && (
+            <div className="import-staging">
+              <strong>{pendingImport.name}</strong>
+              <span>Choose whether to add it or replace this workspace.</span>
+              <div className="import-staging-actions">
+                <button className="text-button" type="button" onClick={() => void importFile('merge')} disabled={dataBusy}>
+                  Merge into current
                 </button>
-                {security.pinHash && <button className="text-button pin-remove" type="button" onClick={removeDevicePin}>Remove PIN</button>}
-              </div>
-            </form>
-          </section>
-
-          <section className="settings-card data-card">
-            <div className="settings-card-heading compact">
-              <span className="settings-card-icon data"><Download size={18} /></span>
-              <div>
-                <p className="eyebrow">Keep your context close</p>
-                <h2>Workspace data</h2>
+                <button className="primary-button" type="button" onClick={() => void importFile('replace')} disabled={dataBusy}>
+                  Replace workspace
+                </button>
               </div>
             </div>
-            <p className="settings-card-copy">Export your anchors, projects, decisions, and profile as a portable JSON backup. API keys are never included.</p>
-            <input
-              ref={importInputRef}
-              className="visually-hidden"
-              type="file"
-              accept="application/json,.json"
-              onChange={chooseImportFile}
-            />
-            <div className="data-actions">
-              <button className="secondary-button" type="button" onClick={onExportWorkspace}>
-                <Download size={15} /> Export workspace
-              </button>
-              <button className="text-button" type="button" onClick={() => importInputRef.current?.click()} disabled={dataBusy}>
-                <Upload size={15} /> Import backup
-              </button>
-            </div>
-            {pendingImport && (
-              <div className="import-staging">
-                <strong>{pendingImport.name}</strong>
-                <span>Choose whether to add it or replace this workspace.</span>
-                <div className="import-staging-actions">
-                  <button className="text-button" type="button" onClick={() => void importFile('merge')} disabled={dataBusy}>
-                    Merge into current
-                  </button>
-                  <button className="primary-button" type="button" onClick={() => void importFile('replace')} disabled={dataBusy}>
-                    Replace workspace
-                  </button>
-                </div>
-              </div>
-            )}
-            {dataError && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{dataError}</span></div>}
-            {dataMessage && <div className="model-success"><Check size={14} /> {dataMessage}</div>}
-          </section>
-        </div>
+          )}
+          {dataError && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{dataError}</span></div>}
+          {dataMessage && <div className="model-success"><Check size={14} /> {dataMessage}</div>}
+        </section>
       </div>
     </div>
   )

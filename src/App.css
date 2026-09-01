@@ -4343,10 +4343,12 @@ fieldset.form-field {
 
 /* ---------- Settings ---------- */
 .settings-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.65fr);
+  display: flex;
+  flex-direction: column;
   gap: 18px;
-  align-items: start;
+  max-width: 760px;
+  margin: 0 auto;
+  align-items: stretch;
 }
 
 .settings-card {
@@ -4367,8 +4369,7 @@ fieldset.form-field {
 }
 
 .settings-side-column {
-  display: grid;
-  gap: 16px;
+  display: contents;
 }
 
 .settings-card-heading {
@@ -4482,7 +4483,7 @@ fieldset.form-field {
 
 .settings-form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 14px;
 }
 
@@ -4586,7 +4587,7 @@ fieldset.form-field {
 
 .model-picker-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(170px, 0.9fr);
+  grid-template-columns: 1fr;
   gap: 8px;
 }
 
@@ -5188,11 +5189,14 @@ fieldset.form-field {
   }
 
   .settings-layout {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+    max-width: 760px;
+    margin: 0 auto;
   }
 
   .settings-side-column {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: contents;
   }
 }
 
@@ -5255,7 +5259,7 @@ fieldset.form-field {
   }
 
   .settings-side-column {
-    grid-template-columns: 1fr;
+    display: contents;
   }
 
   .breadcrumb {
@@ -5652,7 +5656,7 @@ fieldset.form-field {
   }
 
   .settings-side-column {
-    grid-template-columns: 1fr;
+    display: contents;
   }
 
   .heading-actions {
