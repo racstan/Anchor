@@ -542,6 +542,9 @@ function App() {
     document.documentElement.dataset.theme = theme
     document.documentElement.style.colorScheme = theme
     document.body.dataset.theme = theme
+    const themeColor = theme === 'dark' ? '#080e1e' : '#f6f7fb'
+    const meta = document.querySelector('meta[name="theme-color"]')
+    if (meta) meta.setAttribute('content', themeColor)
 
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme)

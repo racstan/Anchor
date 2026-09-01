@@ -1,28 +1,44 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
 :root {
-  font-family: 'DM Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  color: #1b2940;
-  background: #eef3f8;
+  --font-sans: 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Space Grotesk', 'DM Sans', sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, monospace;
+  color-scheme: light;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
 }
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
 html {
   min-width: 320px;
-  background: #eef3f8;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+  background: var(--canvas, #f6f7f9);
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+  scrollbar-color: #334155 transparent;
 }
 
 body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
+  font-family: var(--font-sans);
+  background: var(--canvas, #f6f7f9);
+  color: var(--ink, #1e293b);
+  overflow-x: hidden;
 }
 
 button,
@@ -34,16 +50,64 @@ select {
 
 button {
   cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 3px solid rgba(93, 95, 231, 0.32);
+  outline: 2px solid var(--primary, #6366f1);
   outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(99, 102, 241, 0.22);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-theme='dark'] ::-webkit-scrollbar-thumb {
+  background: #334155;
 }
 
 #root {
   min-height: 100vh;
+  isolation: isolate;
+}
+
+/* Smooth theme transition — only color properties */
+@media (prefers-reduced-motion: no-preference) {
+  html,
+  body,
+  .anchor-app,
+  .sidebar,
+  .topbar,
+  .anchor-item,
+  .project-card,
+  .decision-brief,
+  .decision-chat,
+  .settings-card,
+  .modal-card,
+  .search-palette,
+  .notification-panel {
+    transition:
+      background-color 220ms ease,
+      border-color 220ms ease,
+      color 220ms ease,
+      box-shadow 220ms ease;
+  }
 }
