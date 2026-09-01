@@ -90,6 +90,14 @@ import {
 import type { UserProfile } from './lib/workspace'
 import { hashPin, isValidPin, readSecuritySettings, verifyPin, writeSecuritySettings } from './lib/security'
 import type { SecuritySettings } from './lib/security'
+import { getDailyGreeting } from './lib/greetings'
+import {
+  checkAppUpdate,
+  CURRENT_APP_VERSION,
+  getAppPlatform,
+  isNativeApp,
+} from './lib/updater'
+import type { AppUpdateInfo } from './lib/updater'
 import './App.css'
 
 type View = 'home' | 'all' | 'global' | 'projects' | 'decide' | 'settings'
@@ -504,11 +512,37 @@ function App() {
   const [editingAnchor, setEditingAnchor] = useState<Anchor | undefined>(undefined)
   const [isProjectComposerOpen, setIsProjectComposerOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | undefined>(undefined)
+  const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo>()
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false)
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [toast, setToast] = useState<string>()
   const topSearchRef = useRef<HTMLInputElement>(null)
   const searchWrapRef = useRef<HTMLDivElement>(null)
   const notificationWrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    checkAppUpdate().then((info) => {
+      if (info.isAvailable) {
+        setUpdateInfo(info)
+      }
+    })
+  }, [])
+
+  const manualCheckUpdate = async () => {
+    setIsCheckingUpdate(true)
+    try {
+      const info = await checkAppUpdate()
+      setUpdateInfo(info)
+      if (info.isAvailable) {
+        setIsUpdateModalOpen(true)
+      } else {
+        showToast("You are using the latest version of Anchor.")
+      }
+    } finally {
+      setIsCheckingUpdate(false)
+    }
+  }
 
   useEffect(() => {
     writeAnchorState(state)
@@ -587,6 +621,7 @@ function App() {
         setIsProjectComposerOpen(false)
         setEditingAnchor(undefined)
         setEditingProject(undefined)
+        setIsUpdateModalOpen(false)
       }
     }
 
@@ -1091,6 +1126,10 @@ function App() {
         onLockNow={() => setIsLocked(true)}
         onExportWorkspace={exportWorkspace}
         onImportWorkspace={importWorkspace}
+        updateInfo={updateInfo}
+        checkingUpdates={isCheckingUpdate}
+        onCheckUpdates={manualCheckUpdate}
+        onOpenUpdateModal={() => setIsUpdateModalOpen(true)}
       />
     )
   } else if (activeView === 'projects') {
@@ -1123,9 +1162,23 @@ function App() {
     <div className={`anchor-app ${theme === 'dark' ? 'theme-dark' : ''}`}>
       <aside className={`sidebar ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'sidebar-open' : ''}`}>
         <div className="brand-row">
-          <div className="brand-mark" aria-hidden="true">
-            <AnchorIcon size={18} strokeWidth={2.5} />
-          </div>
+          <button
+            className="brand-mark-btn"
+            type="button"
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Anchor home'}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Anchor home'}
+            onClick={() => {
+              if (sidebarCollapsed) {
+                setSidebarCollapsed(false)
+              } else {
+                navigate('home')
+              }
+            }}
+          >
+            <div className="brand-mark" aria-hidden="true">
+              <AnchorIcon size={18} strokeWidth={2.5} />
+            </div>
+          </button>
           <div className="brand-copy">
             <strong>anchor</strong>
             <span>your steady place</span>
@@ -1322,6 +1375,17 @@ function App() {
               )}
             </div>
             <div className="notification-wrap" ref={notificationWrapRef}>
+              {updateInfo?.isAvailable && (
+                <button
+                  className="update-pill"
+                  type="button"
+                  onClick={() => setIsUpdateModalOpen(true)}
+                  title={`Update to Anchor v${updateInfo.latestVersion}`}
+                >
+                  <Sparkles size={13} />
+                  <span>v{updateInfo.latestVersion}</span>
+                </button>
+              )}
               <button
                 className={`icon-button notification-button ${notificationsOpen ? 'active' : ''}`}
                 type="button"
@@ -1401,6 +1465,12 @@ function App() {
           onClose={() => setEditingProject(undefined)}
           onSave={updateProject}
           onDelete={deleteProject}
+        />
+      )}
+      {isUpdateModalOpen && updateInfo && (
+        <UpdateModal
+          updateInfo={updateInfo}
+          onClose={() => setIsUpdateModalOpen(false)}
         />
       )}
       {mobileMenuOpen && (
@@ -1680,6 +1750,12 @@ function HomeView({
   onOpenProjects,
   onOpenDecision,
 }: HomeViewProps) {
+  const [greeting, setGreeting] = useState(() => getDailyGreeting(name))
+
+  const shuffleGreeting = () => {
+    setGreeting(getDailyGreeting(name))
+  }
+
   const recentAnchors = anchors.slice(0, 3)
   const dateLabel = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
@@ -1691,12 +1767,23 @@ function HomeView({
   return (
     <div className="home-view page-enter">
       <div className="page-heading home-heading">
-        <div>
+        <div className="home-heading-text">
           <p className="eyebrow">{dateLabel}</p>
-          <h1>
-            Happy morning, dear {displayName(name)}<span className="accent-dot">.</span>
-          </h1>
-          <p className="page-subtitle">Keep the things you&apos;ve learned close.</p>
+          <div className="home-title-row">
+            <h1>
+              {greeting.title}<span className="accent-dot">.</span>
+            </h1>
+            <button
+              className="greeting-shuffle-btn"
+              type="button"
+              onClick={shuffleGreeting}
+              title="Another calm thought"
+              aria-label="Another calm thought"
+            >
+              <RotateCcw size={14} />
+            </button>
+          </div>
+          <p className="page-subtitle">{greeting.subtitle}</p>
         </div>
         <div className="heading-actions">
           <button className="secondary-button decision-shortcut" type="button" onClick={onOpenDecision}>
@@ -2599,6 +2686,10 @@ interface SettingsViewProps {
   onLockNow: () => void
   onExportWorkspace: () => void
   onImportWorkspace: (file: File, mode: ImportMode) => Promise<string>
+  updateInfo?: AppUpdateInfo
+  checkingUpdates: boolean
+  onCheckUpdates: () => void
+  onOpenUpdateModal: () => void
 }
 
 function SettingsView({
@@ -2620,6 +2711,10 @@ function SettingsView({
   onLockNow,
   onExportWorkspace,
   onImportWorkspace,
+  updateInfo,
+  checkingUpdates,
+  onCheckUpdates,
+  onOpenUpdateModal,
 }: SettingsViewProps) {
   const [showKey, setShowKey] = useState(false)
   const [profileName, setProfileName] = useState(profile.name)
@@ -3010,6 +3105,57 @@ function SettingsView({
           )}
           {dataError && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{dataError}</span></div>}
           {dataMessage && <div className="model-success"><Check size={14} /> {dataMessage}</div>}
+        </section>
+
+        <section className="settings-card updates-card">
+          <div className="settings-card-heading compact">
+            <span className="settings-card-icon updates"><Sparkles size={18} /></span>
+            <div>
+              <p className="eyebrow">07 — Always getting steadier</p>
+              <h2>App updates &amp; about</h2>
+            </div>
+          </div>
+          <p className="settings-card-copy">
+            Anchor is built local-first. Updates deliver quiet polish, performance, and companion resilience.
+          </p>
+          <div className="update-status-row">
+            <div className="update-platform-badge">
+              <strong>v{CURRENT_APP_VERSION}</strong>
+              <span>
+                {isNativeApp() ? (getAppPlatform() === 'android' ? 'Android shell' : 'Desktop shell') : 'Web frontend'}
+              </span>
+            </div>
+            <div className="update-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={onCheckUpdates}
+                disabled={checkingUpdates}
+              >
+                <RefreshCw className={checkingUpdates ? 'spin' : ''} size={14} />
+                {checkingUpdates ? 'Checking…' : 'Check for updates'}
+              </button>
+              {updateInfo?.isAvailable && (
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={onOpenUpdateModal}
+                >
+                  <Download size={15} />
+                  Update to v{updateInfo.latestVersion}
+                </button>
+              )}
+            </div>
+          </div>
+          {updateInfo?.isAvailable ? (
+            <div className="model-success">
+              <Sparkles size={14} /> New version <strong>v{updateInfo.latestVersion}</strong> is ready for your {updateInfo.platform}.
+            </div>
+          ) : (
+            <div className="update-uptodate-note">
+              <Check size={14} /> You are on the latest version (v{CURRENT_APP_VERSION}).
+            </div>
+          )}
         </section>
       </div>
     </div>
@@ -3743,6 +3889,57 @@ function ProjectEditModal({ project, onClose, onSave, onDelete }: ProjectEditMod
           </div>
         </div>
       </form>
+    </Modal>
+  )
+}
+
+interface UpdateModalProps {
+  updateInfo: AppUpdateInfo
+  onClose: () => void
+}
+
+function UpdateModal({ updateInfo, onClose }: UpdateModalProps) {
+  const handleDownload = () => {
+    if (updateInfo.downloadUrl) {
+      window.open(updateInfo.downloadUrl, '_blank')
+    }
+  }
+
+  return (
+    <Modal eyebrow="A fresh release is ready" title={`Anchor v${updateInfo.latestVersion}`} onClose={onClose}>
+      <div className="update-modal-content">
+        <div className="update-version-row">
+          <div className="version-pill current">Current: v{updateInfo.currentVersion}</div>
+          <span className="version-arrow">→</span>
+          <div className="version-pill target">Latest: v{updateInfo.latestVersion}</div>
+        </div>
+        <div className="update-notes-box">
+          <h4>What&apos;s new in this release</h4>
+          <div className="update-notes-body">{updateInfo.releaseNotes || 'Refinements, stability enhancements, and harbor polish.'}</div>
+        </div>
+        {updateInfo.assetName && (
+          <p className="update-asset-note">
+            Target installer for your {updateInfo.platform}: <code>{updateInfo.assetName}</code>
+          </p>
+        )}
+        <div className="modal-actions modal-actions-split">
+          <a
+            className="text-button"
+            href={updateInfo.htmlUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            View on GitHub
+          </a>
+          <div className="modal-actions-right">
+            <button className="secondary-button" type="button" onClick={onClose}>Later</button>
+            <button className="primary-button" type="button" onClick={handleDownload}>
+              <Download size={15} />
+              Download &amp; Update
+            </button>
+          </div>
+        </div>
+      </div>
     </Modal>
   )
 }
