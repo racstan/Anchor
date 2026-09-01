@@ -1119,6 +1119,7 @@ function App() {
             className="sidebar-add"
             type="button"
             aria-label="Create project"
+            title="Create project"
             onClick={() => setIsProjectComposerOpen(true)}
           >
             <Plus size={15} />
@@ -1130,6 +1131,8 @@ function App() {
               className={`sidebar-project ${activeProjectId === project.id ? 'active' : ''}`}
               key={project.id}
               type="button"
+              title={project.name}
+              aria-label={project.name}
               onClick={() => navigate('projects', project.id)}
             >
               <span className={`project-dot ${project.color}`}>
@@ -1330,7 +1333,7 @@ interface NavItemProps {
 
 function NavItem({ icon: Icon, label, active, onClick, count }: NavItemProps) {
   return (
-    <button className={`nav-item ${active ? 'active' : ''}`} type="button" onClick={onClick}>
+    <button className={`nav-item ${active ? 'active' : ''}`} type="button" onClick={onClick} title={label} aria-label={label}>
       <Icon size={17} />
       <span>{label}</span>
       {count !== undefined && <small>{count}</small>}

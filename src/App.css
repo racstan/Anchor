@@ -5121,7 +5121,9 @@ fieldset.form-field {
   .sidebar-collapsed .sidebar-project-count,
   .sidebar-collapsed .sidebar-prompt,
   .sidebar-collapsed .user-copy,
-  .sidebar-collapsed .user-more {
+  .sidebar-collapsed .user-more,
+  .sidebar-collapsed .nav-item span,
+  .sidebar-collapsed .nav-item small {
     display: none;
   }
 
@@ -5137,6 +5139,11 @@ fieldset.form-field {
     justify-content: center;
     gap: 0;
     padding: 0;
+    overflow: hidden;
+  }
+
+  .sidebar-collapsed .nav-item svg {
+    margin: 0;
   }
 
   .sidebar-collapsed .sidebar-rule {
