@@ -652,10 +652,9 @@ function App() {
     })
   }, [])
 
-  // Capture Dropbox OAuth return token from URL if present
+  // Capture Dropbox OAuth return token from URL if present or via cross-window events
   useEffect(() => {
-    const token = extractDropboxOAuthToken()
-    if (token) {
+    const applyDropboxToken = (token: string) => {
       testDropboxConnection(token)
         .then((name) => {
           setSyncSettings((prev) => ({
@@ -667,6 +666,13 @@ function App() {
             lastSyncMessage: `Connected to ${name}`,
           }))
           showToast(`Successfully connected to ${name}!`)
+          if (window.opener) {
+            try {
+              window.opener.postMessage({ type: 'ANCHOR_DROPBOX_AUTH', token }, '*')
+            } catch {
+              // ignore
+            }
+          }
           if (window.history.replaceState) {
             window.history.replaceState(null, document.title, window.location.pathname)
           }
@@ -675,6 +681,20 @@ function App() {
           showToast(`Dropbox connection error: ${err.message}`)
         })
     }
+
+    const token = extractDropboxOAuthToken()
+    if (token) {
+      applyDropboxToken(token)
+    }
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'ANCHOR_DROPBOX_AUTH' && typeof event.data.token === 'string') {
+        applyDropboxToken(event.data.token)
+      }
+    }
+
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
   }, [])
 
   const anchorPhilosophyThought = (thought: PhilosophyThought) => {
@@ -3450,20 +3470,107 @@ function SettingsView({
                   <>
                     <div className="dropbox-oauth-card">
                       <div className="dropbox-oauth-copy">
-                        <strong>1-Click Browser Authorization</strong>
-                        <span>Authorize Anchor in your browser. Just like Remotely Save, no manual developer steps needed.</span>
+                        <strong>Connect with Dropbox</strong>
+                        <span>
+                          Authorize Anchor to sync your vault across all your PCs, laptops, phones, and tablets. Opens securely in a new browser tab.
+                        </span>
                       </div>
                       <button
                         className="primary-button dropbox-authorize-btn"
                         type="button"
-                        onClick={() => startDropboxOAuth(syncDraft.dropboxAppKey)}
+                        onClick={() => {
+                          if (!syncDraft.dropboxAppKey?.trim()) {
+                            setTestResult({
+                              success: false,
+                              message: 'Please enter your Dropbox App Key below first to authorize.',
+                            })
+                            return
+                          }
+                          try {
+                            startDropboxOAuth(syncDraft.dropboxAppKey, true)
+                          } catch (err) {
+                            setTestResult({
+                              success: false,
+                              message: err instanceof Error ? err.message : 'Could not open Dropbox authorization.',
+                            })
+                          }
+                        }}
                       >
                         <Cloud size={16} />
-                        Connect with Dropbox
+                        Authorize in New Tab
                       </button>
                     </div>
 
-                    {syncDraft.dropboxAccessToken ? (
+                    <div className="form-field">
+                      <label htmlFor="dropbox-app-key">Dropbox App Key (Client ID)</label>
+                      <input
+                        id="dropbox-app-key"
+                        type="text"
+                        value={syncDraft.dropboxAppKey ?? ''}
+                        onChange={(e) => setSyncDraft((prev) => ({ ...prev, dropboxAppKey: e.target.value }))}
+                        placeholder="e.g. k0k64j5r7z0u..."
+                        spellCheck={false}
+                      />
+                      <small className="field-help">
+                        Get your free App Key at{' '}
+                        <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noopener noreferrer">
+                          dropbox.com/developers/apps <ArrowUpRight size={12} style={{ display: 'inline', verticalAlign: 'middle' }} />
+                        </a>{' '}
+                        (Create app &rarr; Scoped access &rarr; App folder &rarr; copy App key).
+                      </small>
+                    </div>
+
+                    <div className="form-field">
+                      <div className="field-label-row">
+                        <label htmlFor="dropbox-token">Or paste Dropbox Access Token directly</label>
+                        <button
+                          className="field-action-button"
+                          type="button"
+                          onClick={() => setShowSyncToken((prev) => !prev)}
+                        >
+                          {showSyncToken ? 'Hide token' : 'Show token'}
+                        </button>
+                      </div>
+                      <input
+                        id="dropbox-token"
+                        type={showSyncToken ? 'text' : 'password'}
+                        value={syncDraft.dropboxAccessToken ?? ''}
+                        onChange={(e) => setSyncDraft((prev) => ({ ...prev, dropboxAccessToken: e.target.value }))}
+                        placeholder="sl.u.AF..."
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <small className="field-help">
+                        You can also click <em>Generate access token</em> in your Dropbox developer app settings and paste it here.
+                      </small>
+                    </div>
+
+                    <div className="dropbox-test-row">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={testingDropbox || !syncDraft.dropboxAccessToken?.trim()}
+                        onClick={async () => {
+                          if (!syncDraft.dropboxAccessToken?.trim()) return
+                          setTestingDropbox(true)
+                          setTestResult(undefined)
+                          try {
+                            const msg = await onTestDropbox(syncDraft.dropboxAccessToken)
+                            setTestResult({ success: true, message: msg })
+                          } catch (err) {
+                            const msg = err instanceof Error ? err.message : 'Connection failed.'
+                            setTestResult({ success: false, message: msg })
+                          } finally {
+                            setTestingDropbox(false)
+                          }
+                        }}
+                      >
+                        <RefreshCw className={testingDropbox ? 'spin' : ''} size={14} />
+                        {testingDropbox ? 'Testing…' : 'Test Dropbox connection'}
+                      </button>
+                    </div>
+
+                    {syncDraft.dropboxAccessToken && (
                       <div className="model-success sync-connected-pill">
                         <Check size={14} />
                         <span>Dropbox account connected. Vault: <strong>{syncDraft.vaultName}</strong></span>
@@ -3475,70 +3582,14 @@ function SettingsView({
                           Disconnect
                         </button>
                       </div>
-                    ) : (
-                      <p className="sync-note-muted">
-                        Click &ldquo;Connect with Dropbox&rdquo; to sign in with your account in 1 click.
-                      </p>
                     )}
 
-                    <details className="advanced-sync-details">
-                      <summary>Advanced / Manual Token Configuration</summary>
-                      <div className="advanced-sync-content">
-                        <div className="form-field">
-                          <div className="field-label-row">
-                            <label htmlFor="dropbox-token">Custom Access Token</label>
-                            <button
-                              className="field-action-button"
-                              type="button"
-                              onClick={() => setShowSyncToken((prev) => !prev)}
-                            >
-                              {showSyncToken ? 'Hide token' : 'Show token'}
-                            </button>
-                          </div>
-                          <input
-                            id="dropbox-token"
-                            type={showSyncToken ? 'text' : 'password'}
-                            value={syncDraft.dropboxAccessToken ?? ''}
-                            onChange={(e) => setSyncDraft((prev) => ({ ...prev, dropboxAccessToken: e.target.value }))}
-                            placeholder="sl.u.AF..."
-                            autoComplete="off"
-                            spellCheck={false}
-                          />
-                        </div>
-
-                        <div className="dropbox-test-row">
-                          <button
-                            className="secondary-button"
-                            type="button"
-                            disabled={testingDropbox || !syncDraft.dropboxAccessToken?.trim()}
-                            onClick={async () => {
-                              if (!syncDraft.dropboxAccessToken?.trim()) return
-                              setTestingDropbox(true)
-                              setTestResult(undefined)
-                              try {
-                                const msg = await onTestDropbox(syncDraft.dropboxAccessToken)
-                                setTestResult({ success: true, message: msg })
-                              } catch (err) {
-                                const msg = err instanceof Error ? err.message : 'Connection failed.'
-                                setTestResult({ success: false, message: msg })
-                              } finally {
-                                setTestingDropbox(false)
-                              }
-                            }}
-                          >
-                            <RefreshCw className={testingDropbox ? 'spin' : ''} size={14} />
-                            {testingDropbox ? 'Testing…' : 'Test Dropbox connection'}
-                          </button>
-                        </div>
-
-                        {testResult && (
-                          <div className={testResult.success ? 'model-success' : 'settings-error'}>
-                            {testResult.success ? <Check size={14} /> : <CircleAlert size={14} />}
-                            <span>{testResult.message}</span>
-                          </div>
-                        )}
+                    {testResult && (
+                      <div className={testResult.success ? 'model-success' : 'settings-error'}>
+                        {testResult.success ? <Check size={14} /> : <CircleAlert size={14} />}
+                        <span>{testResult.message}</span>
                       </div>
-                    </details>
+                    )}
                   </>
                 )}
 

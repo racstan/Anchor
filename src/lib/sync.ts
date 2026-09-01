@@ -28,7 +28,7 @@ export interface SyncSettings {
 
 export const SYNC_SETTINGS_STORAGE_KEY = 'anchor-sync-settings-v1'
 
-export const DEFAULT_DROPBOX_APP_KEY = 'k0k64j5r7z0u32b'
+export const DEFAULT_DROPBOX_APP_KEY = ''
 
 export const DEFAULT_SYNC_SETTINGS: SyncSettings = {
   enabled: false,
@@ -40,10 +40,10 @@ export const DEFAULT_SYNC_SETTINGS: SyncSettings = {
   lastSyncStatus: 'idle',
 }
 
-export function getDropboxAuthUrl(appKey = DEFAULT_DROPBOX_APP_KEY, redirectUri?: string): string {
+export function getDropboxAuthUrl(appKey: string, redirectUri?: string): string {
   const finalRedirect = redirectUri || (typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '')
   const params = new URLSearchParams({
-    client_id: appKey.trim() || DEFAULT_DROPBOX_APP_KEY,
+    client_id: appKey.trim(),
     response_type: 'token',
     redirect_uri: finalRedirect,
     token_access_type: 'offline',
@@ -51,10 +51,17 @@ export function getDropboxAuthUrl(appKey = DEFAULT_DROPBOX_APP_KEY, redirectUri?
   return `https://www.dropbox.com/oauth2/authorize?${params.toString()}`
 }
 
-export function startDropboxOAuth(appKey = DEFAULT_DROPBOX_APP_KEY): void {
+export function startDropboxOAuth(appKey: string, inNewTab = true): void {
   if (typeof window === 'undefined') return
+  if (!appKey.trim()) {
+    throw new Error('Please enter your Dropbox App Key first.')
+  }
   const authUrl = getDropboxAuthUrl(appKey)
-  window.location.href = authUrl
+  if (inNewTab) {
+    window.open(authUrl, '_blank')
+  } else {
+    window.location.href = authUrl
+  }
 }
 
 export function extractDropboxOAuthToken(): string | null {
