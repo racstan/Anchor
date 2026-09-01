@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   Anchor as AnchorIcon,
@@ -14,6 +14,7 @@ import {
   CircleAlert,
   CirclePlus,
   Clock3,
+  Cloud,
   Download,
   Command,
   Compass,
@@ -98,6 +99,13 @@ import {
   isNativeApp,
 } from './lib/updater'
 import type { AppUpdateInfo } from './lib/updater'
+import {
+  executeWorkspaceSync,
+  readSyncSettings,
+  testDropboxConnection,
+  writeSyncSettings,
+} from './lib/sync'
+import type { SyncProviderType, SyncSettings } from './lib/sync'
 import './App.css'
 
 type View = 'home' | 'all' | 'global' | 'projects' | 'decide' | 'settings'
@@ -512,6 +520,8 @@ function App() {
   const [editingAnchor, setEditingAnchor] = useState<Anchor | undefined>(undefined)
   const [isProjectComposerOpen, setIsProjectComposerOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | undefined>(undefined)
+  const [syncSettings, setSyncSettings] = useState<SyncSettings>(() => readSyncSettings())
+  const [syncBusy, setSyncBusy] = useState(false)
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo>()
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false)
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
@@ -520,6 +530,109 @@ function App() {
   const topSearchRef = useRef<HTMLInputElement>(null)
   const searchWrapRef = useRef<HTMLDivElement>(null)
   const notificationWrapRef = useRef<HTMLDivElement>(null)
+  const stateRef = useRef(state)
+  const profileRef = useRef(profile)
+  const syncSettingsRef = useRef(syncSettings)
+
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
+  useEffect(() => {
+    profileRef.current = profile
+  }, [profile])
+
+  useEffect(() => {
+    syncSettingsRef.current = syncSettings
+  }, [syncSettings])
+
+  const showToast = (message: string) => {
+    setToast(message)
+  }
+
+  useEffect(() => {
+    writeSyncSettings(syncSettings)
+  }, [syncSettings])
+
+  const triggerSync = useCallback(async (isManual = false) => {
+    const currentSync = syncSettingsRef.current
+    if (!currentSync.enabled || currentSync.provider === 'none') {
+      if (isManual) {
+        showToast('Enable cloud sync in Settings to sync your vault.')
+      }
+      return
+    }
+
+    setSyncBusy(true)
+    setSyncSettings((prev) => ({ ...prev, lastSyncStatus: 'syncing' }))
+
+    try {
+      const result = await executeWorkspaceSync(stateRef.current, profileRef.current, currentSync)
+      if (result.success && result.mergedState) {
+        setState(result.mergedState)
+        if (result.mergedProfile && result.mergedProfile.name.trim()) {
+          setProfile(result.mergedProfile)
+        }
+        setSyncSettings((prev) => ({
+          ...prev,
+          lastSyncedAt: result.timestamp,
+          lastSyncStatus: 'success',
+          lastSyncMessage: result.message,
+        }))
+        showToast(result.message)
+      } else {
+        setSyncSettings((prev) => ({
+          ...prev,
+          lastSyncStatus: 'error',
+          lastSyncMessage: result.message,
+        }))
+        if (isManual) {
+          showToast(`Sync failed: ${result.message}`)
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Sync failed.'
+      setSyncSettings((prev) => ({
+        ...prev,
+        lastSyncStatus: 'error',
+        lastSyncMessage: msg,
+      }))
+      if (isManual) {
+        showToast(`Sync error: ${msg}`)
+      }
+    } finally {
+      setSyncBusy(false)
+    }
+  }, [])
+
+  // Auto-sync on startup
+  useEffect(() => {
+    if (syncSettings.enabled && syncSettings.autoSyncOnStartup && syncSettings.provider !== 'none') {
+      const timer = setTimeout(() => {
+        void triggerSync(false)
+      }, 1200)
+      return () => clearTimeout(timer)
+    }
+  }, [syncSettings.enabled, syncSettings.autoSyncOnStartup, syncSettings.provider, triggerSync])
+
+  // Periodic background auto-sync
+  useEffect(() => {
+    if (
+      !syncSettings.enabled ||
+      syncSettings.provider === 'none' ||
+      !syncSettings.autoSyncIntervalMinutes ||
+      syncSettings.autoSyncIntervalMinutes <= 0
+    ) {
+      return
+    }
+
+    const intervalMs = syncSettings.autoSyncIntervalMinutes * 60 * 1000
+    const interval = setInterval(() => {
+      void triggerSync(false)
+    }, intervalMs)
+
+    return () => clearInterval(interval)
+  }, [syncSettings.enabled, syncSettings.provider, syncSettings.autoSyncIntervalMinutes, triggerSync])
 
   useEffect(() => {
     checkAppUpdate().then((info) => {
@@ -709,10 +822,6 @@ function App() {
     setSearchPaletteOpen(false)
     setNotificationsOpen(false)
     setMobileMenuOpen(false)
-  }
-
-  const showToast = (message: string) => {
-    setToast(message)
   }
 
   const refreshModels = async (settingsToLoad: AISettings = aiSettings) => {
@@ -1130,6 +1239,14 @@ function App() {
         checkingUpdates={isCheckingUpdate}
         onCheckUpdates={manualCheckUpdate}
         onOpenUpdateModal={() => setIsUpdateModalOpen(true)}
+        syncSettings={syncSettings}
+        syncBusy={syncBusy}
+        onSaveSyncSettings={(newSettings) => {
+          setSyncSettings(newSettings)
+          showToast('Sync settings saved.')
+        }}
+        onTriggerSync={() => triggerSync(true)}
+        onTestDropbox={testDropboxConnection}
       />
     )
   } else if (activeView === 'projects') {
@@ -1411,6 +1528,26 @@ function App() {
                 />
               )}
             </div>
+            {syncSettings.enabled && syncSettings.provider !== 'none' && (
+              <button
+                className={`icon-button sync-button ${syncSettings.lastSyncStatus || 'idle'} ${syncBusy ? 'syncing' : ''}`}
+                type="button"
+                onClick={() => void triggerSync(true)}
+                disabled={syncBusy}
+                title={
+                  syncBusy
+                    ? `Syncing with ${syncSettings.provider}…`
+                    : syncSettings.lastSyncedAt
+                      ? `Synced with ${syncSettings.provider} (${formatUpdatedAt(syncSettings.lastSyncedAt)}). Click to sync now.`
+                      : `Click to sync with ${syncSettings.provider}`
+                }
+                aria-label="Cloud sync"
+              >
+                {syncBusy ? <RefreshCw className="spin" size={17} /> : <Cloud size={17} />}
+                {syncSettings.lastSyncStatus === 'success' && <span className="sync-status-dot success" />}
+                {syncSettings.lastSyncStatus === 'error' && <span className="sync-status-dot error" />}
+              </button>
+            )}
             <button
               className="icon-button theme-toggle"
               type="button"
@@ -2690,6 +2827,11 @@ interface SettingsViewProps {
   checkingUpdates: boolean
   onCheckUpdates: () => void
   onOpenUpdateModal: () => void
+  syncSettings: SyncSettings
+  syncBusy: boolean
+  onSaveSyncSettings: (settings: SyncSettings) => void
+  onTriggerSync: () => Promise<void>
+  onTestDropbox: (token: string) => Promise<string>
 }
 
 function SettingsView({
@@ -2715,6 +2857,11 @@ function SettingsView({
   checkingUpdates,
   onCheckUpdates,
   onOpenUpdateModal,
+  syncSettings,
+  syncBusy,
+  onSaveSyncSettings,
+  onTriggerSync,
+  onTestDropbox,
 }: SettingsViewProps) {
   const [showKey, setShowKey] = useState(false)
   const [profileName, setProfileName] = useState(profile.name)
@@ -2729,6 +2876,11 @@ function SettingsView({
   const [dataBusy, setDataBusy] = useState(false)
   const [dataError, setDataError] = useState<string>()
   const [dataMessage, setDataMessage] = useState<string>()
+  const [syncDraft, setSyncDraft] = useState<SyncSettings>(syncSettings)
+  const [showSyncToken, setShowSyncToken] = useState(false)
+  const [showSyncPassword, setShowSyncPassword] = useState(false)
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string }>()
+  const [testingDropbox, setTestingDropbox] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
   const provider = AI_PROVIDERS.find((item) => item.id === settings.providerId) ?? AI_PROVIDERS[0]
 
@@ -3156,6 +3308,261 @@ function SettingsView({
               <Check size={14} /> You are on the latest version (v{CURRENT_APP_VERSION}).
             </div>
           )}
+        </section>
+
+        <section className="settings-card sync-card">
+          <div className="settings-card-heading compact">
+            <span className="settings-card-icon sync"><Cloud size={18} /></span>
+            <div>
+              <p className="eyebrow">08 — Shared across all your devices</p>
+              <h2>Cloud sync (Remotely Save)</h2>
+            </div>
+          </div>
+          <p className="settings-card-copy">
+            Sync seamlessly between openSUSE Tumbleweed, Windows, macOS, Android phones, and tablets using Dropbox or WebDAV.
+          </p>
+
+          <form
+            className="settings-form-grid"
+            onSubmit={(e) => {
+              e.preventDefault()
+              onSaveSyncSettings(syncDraft)
+            }}
+          >
+            <div className="form-field">
+              <label htmlFor="sync-provider-select">Storage provider</label>
+              <select
+                id="sync-provider-select"
+                value={syncDraft.provider}
+                onChange={(e) => {
+                  const provider = e.target.value as SyncProviderType
+                  setSyncDraft((prev) => ({
+                    ...prev,
+                    provider,
+                    enabled: provider !== 'none',
+                  }))
+                }}
+              >
+                <option value="none">Disabled (Local only)</option>
+                <option value="dropbox">Dropbox (Recommended)</option>
+                <option value="webdav">WebDAV (Nextcloud / ownCloud / Fastmail / Synology)</option>
+              </select>
+              <small className="field-help">
+                All your devices connect to the same remote storage vault and sync their anchors.
+              </small>
+            </div>
+
+            {syncDraft.provider !== 'none' && (
+              <>
+                <div className="form-field">
+                  <label htmlFor="sync-vault-name">Vault name</label>
+                  <input
+                    id="sync-vault-name"
+                    type="text"
+                    value={syncDraft.vaultName}
+                    onChange={(e) => setSyncDraft((prev) => ({ ...prev, vaultName: e.target.value }))}
+                    placeholder="anchor-vault"
+                    required
+                  />
+                  <small className="field-help">
+                    Use the exact same vault name on your PCs, laptops, phones, and tablets so they share the same data.
+                  </small>
+                </div>
+
+                {syncDraft.provider === 'dropbox' && (
+                  <>
+                    <div className="form-field">
+                      <div className="field-label-row">
+                        <label htmlFor="dropbox-token">Dropbox access token</label>
+                        <button
+                          className="field-action-button"
+                          type="button"
+                          onClick={() => setShowSyncToken((prev) => !prev)}
+                        >
+                          {showSyncToken ? 'Hide token' : 'Show token'}
+                        </button>
+                      </div>
+                      <input
+                        id="dropbox-token"
+                        type={showSyncToken ? 'text' : 'password'}
+                        value={syncDraft.dropboxAccessToken ?? ''}
+                        onChange={(e) => setSyncDraft((prev) => ({ ...prev, dropboxAccessToken: e.target.value }))}
+                        placeholder="sl.u.AF..."
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <div className="sync-guide-box">
+                        <strong>Quick Dropbox token setup:</strong>
+                        <ol>
+                          <li>Open <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noreferrer">dropbox.com/developers/apps</a> &amp; click <strong>Create app</strong>.</li>
+                          <li>Select <strong>Scoped access</strong> &rarr; <strong>App folder</strong> (e.g. <em>Anchor-Vault</em>).</li>
+                          <li>In <strong>Permissions</strong> tab, enable <code>files.content.write</code> and <code>files.content.read</code>, then click Submit.</li>
+                          <li>In <strong>Settings</strong> tab, click <strong>Generate</strong> under <em>Generated access token</em> and paste it above.</li>
+                        </ol>
+                      </div>
+                    </div>
+
+                    <div className="dropbox-test-row">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={testingDropbox || !syncDraft.dropboxAccessToken?.trim()}
+                        onClick={async () => {
+                          if (!syncDraft.dropboxAccessToken?.trim()) return
+                          setTestingDropbox(true)
+                          setTestResult(undefined)
+                          try {
+                            const msg = await onTestDropbox(syncDraft.dropboxAccessToken)
+                            setTestResult({ success: true, message: msg })
+                          } catch (err) {
+                            const msg = err instanceof Error ? err.message : 'Connection failed.'
+                            setTestResult({ success: false, message: msg })
+                          } finally {
+                            setTestingDropbox(false)
+                          }
+                        }}
+                      >
+                        <RefreshCw className={testingDropbox ? 'spin' : ''} size={14} />
+                        {testingDropbox ? 'Testing…' : 'Test Dropbox connection'}
+                      </button>
+                    </div>
+
+                    {testResult && (
+                      <div className={testResult.success ? 'model-success' : 'settings-error'}>
+                        {testResult.success ? <Check size={14} /> : <CircleAlert size={14} />}
+                        <span>{testResult.message}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {syncDraft.provider === 'webdav' && (
+                  <>
+                    <div className="form-field">
+                      <label htmlFor="webdav-url">WebDAV server URL</label>
+                      <input
+                        id="webdav-url"
+                        type="url"
+                        value={syncDraft.webdavUrl ?? ''}
+                        onChange={(e) => setSyncDraft((prev) => ({ ...prev, webdavUrl: e.target.value }))}
+                        placeholder="https://your-nextcloud.com/remote.php/webdav/"
+                      />
+                    </div>
+                    <div className="form-row">
+                      <div className="form-field">
+                        <label htmlFor="webdav-username">Username</label>
+                        <input
+                          id="webdav-username"
+                          type="text"
+                          value={syncDraft.webdavUsername ?? ''}
+                          onChange={(e) => setSyncDraft((prev) => ({ ...prev, webdavUsername: e.target.value }))}
+                        />
+                      </div>
+                      <div className="form-field">
+                        <label htmlFor="webdav-password">Password / App password</label>
+                        <input
+                          id="webdav-password"
+                          type="password"
+                          value={syncDraft.webdavPassword ?? ''}
+                          onChange={(e) => setSyncDraft((prev) => ({ ...prev, webdavPassword: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <div className="form-field">
+                  <div className="field-label-row">
+                    <label htmlFor="sync-encryption-pass">End-to-End Encryption (E2EE) password (Optional)</label>
+                    <button
+                      className="field-action-button"
+                      type="button"
+                      onClick={() => setShowSyncPassword((prev) => !prev)}
+                    >
+                      {showSyncPassword ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                  <input
+                    id="sync-encryption-pass"
+                    type={showSyncPassword ? 'text' : 'password'}
+                    value={syncDraft.encryptionPassword ?? ''}
+                    onChange={(e) => setSyncDraft((prev) => ({ ...prev, encryptionPassword: e.target.value }))}
+                    placeholder="Leave empty for plaintext JSON in your private storage"
+                    autoComplete="new-password"
+                  />
+                  <small className="field-help">
+                    Zero-knowledge AES-GCM encryption. If set, data is encrypted before leaving your device. All your devices must use this identical password.
+                  </small>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-field">
+                    <label htmlFor="sync-interval-select">Auto-sync interval</label>
+                    <select
+                      id="sync-interval-select"
+                      value={syncDraft.autoSyncIntervalMinutes}
+                      onChange={(e) => setSyncDraft((prev) => ({ ...prev, autoSyncIntervalMinutes: Number(e.target.value) }))}
+                    >
+                      <option value="0">Manual sync only</option>
+                      <option value="5">Every 5 minutes</option>
+                      <option value="15">Every 15 minutes</option>
+                      <option value="30">Every 30 minutes</option>
+                      <option value="60">Every 1 hour</option>
+                    </select>
+                  </div>
+                  <div className="form-field">
+                    <label className="checkbox-label" style={{ marginTop: '26px' }}>
+                      <input
+                        type="checkbox"
+                        checked={syncDraft.autoSyncOnStartup}
+                        onChange={(e) => setSyncDraft((prev) => ({ ...prev, autoSyncOnStartup: e.target.checked }))}
+                      />
+                      <span>Auto-sync when Anchor opens</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="sync-status-footer">
+                  <div className="sync-status-info">
+                    <strong>
+                      {syncSettings.lastSyncStatus === 'success' && '✓ Synced'}
+                      {syncSettings.lastSyncStatus === 'error' && '⚠ Sync error'}
+                      {syncSettings.lastSyncStatus === 'syncing' && 'Syncing…'}
+                      {(!syncSettings.lastSyncStatus || syncSettings.lastSyncStatus === 'idle') && 'Ready to sync'}
+                    </strong>
+                    <span>
+                      {syncSettings.lastSyncedAt
+                        ? `Last synced: ${formatUpdatedAt(syncSettings.lastSyncedAt)}`
+                        : 'Never synced'}
+                      {syncSettings.lastSyncMessage ? ` · ${syncSettings.lastSyncMessage}` : ''}
+                    </span>
+                  </div>
+                  <div className="sync-footer-actions">
+                    <button
+                      className="primary-button"
+                      type="button"
+                      onClick={onTriggerSync}
+                      disabled={syncBusy}
+                    >
+                      <RefreshCw className={syncBusy ? 'spin' : ''} size={15} />
+                      {syncBusy ? 'Syncing…' : 'Sync now'}
+                    </button>
+                    <button className="secondary-button" type="submit">
+                      Save sync settings
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {syncDraft.provider === 'none' && (
+              <div className="form-actions">
+                <button className="secondary-button" type="submit">
+                  Save settings
+                </button>
+              </div>
+            )}
+          </form>
         </section>
       </div>
     </div>

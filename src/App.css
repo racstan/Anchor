@@ -896,6 +896,32 @@ html[data-theme='dark'] {
   box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
 }
 
+.sync-button {
+  position: relative;
+}
+
+.sync-button.syncing {
+  color: var(--primary);
+}
+
+.sync-status-dot {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  border: 1.5px solid var(--surface);
+}
+
+.sync-status-dot.success {
+  background: #10b981;
+}
+
+.sync-status-dot.error {
+  background: #ef4444;
+}
+
 .notification-button {
   position: relative;
 }
@@ -4639,6 +4665,97 @@ fieldset.form-field {
   background: #2a2210;
   border-color: #4a3c18;
   color: #fbbf24;
+}
+
+.settings-card-icon.sync {
+  color: #0284c7;
+  background: #f0f9ff;
+  border-color: #bae6fd;
+}
+
+.theme-dark .settings-card-icon.sync {
+  background: #0b253a;
+  border-color: #16486e;
+  color: #38bdf8;
+}
+
+/* Sync Card layout */
+.sync-guide-box {
+  margin-top: 8px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.sync-guide-box strong {
+  display: block;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+
+.sync-guide-box ol {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.sync-guide-box li {
+  margin-bottom: 4px;
+}
+
+.sync-guide-box a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.sync-guide-box code {
+  font-family: var(--font-mono);
+  background: var(--surface);
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+}
+
+.dropbox-test-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sync-status-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+}
+
+.sync-status-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sync-status-info strong {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.sync-status-info span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.sync-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 /* Updates card layout */
