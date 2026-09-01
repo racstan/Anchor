@@ -1,6 +1,6 @@
 [package]
 name = "anchor"
-version = "0.1.0"
+version = "0.1.1"
 description = "A steady place for the context that matters."
 authors = ["Anchor"]
 license = ""

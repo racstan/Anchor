@@ -70,10 +70,10 @@ jobs:
           # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name || inputs.tag || 'v__AUTO__' }}
-          releaseName: 'Anchor ${{ github.ref_name || inputs.tag }}'
+          tagName: ${{ inputs.tag || github.ref_name || 'v__AUTO__' }}
+          releaseName: 'Anchor ${{ inputs.tag || github.ref_name }}'
           releaseBody: |
-            **Anchor ${{ github.ref_name }}** — calm, local-first workspace.
+            **Anchor ${{ inputs.tag || github.ref_name }}** — calm, local-first workspace.
 
             ### Desktop bundles
             - **Windows** — `msi` + `nsis` (x64)
@@ -156,11 +156,11 @@ jobs:
           ls -lh dist-android/
 
       - name: Upload Android to Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
           files: dist-android/*
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ inputs.tag || github.ref_name }}
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
