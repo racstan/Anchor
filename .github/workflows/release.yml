@@ -1,0 +1,175 @@
+name: 'Release Anchor'
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0) — leave empty to use current ref'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # Desktop: Windows, Linux, macOS (Tauri)
+  # ─────────────────────────────────────────────────────────────
+  publish-desktop:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils libglib2.0-dev libgtk-3-dev
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build / release with Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Uncomment if you configure signing — generate via `npm run tauri signer generate`
+          # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name || inputs.tag || 'v__AUTO__' }}
+          releaseName: 'Anchor ${{ github.ref_name || inputs.tag }}'
+          releaseBody: |
+            **Anchor ${{ github.ref_name }}** — calm, local-first workspace.
+
+            ### Desktop bundles
+            - **Windows** — `msi` + `nsis` (x64)
+            - **Linux** — `AppImage` + `deb` (x64)
+            - **macOS** — `dmg` (Apple Silicon `aarch64` + Intel `x86_64` — two separate jobs)
+
+            ### Android
+            Built in separate `android` workflow job — see `app-universal-release.apk` / `app-universal-release.aab`.
+
+            > Install: download your platform's installer. For macOS unsigned builds, right-click → Open.
+            > Web stays live at https://anchor-chi-eight.vercel.app
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
+
+  # ─────────────────────────────────────────────────────────────
+  # Android — Tauri 2 Android (APK + AAB)
+  # ─────────────────────────────────────────────────────────────
+  android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Init Android (if missing)
+        run: |
+          if [ ! -d "src-tauri/gen/android" ]; then
+            echo "No android gen found — init"
+            npm run tauri android init
+          else
+            echo "android gen exists"
+            ls -R src-tauri/gen/android | head -n 20
+          fi
+
+      - name: Build Android APK & AAB (debug)
+        run: npm run tauri android build
+        # For signed release, add env:
+        # env:
+        #   NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/<version>
+        # and provide keystore via secrets + tauri.conf android signing.
+
+      - name: Collect Android artifacts
+        run: |
+          echo "Finding APK/AAB..."
+          find src-tauri/gen/android -type f -name "*.apk" -o -name "*.aab" | head -n 20
+          ls -lh src-tauri/gen/android/app/build/outputs/bundle/universalRelease 2>/dev/null || true
+          ls -lh src-tauri/gen/android/app/build/outputs/apk/universal/release 2>/dev/null || true
+          mkdir -p dist-android
+          find src-tauri/gen/android -type f \( -name "*.apk" -o -name "*.aab" \) -exec cp {} dist-android/ \;
+          ls -lh dist-android/
+
+      - name: Upload Android to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-android/*
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Always upload as artifact so workflow_dispatch also saves files
+      - name: Upload Android artifacts (action artifacts)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anchor-android-apk-aab
+          path: dist-android/*
+          if-no-files-found: warn

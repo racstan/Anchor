@@ -71,6 +71,35 @@ curl -I https://anchor-chi-eight.vercel.app
 - **Keep `api/` ESM-compatible** — handler exports default function `(req, res) => handleAIProxy(req,res)`.
 - **Tauri ≠ Vercel:** `src-tauri/` is never built on Vercel. Only `dist/` ships.
 
+## Releases — GitHub (Windows / Linux / macOS / Android)
+
+> Desktop + Android ship via GitHub Releases (Tauri), separate from Vercel web.
+
+- **Workflow:** `.github/workflows/release.yml`
+- **Trigger:** `git tag vX.Y.Z && git push origin vX.Y.Z` (or `workflow_dispatch` in GitHub UI)
+- **What builds:**
+  - `publish-desktop` (matrix): `windows-latest` → `msi`+`nsis`, `ubuntu-22.04` → `deb`+`AppImage`, `macos-latest` → `dmg` for both `aarch64` and `x86_64`
+  - `android` (ubuntu): `tauri android build` → `apk` + `aab` (debug, unsigned). Run `npm run tauri android init` locally first if `src-tauri/gen/android` missing — workflow auto-inits.
+- **Tooling:** `tauri-apps/tauri-action@v0`, `dtolnay/rust-toolchain@stable`, `actions/setup-node@v4`, `actions/setup-java@v4` + `android-actions/setup-android@v3`
+- **Release creation:** Tauri action creates GitHub Release `vX.Y.Z` and attaches desktop bundles; `softprops/action-gh-release` appends Android `apk/aab`. Also uploads `anchor-android-apk-aab` as workflow artifact.
+- **Version source:** `src-tauri/tauri.conf.json` (`version`) + `package.json` (`version`) + `src-tauri/Cargo.toml` — keep them in sync before tagging (currently `0.1.0`).
+- **Local test before tag:**
+  ```bash
+  npm run build                      # must pass
+  npm run tauri build                # dry-run desktop bundler locally (linux only)
+  npm run tauri android build        # needs Android SDK + JDK 17 + rust android targets
+  ```
+- **Cut a release:**
+  ```bash
+  npm version patch|minor|major --no-git-tag-version  # or edit package.json/tauri.conf.json/Cargo.toml manually, keep sync
+  git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
+  git commit -m "chore(release): v0.1.0"
+  git tag v0.1.0
+  git push origin main --follow-tags      # pushes commit + tag → Actions builds → Release appears in ~15-25 min
+  # or trigger manually: gh workflow run release.yml -f tag=v0.1.0
+  ```
+- **Signing (optional):** For verified `dmg/msi` + Android release signing, add `TAURI_PRIVATE_KEY` / `TAURI_KEY_PASSWORD` and Android `keystore` as GitHub Secrets and wire them in workflow env. Currently ships unsigned (user right-click → Open on macOS).
+
 ## Local Dev (agents)
 ```bash
 npm install
@@ -89,8 +118,9 @@ npm run build    # tsc -b && vite build → dist/
 - `src-tauri/` — Tauri 2 shell
 - `vercel.json`, `.vercel/project.json` — deploy config
 
-## Recent Fix to Remember
+## Recent Fixes to Remember
 - **Sidebar collapsed:** hide nav labels/counts (`span`/`small`) when `.sidebar-collapsed` — prevents “hideous” clipped text. See `src/App.css` @ `min-width: 701px`.
+- **Settings stacked:** `settings-layout` is now single centered column (`760px`), linear order `01 Profile → 02 Appearance → 03 Security → 04 AI → 05 Privacy → 06 Data` — no side-by-side cards or inner grids. See `src/App.tsx` `SettingsView` + `src/App.css` `.settings-layout`.
 
 ---
 *If you change deployment (domain, framework, env), update this file + `README.md` + `vercel.json` together.*
