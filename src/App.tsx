@@ -101,14 +101,24 @@ import {
 import type { AppUpdateInfo } from './lib/updater'
 import {
   executeWorkspaceSync,
+  extractDropboxOAuthToken,
   readSyncSettings,
+  startDropboxOAuth,
   testDropboxConnection,
   writeSyncSettings,
 } from './lib/sync'
 import type { SyncProviderType, SyncSettings } from './lib/sync'
+import {
+  CATEGORY_LABELS,
+  downloadAndExpandPhilosophyVault,
+  getCachedPhilosophyVault,
+  getDailyPhilosophy,
+  getRandomPhilosophy,
+} from './lib/philosophy'
+import type { PhilosophyCategory, PhilosophyThought } from './lib/philosophy'
 import './App.css'
 
-type View = 'home' | 'all' | 'global' | 'projects' | 'decide' | 'settings'
+type View = 'home' | 'dashboard' | 'all' | 'global' | 'projects' | 'decide' | 'settings'
 
 type AnchorFormData = Pick<Anchor, 'title' | 'body' | 'scope' | 'tag' | 'color' | 'pinned'> & {
   projectId?: string
@@ -642,6 +652,55 @@ function App() {
     })
   }, [])
 
+  // Capture Dropbox OAuth return token from URL if present
+  useEffect(() => {
+    const token = extractDropboxOAuthToken()
+    if (token) {
+      testDropboxConnection(token)
+        .then((name) => {
+          setSyncSettings((prev) => ({
+            ...prev,
+            enabled: true,
+            provider: 'dropbox',
+            dropboxAccessToken: token,
+            lastSyncStatus: 'success',
+            lastSyncMessage: `Connected to ${name}`,
+          }))
+          showToast(`Successfully connected to ${name}!`)
+          if (window.history.replaceState) {
+            window.history.replaceState(null, document.title, window.location.pathname)
+          }
+        })
+        .catch((err) => {
+          showToast(`Dropbox connection error: ${err.message}`)
+        })
+    }
+  }, [])
+
+  const anchorPhilosophyThought = (thought: PhilosophyThought) => {
+    const timestamp = new Date().toISOString()
+    const newAnchor: Anchor = {
+      id: createId('anchor'),
+      title: `${thought.author}: ${thought.quote.slice(0, 55)}${thought.quote.length > 55 ? '…' : ''}`,
+      body: `"${thought.quote}"\n\nTakeaway: ${thought.takeaway || thought.school}`,
+      scope: 'global',
+      tag: thought.school.replace(/[^a-zA-Z0-9]/g, ''),
+      color: 'plum',
+      pinned: true,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      evidence: thought.source
+        ? { label: thought.source, url: `https://en.wikipedia.org/wiki/${encodeURIComponent(thought.author)}` }
+        : undefined,
+    }
+
+    setState((currentState) => ({
+      ...currentState,
+      anchors: [newAnchor, ...currentState.anchors],
+    }))
+    showToast(`Anchored "${thought.author}" to your workspace.`)
+  }
+
   const manualCheckUpdate = async () => {
     setIsCheckingUpdate(true)
     try {
@@ -650,7 +709,7 @@ function App() {
       if (info.isAvailable) {
         setIsUpdateModalOpen(true)
       } else {
-        showToast("You are using the latest version of Anchor.")
+        showToast('You are using the latest version of Anchor.')
       }
     } finally {
       setIsCheckingUpdate(false)
@@ -1195,6 +1254,16 @@ function App() {
         onOpenDecision={() => navigate('decide')}
       />
     )
+  } else if (activeView === 'dashboard') {
+    pageContent = (
+      <DashboardView
+        anchorsCount={state.anchors.length}
+        projectsCount={state.projects.length}
+        onAnchorThought={anchorPhilosophyThought}
+        onOpenDecision={() => navigate('decide')}
+        onAddAnchor={() => openAnchorComposer()}
+      />
+    )
   } else if (activeView === 'decide') {
     pageContent = (
       <DecisionView
@@ -1329,6 +1398,12 @@ function App() {
             onClick={() => navigate('home')}
           />
           <NavItem
+            icon={Compass}
+            label="Wisdom & Thoughts"
+            active={activeView === 'dashboard' && !activeProjectId}
+            onClick={() => navigate('dashboard')}
+          />
+          <NavItem
             icon={Layers3}
             label="All anchors"
             active={activeView === 'all' && !activeProjectId}
@@ -1336,7 +1411,7 @@ function App() {
             count={state.anchors.length}
           />
           <NavItem
-            icon={Compass}
+            icon={Pin}
             label="Global context"
             active={activeView === 'global' && !activeProjectId}
             onClick={() => navigate('global')}
@@ -1439,15 +1514,17 @@ function App() {
               {activeProject?.name ??
                 (activeView === 'home'
                   ? 'Today'
-                  : activeView === 'all'
-                    ? 'All anchors'
-                    : activeView === 'global'
-                      ? 'Global context'
-                      : activeView === 'decide'
-                        ? 'Decision space'
-                        : activeView === 'settings'
-                          ? 'Settings'
-                          : 'Projects')}
+                  : activeView === 'dashboard'
+                    ? 'Wisdom & Philosophy'
+                    : activeView === 'all'
+                      ? 'All anchors'
+                      : activeView === 'global'
+                        ? 'Global context'
+                        : activeView === 'decide'
+                          ? 'Decision space'
+                          : activeView === 'settings'
+                            ? 'Settings'
+                            : 'Projects')}
             </strong>
           </div>
           <div className="topbar-actions">
@@ -1567,11 +1644,11 @@ function App() {
 
         <nav className="mobile-nav" aria-label="Mobile navigation">
           <MobileNavItem icon={Home} label="Today" active={activeView === 'home' && !activeProjectId} onClick={() => navigate('home')} />
-          <MobileNavItem icon={Layers3} label="Anchors" active={(activeView === 'all' || activeView === 'global') && !activeProjectId} onClick={() => navigate('all')} />
+          <MobileNavItem icon={Compass} label="Wisdom" active={activeView === 'dashboard'} onClick={() => navigate('dashboard')} />
           <button className="mobile-add" type="button" aria-label="Add anchor" onClick={() => openAnchorComposer()}>
             <Plus size={21} />
           </button>
-          <MobileNavItem icon={FolderOpen} label="Projects" active={activeView === 'projects'} onClick={() => navigate('projects')} />
+          <MobileNavItem icon={Layers3} label="Anchors" active={(activeView === 'all' || activeView === 'global') && !activeProjectId} onClick={() => navigate('all')} />
           <MobileNavItem icon={Settings2} label="More" active={activeView === 'settings'} onClick={openSettings} />
         </nav>
       </div>
@@ -3371,68 +3448,97 @@ function SettingsView({
 
                 {syncDraft.provider === 'dropbox' && (
                   <>
-                    <div className="form-field">
-                      <div className="field-label-row">
-                        <label htmlFor="dropbox-token">Dropbox access token</label>
-                        <button
-                          className="field-action-button"
-                          type="button"
-                          onClick={() => setShowSyncToken((prev) => !prev)}
-                        >
-                          {showSyncToken ? 'Hide token' : 'Show token'}
-                        </button>
+                    <div className="dropbox-oauth-card">
+                      <div className="dropbox-oauth-copy">
+                        <strong>1-Click Browser Authorization</strong>
+                        <span>Authorize Anchor in your browser. Just like Remotely Save, no manual developer steps needed.</span>
                       </div>
-                      <input
-                        id="dropbox-token"
-                        type={showSyncToken ? 'text' : 'password'}
-                        value={syncDraft.dropboxAccessToken ?? ''}
-                        onChange={(e) => setSyncDraft((prev) => ({ ...prev, dropboxAccessToken: e.target.value }))}
-                        placeholder="sl.u.AF..."
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                      <div className="sync-guide-box">
-                        <strong>Quick Dropbox token setup:</strong>
-                        <ol>
-                          <li>Open <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noreferrer">dropbox.com/developers/apps</a> &amp; click <strong>Create app</strong>.</li>
-                          <li>Select <strong>Scoped access</strong> &rarr; <strong>App folder</strong> (e.g. <em>Anchor-Vault</em>).</li>
-                          <li>In <strong>Permissions</strong> tab, enable <code>files.content.write</code> and <code>files.content.read</code>, then click Submit.</li>
-                          <li>In <strong>Settings</strong> tab, click <strong>Generate</strong> under <em>Generated access token</em> and paste it above.</li>
-                        </ol>
-                      </div>
-                    </div>
-
-                    <div className="dropbox-test-row">
                       <button
-                        className="secondary-button"
+                        className="primary-button dropbox-authorize-btn"
                         type="button"
-                        disabled={testingDropbox || !syncDraft.dropboxAccessToken?.trim()}
-                        onClick={async () => {
-                          if (!syncDraft.dropboxAccessToken?.trim()) return
-                          setTestingDropbox(true)
-                          setTestResult(undefined)
-                          try {
-                            const msg = await onTestDropbox(syncDraft.dropboxAccessToken)
-                            setTestResult({ success: true, message: msg })
-                          } catch (err) {
-                            const msg = err instanceof Error ? err.message : 'Connection failed.'
-                            setTestResult({ success: false, message: msg })
-                          } finally {
-                            setTestingDropbox(false)
-                          }
-                        }}
+                        onClick={() => startDropboxOAuth(syncDraft.dropboxAppKey)}
                       >
-                        <RefreshCw className={testingDropbox ? 'spin' : ''} size={14} />
-                        {testingDropbox ? 'Testing…' : 'Test Dropbox connection'}
+                        <Cloud size={16} />
+                        Connect with Dropbox
                       </button>
                     </div>
 
-                    {testResult && (
-                      <div className={testResult.success ? 'model-success' : 'settings-error'}>
-                        {testResult.success ? <Check size={14} /> : <CircleAlert size={14} />}
-                        <span>{testResult.message}</span>
+                    {syncDraft.dropboxAccessToken ? (
+                      <div className="model-success sync-connected-pill">
+                        <Check size={14} />
+                        <span>Dropbox account connected. Vault: <strong>{syncDraft.vaultName}</strong></span>
+                        <button
+                          className="text-button disconnect-btn"
+                          type="button"
+                          onClick={() => setSyncDraft((prev) => ({ ...prev, dropboxAccessToken: '' }))}
+                        >
+                          Disconnect
+                        </button>
                       </div>
+                    ) : (
+                      <p className="sync-note-muted">
+                        Click &ldquo;Connect with Dropbox&rdquo; to sign in with your account in 1 click.
+                      </p>
                     )}
+
+                    <details className="advanced-sync-details">
+                      <summary>Advanced / Manual Token Configuration</summary>
+                      <div className="advanced-sync-content">
+                        <div className="form-field">
+                          <div className="field-label-row">
+                            <label htmlFor="dropbox-token">Custom Access Token</label>
+                            <button
+                              className="field-action-button"
+                              type="button"
+                              onClick={() => setShowSyncToken((prev) => !prev)}
+                            >
+                              {showSyncToken ? 'Hide token' : 'Show token'}
+                            </button>
+                          </div>
+                          <input
+                            id="dropbox-token"
+                            type={showSyncToken ? 'text' : 'password'}
+                            value={syncDraft.dropboxAccessToken ?? ''}
+                            onChange={(e) => setSyncDraft((prev) => ({ ...prev, dropboxAccessToken: e.target.value }))}
+                            placeholder="sl.u.AF..."
+                            autoComplete="off"
+                            spellCheck={false}
+                          />
+                        </div>
+
+                        <div className="dropbox-test-row">
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={testingDropbox || !syncDraft.dropboxAccessToken?.trim()}
+                            onClick={async () => {
+                              if (!syncDraft.dropboxAccessToken?.trim()) return
+                              setTestingDropbox(true)
+                              setTestResult(undefined)
+                              try {
+                                const msg = await onTestDropbox(syncDraft.dropboxAccessToken)
+                                setTestResult({ success: true, message: msg })
+                              } catch (err) {
+                                const msg = err instanceof Error ? err.message : 'Connection failed.'
+                                setTestResult({ success: false, message: msg })
+                              } finally {
+                                setTestingDropbox(false)
+                              }
+                            }}
+                          >
+                            <RefreshCw className={testingDropbox ? 'spin' : ''} size={14} />
+                            {testingDropbox ? 'Testing…' : 'Test Dropbox connection'}
+                          </button>
+                        </div>
+
+                        {testResult && (
+                          <div className={testResult.success ? 'model-success' : 'settings-error'}>
+                            {testResult.success ? <Check size={14} /> : <CircleAlert size={14} />}
+                            <span>{testResult.message}</span>
+                          </div>
+                        )}
+                      </div>
+                    </details>
                   </>
                 )}
 
@@ -4348,6 +4454,220 @@ function UpdateModal({ updateInfo, onClose }: UpdateModalProps) {
         </div>
       </div>
     </Modal>
+  )
+}
+
+interface DashboardViewProps {
+  anchorsCount: number
+  projectsCount: number
+  onAnchorThought: (thought: PhilosophyThought) => void
+  onOpenDecision: () => void
+  onAddAnchor: () => void
+}
+
+function DashboardView({
+  anchorsCount,
+  projectsCount,
+  onAnchorThought,
+  onOpenDecision,
+  onAddAnchor,
+}: DashboardViewProps) {
+  const [thoughts, setThoughts] = useState<PhilosophyThought[]>(() => getCachedPhilosophyVault())
+  const [activeCategory, setActiveCategory] = useState<PhilosophyCategory>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [spotlightThought, setSpotlightThought] = useState<PhilosophyThought>(() => getDailyPhilosophy())
+  const [downloading, setDownloading] = useState(false)
+  const [downloadMessage, setDownloadMessage] = useState<string>()
+
+  const filteredThoughts = useMemo(() => {
+    return thoughts.filter((t) => {
+      const matchesCat = activeCategory === 'all' || t.category === activeCategory
+      const query = searchQuery.trim().toLowerCase()
+      if (!query) return matchesCat
+      const matchesSearch =
+        t.quote.toLowerCase().includes(query) ||
+        t.author.toLowerCase().includes(query) ||
+        t.school.toLowerCase().includes(query) ||
+        (t.takeaway && t.takeaway.toLowerCase().includes(query))
+      return matchesCat && matchesSearch
+    })
+  }, [thoughts, activeCategory, searchQuery])
+
+  const shuffleSpotlight = () => {
+    setSpotlightThought(getRandomPhilosophy(activeCategory, spotlightThought.id))
+  }
+
+  const handleExpandVault = async () => {
+    setDownloading(true)
+    try {
+      const res = await downloadAndExpandPhilosophyVault(2500)
+      setThoughts(getCachedPhilosophyVault())
+      setDownloadMessage(`Wisdom library expanded! ${res.total} philosophies ready offline.`)
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  return (
+    <div className="dashboard-view page-enter">
+      <div className="page-heading dashboard-heading">
+        <div>
+          <p className="eyebrow">The Harbor of Mind</p>
+          <h1>
+            Wisdom &amp; Philosophy<span className="accent-dot">.</span>
+          </h1>
+          <p className="page-subtitle">
+            Ground your thinking with timeless perspectives from Stoicism, Eastern thought, and modern humanism.
+          </p>
+        </div>
+        <div className="heading-actions">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={handleExpandVault}
+            disabled={downloading}
+            title="Download and cache thousands of philosophical thoughts locally"
+          >
+            <RefreshCw className={downloading ? 'spin' : ''} size={15} />
+            {downloading ? 'Downloading vault…' : 'Expand library (Thousands)'}
+          </button>
+          <button className="secondary-button" type="button" onClick={onOpenDecision}>
+            <WandSparkles size={16} />
+            Think through
+          </button>
+          <button className="primary-button" type="button" onClick={onAddAnchor}>
+            <Plus size={17} />
+            New anchor
+          </button>
+        </div>
+      </div>
+
+      {downloadMessage && (
+        <div className="model-success dashboard-banner">
+          <Sparkles size={16} />
+          <span>{downloadMessage}</span>
+        </div>
+      )}
+
+      <div className="dashboard-layout">
+        <section className="philosophy-spotlight-card">
+          <div className="spotlight-orbit orbit-one" />
+          <div className="spotlight-orbit orbit-two" />
+          <div className="philosophy-spotlight-inner">
+            <div className="spotlight-header">
+              <span className="eyebrow light-eyebrow">
+                <Sparkles size={13} /> Daily Grounding Philosophy
+              </span>
+              <button
+                className="philosophy-shuffle-btn"
+                type="button"
+                onClick={shuffleSpotlight}
+                title="Shuffle thought"
+                aria-label="Shuffle thought"
+              >
+                <RotateCcw size={14} />
+              </button>
+            </div>
+
+            <blockquote className="philosophy-quote">
+              &ldquo;{spotlightThought.quote}&rdquo;
+            </blockquote>
+
+            <div className="philosophy-author-row">
+              <div className="philosophy-author-info">
+                <strong>{spotlightThought.author}</strong>
+                <span>{spotlightThought.school}{spotlightThought.source ? ` · ${spotlightThought.source}` : ''}</span>
+              </div>
+              <button
+                className="primary-button anchor-thought-btn"
+                type="button"
+                onClick={() => onAnchorThought(spotlightThought)}
+                title="Save as an Anchor in your workspace"
+              >
+                <AnchorIcon size={14} />
+                Anchor this thought
+              </button>
+            </div>
+
+            {spotlightThought.takeaway && (
+              <p className="philosophy-takeaway">
+                <strong>Core Takeaway:</strong> {spotlightThought.takeaway}
+              </p>
+            )}
+          </div>
+        </section>
+
+        {/* Mindful Stats Bar */}
+        <div className="mindful-stats-row">
+          <div className="stat-card">
+            <span className="stat-number">{anchorsCount}</span>
+            <span className="stat-label">Anchors Grounded</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-number">{projectsCount}</span>
+            <span className="stat-label">Active Projects</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-number">{thoughts.length}</span>
+            <span className="stat-label">Thoughts in Vault</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-number">100%</span>
+            <span className="stat-label">Local &amp; Offline Ready</span>
+          </div>
+        </div>
+
+        {/* Category Filters and Search */}
+        <div className="philosophy-filters-bar">
+          <div className="category-pills" role="tablist">
+            {(Object.keys(CATEGORY_LABELS) as PhilosophyCategory[]).map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                className={`category-pill ${activeCategory === cat ? 'active' : ''}`}
+                onClick={() => setActiveCategory(cat)}
+              >
+                {CATEGORY_LABELS[cat]}
+              </button>
+            ))}
+          </div>
+          <div className="inline-search">
+            <Search size={15} />
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search philosophers, quotes, or keywords…"
+            />
+          </div>
+        </div>
+
+        {/* Philosophy Thought Grid */}
+        <div className="philosophy-grid">
+          {filteredThoughts.slice(0, 36).map((item) => (
+            <div className="philosophy-card" key={item.id}>
+              <div className="philosophy-card-header">
+                <span className="philosophy-school-tag">{item.school}</span>
+                <button
+                  className="anchor-mini-btn"
+                  type="button"
+                  onClick={() => onAnchorThought(item)}
+                  title="Anchor this thought"
+                  aria-label="Anchor this thought"
+                >
+                  <AnchorIcon size={13} />
+                  <span>Anchor</span>
+                </button>
+              </div>
+              <p className="philosophy-card-quote">&ldquo;{item.quote}&rdquo;</p>
+              <div className="philosophy-card-footer">
+                <strong className="philosophy-card-author">{item.author}</strong>
+                {item.takeaway && <small className="philosophy-card-takeaway">{item.takeaway}</small>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   )
 }
 

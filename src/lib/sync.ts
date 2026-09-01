@@ -11,6 +11,7 @@ export interface SyncSettings {
   autoSyncOnStartup: boolean
   autoSyncIntervalMinutes: number
   // Dropbox
+  dropboxAppKey?: string
   dropboxAccessToken?: string
   dropboxPath?: string
   // WebDAV
@@ -27,6 +28,8 @@ export interface SyncSettings {
 
 export const SYNC_SETTINGS_STORAGE_KEY = 'anchor-sync-settings-v1'
 
+export const DEFAULT_DROPBOX_APP_KEY = 'k0k64j5r7z0u32b'
+
 export const DEFAULT_SYNC_SETTINGS: SyncSettings = {
   enabled: false,
   provider: 'none',
@@ -35,6 +38,48 @@ export const DEFAULT_SYNC_SETTINGS: SyncSettings = {
   autoSyncIntervalMinutes: 15,
   dropboxPath: '/anchor-vault.json',
   lastSyncStatus: 'idle',
+}
+
+export function getDropboxAuthUrl(appKey = DEFAULT_DROPBOX_APP_KEY, redirectUri?: string): string {
+  const finalRedirect = redirectUri || (typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '')
+  const params = new URLSearchParams({
+    client_id: appKey.trim() || DEFAULT_DROPBOX_APP_KEY,
+    response_type: 'token',
+    redirect_uri: finalRedirect,
+    token_access_type: 'offline',
+  })
+  return `https://www.dropbox.com/oauth2/authorize?${params.toString()}`
+}
+
+export function startDropboxOAuth(appKey = DEFAULT_DROPBOX_APP_KEY): void {
+  if (typeof window === 'undefined') return
+  const authUrl = getDropboxAuthUrl(appKey)
+  window.location.href = authUrl
+}
+
+export function extractDropboxOAuthToken(): string | null {
+  if (typeof window === 'undefined') return null
+
+  // 1. Check URL hash: #access_token=...&account_id=...
+  if (window.location.hash) {
+    const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
+    const params = new URLSearchParams(hash)
+    const token = params.get('access_token')
+    if (token) {
+      return token
+    }
+  }
+
+  // 2. Check query params: ?access_token=...
+  if (window.location.search) {
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('access_token')
+    if (token) {
+      return token
+    }
+  }
+
+  return null
 }
 
 export interface SyncResult {
