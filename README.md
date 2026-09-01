@@ -23,7 +23,7 @@ The live web app is deployed at [anchor-chi-eight.vercel.app](https://anchor-chi
 
 Anchor asks what to call you once, stores that profile on the device, and uses it for greetings and your avatar. You can change it later from the profile button in the bottom-left sidebar or from Settings.
 
-Onboarding also lets you start with a blank workspace or keep the gentle starter examples.
+Onboarding also lets you start with a blank workspace or keep the gentle starter examples. An optional 4–6 digit device PIN adds a local lock on the next visit; the PIN is stored only as a SHA-256 digest. If it is forgotten, the recovery action resets local Anchor data.
 
 ## AI connection
 
@@ -34,6 +34,8 @@ Browser requests use `/api/anchor-ai`, a short-lived Vercel/server development r
 ## Workspace backups
 
 **Settings → Workspace data** can export anchors, projects, decisions, and your profile to a readable JSON file. API keys are deliberately excluded. Imports are validated and can either merge records by ID or replace the current workspace. Older state-only JSON backups are accepted too.
+
+Starter wellbeing anchors are evidence-informed rather than medical prescriptions. They link to public guidance from WHO, CDC, NCCIH, and MedlinePlus, and remind people to seek qualified care for symptoms or treatment decisions.
 
 ## Project structure
 

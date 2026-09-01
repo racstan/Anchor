@@ -87,6 +87,8 @@ import {
   writeUserProfile,
 } from './lib/workspace'
 import type { UserProfile } from './lib/workspace'
+import { hashPin, isValidPin, readSecuritySettings, verifyPin, writeSecuritySettings } from './lib/security'
+import type { SecuritySettings } from './lib/security'
 import './App.css'
 
 type View = 'home' | 'all' | 'global' | 'projects' | 'decide' | 'settings'
@@ -261,15 +263,18 @@ function buildNotifications(
 
 interface OnboardingViewProps {
   theme: Theme
-  onComplete: (name: string, keepExamples: boolean) => void
+  onComplete: (name: string, keepExamples: boolean, pin?: string) => Promise<void>
 }
 
 function OnboardingView({ theme, onComplete }: OnboardingViewProps) {
   const [name, setName] = useState('')
   const [starterChoice, setStarterChoice] = useState<'examples' | 'fresh'>('fresh')
+  const [pin, setPin] = useState('')
+  const [pinConfirmation, setPinConfirmation] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string>()
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const trimmedName = name.trim()
 
@@ -278,7 +283,25 @@ function OnboardingView({ theme, onComplete }: OnboardingViewProps) {
       return
     }
 
-    onComplete(trimmedName, starterChoice === 'examples')
+    if (pin && !isValidPin(pin)) {
+      setError('Your optional PIN must be 4 to 6 digits.')
+      return
+    }
+
+    if (pin && pin !== pinConfirmation) {
+      setError('Those PINs do not match yet.')
+      return
+    }
+
+    setIsSubmitting(true)
+    setError(undefined)
+
+    try {
+      await onComplete(trimmedName, starterChoice === 'examples', pin || undefined)
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Anchor could not finish setting up this device.')
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -328,12 +351,125 @@ function OnboardingView({ theme, onComplete }: OnboardingViewProps) {
               autoFocus
             />
           </label>
+          <label className="form-field" htmlFor="onboarding-pin">
+            <span>Device PIN <em>optional · 4–6 digits</em></span>
+            <input
+              id="onboarding-pin"
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              value={pin}
+              onChange={(event) => {
+                setPin(event.target.value.replace(/\D/g, '').slice(0, 6))
+                setError(undefined)
+              }}
+              placeholder="Leave blank to skip"
+              autoComplete="new-password"
+            />
+          </label>
+          {pin && (
+            <label className="form-field" htmlFor="onboarding-pin-confirmation">
+              <span>Confirm your PIN</span>
+              <input
+                id="onboarding-pin-confirmation"
+                type="password"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                value={pinConfirmation}
+                onChange={(event) => {
+                  setPinConfirmation(event.target.value.replace(/\D/g, '').slice(0, 6))
+                  setError(undefined)
+                }}
+                placeholder="Enter it once more"
+                autoComplete="new-password"
+              />
+            </label>
+          )}
           {error && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{error}</span></div>}
-          <button className="primary-button onboarding-submit" type="submit">
-            Enter my space <ArrowUpRight size={16} />
+          <button className="primary-button onboarding-submit" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Setting up…' : 'Enter my space'} <ArrowUpRight size={16} />
           </button>
         </form>
-        <p className="onboarding-note"><ShieldCheck size={14} /> We&apos;ll remember your name on this device. You can change it later.</p>
+        <p className="onboarding-note"><ShieldCheck size={14} /> Your name and optional PIN stay on this device. Change them later in Settings.</p>
+      </main>
+    </div>
+  )
+}
+
+interface PinLockViewProps {
+  theme: Theme
+  name: string
+  onUnlock: (pin: string) => Promise<boolean>
+  onReset: () => void
+}
+
+function PinLockView({ theme, name, onUnlock, onReset }: PinLockViewProps) {
+  const [pin, setPin] = useState('')
+  const [error, setError] = useState<string>()
+  const [isChecking, setIsChecking] = useState(false)
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!isValidPin(pin)) {
+      setError('Enter the 4 to 6 digit PIN you set for this device.')
+      return
+    }
+
+    setIsChecking(true)
+    setError(undefined)
+
+    try {
+      const unlocked = await onUnlock(pin)
+
+      if (!unlocked) {
+        setPin('')
+        setError('That PIN did not open this space. Try again.')
+      }
+    } catch {
+      setError('Anchor could not check that PIN. Please try again.')
+    } finally {
+      setIsChecking(false)
+    }
+  }
+
+  return (
+    <div className={`pin-lock-shell onboarding-shell ${theme === 'dark' ? 'theme-dark' : ''}`}>
+      <main className="onboarding-card pin-lock-card">
+        <div className="onboarding-brand">
+          <span className="brand-mark" aria-hidden="true"><AnchorIcon size={19} strokeWidth={2.5} /></span>
+          <span>anchor</span>
+        </div>
+        <div className="onboarding-symbol"><KeyRound size={22} /></div>
+        <p className="eyebrow">Welcome back, {displayName(name)}</p>
+        <h1>Your space is resting.</h1>
+        <p className="onboarding-copy">Enter your optional device PIN to continue. It never leaves this device.</p>
+        <form className="onboarding-form" onSubmit={handleSubmit}>
+          <label className="form-field" htmlFor="unlock-pin">
+            <span>Device PIN</span>
+            <input
+              id="unlock-pin"
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              value={pin}
+              onChange={(event) => {
+                setPin(event.target.value.replace(/\D/g, '').slice(0, 6))
+                setError(undefined)
+              }}
+              autoComplete="current-password"
+              autoFocus
+            />
+          </label>
+          {error && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{error}</span></div>}
+          <button className="primary-button onboarding-submit" type="submit" disabled={isChecking}>
+            {isChecking ? 'Checking…' : 'Unlock Anchor'} <ArrowUpRight size={16} />
+          </button>
+        </form>
+        <button className="pin-reset-button" type="button" onClick={onReset}>Forgot your PIN? Reset this device</button>
       </main>
     </div>
   )
@@ -342,6 +478,8 @@ function OnboardingView({ theme, onComplete }: OnboardingViewProps) {
 function App() {
   const [state, setState] = useState<AnchorState>(() => readAnchorState())
   const [profile, setProfile] = useState<UserProfile>(() => readUserProfile())
+  const [security, setSecurity] = useState<SecuritySettings>(() => readSecuritySettings())
+  const [isLocked, setIsLocked] = useState(() => Boolean(readSecuritySettings().pinHash))
   const [aiSettings, setAISettings] = useState<AISettings>(() => readAISettings())
   const [availableModels, setAvailableModels] = useState<AIModel[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
@@ -375,6 +513,10 @@ function App() {
   useEffect(() => {
     writeUserProfile(profile)
   }, [profile])
+
+  useEffect(() => {
+    writeSecuritySettings(security)
+  }, [security])
 
   useEffect(() => {
     writeAISettings(aiSettings)
@@ -696,6 +838,46 @@ function App() {
     showToast(`I’ll call you ${name} from here on.`)
   }
 
+  const savePin = async (pin: string): Promise<void> => {
+    const pinHash = await hashPin(pin)
+
+    setSecurity({ pinHash })
+    setIsLocked(false)
+    showToast('Your device PIN is on. Anchor will ask for it next time.')
+  }
+
+  const removePin = () => {
+    setSecurity({})
+    setIsLocked(false)
+    showToast('Your device PIN is off.')
+  }
+
+  const unlockWithPin = async (pin: string): Promise<boolean> => {
+    if (!security.pinHash) {
+      setIsLocked(false)
+      return true
+    }
+
+    const matches = await verifyPin(pin, security.pinHash)
+
+    if (matches) {
+      setIsLocked(false)
+    }
+
+    return matches
+  }
+
+  const resetDevice = () => {
+    if (!window.confirm('Reset Anchor on this device? This removes your workspace, profile, AI settings, and PIN.')) {
+      return
+    }
+
+    Object.keys(window.localStorage)
+      .filter((key) => key.startsWith('anchor-'))
+      .forEach((key) => window.localStorage.removeItem(key))
+    window.location.reload()
+  }
+
   const exportWorkspace = () => {
     const file = new Blob([serializeWorkspaceExport(state, profile)], { type: 'application/json' })
     const url = URL.createObjectURL(file)
@@ -728,11 +910,22 @@ function App() {
     return message
   }
 
+  if (isLocked && security.pinHash) {
+    return <PinLockView theme={theme} name={profile.name} onUnlock={unlockWithPin} onReset={resetDevice} />
+  }
+
   if (!profile.name.trim()) {
     return (
       <OnboardingView
         theme={theme}
-        onComplete={(name, keepExamples) => {
+        onComplete={async (name, keepExamples, pin) => {
+          if (pin) {
+            await savePin(pin)
+          } else {
+            setSecurity({})
+            setIsLocked(false)
+          }
+
           setProfile({ name })
           if (!keepExamples) {
             setState({ anchors: [], projects: [], decisions: [] })
@@ -801,6 +994,7 @@ function App() {
       <SettingsView
         key={profile.name}
         profile={profile}
+        security={security}
         settings={aiSettings}
         availableModels={availableModels}
         modelsLoading={modelsLoading}
@@ -817,6 +1011,8 @@ function App() {
           showToast('AI connection settings reset.')
         }}
         onSaveProfile={saveProfile}
+        onSavePin={savePin}
+        onRemovePin={removePin}
         onExportWorkspace={exportWorkspace}
         onImportWorkspace={importWorkspace}
       />
@@ -1422,6 +1618,18 @@ function HomeView({
                 <>
                   <blockquote>{spotlight.title}</blockquote>
                   <p className="spotlight-body">{spotlight.body}</p>
+                  {spotlight.evidence && (
+                    <a
+                      className="spotlight-evidence"
+                      href={spotlight.evidence.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <ShieldCheck size={12} />
+                      Evidence-informed · {spotlight.evidence.label}
+                      <ArrowUpRight size={11} />
+                    </a>
+                  )}
                   <div className="spotlight-bottom">
                     <div className="spotlight-meta">
                       <span className="spotlight-scope">
@@ -1675,6 +1883,18 @@ function AnchorListItem({ anchor, projects, query, onTogglePinned }: AnchorListI
       </div>
       <h3><HighlightedText value={anchor.title} query={query} /></h3>
       <p><HighlightedText value={anchor.body} query={query} /></p>
+      {anchor.evidence && (
+        <a
+          className="evidence-link"
+          href={anchor.evidence.url}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <ShieldCheck size={12} />
+          Evidence-informed · {anchor.evidence.label}
+          <ArrowUpRight size={11} />
+        </a>
+      )}
       <div className="anchor-item-footer">
         <span className="anchor-tag"><HighlightedText value={anchor.tag} query={query} /></span>
         <span className="updated-label">
@@ -1696,16 +1916,22 @@ interface DecisionViewProps {
   onSaveDecision: (decision: Decision) => void
 }
 
+function anchorPromptLine(anchor: Anchor): string {
+  const evidence = anchor.evidence ? ` [Evidence reference: ${anchor.evidence.label} — ${anchor.evidence.url}]` : ''
+
+  return `- ${anchor.title}: ${anchor.body}${evidence}`
+}
+
 function decisionSystemPrompt(
   project: Project | undefined,
   projectAnchors: Anchor[],
   globalAnchors: Anchor[],
 ): string {
   const projectContext = project
-    ? `\nImported project: ${project.name}\nProject description: ${project.description}\nProject anchors:\n${projectAnchors.map((anchor) => `- ${anchor.title}: ${anchor.body}`).join('\n') || '- No project anchors yet.'}`
+    ? `\nImported project: ${project.name}\nProject description: ${project.description}\nProject anchors:\n${projectAnchors.map(anchorPromptLine).join('\n') || '- No project anchors yet.'}`
     : '\nNo project was imported. Treat this as a personal, general decision.'
   const globalContext = globalAnchors.length
-    ? `\nGlobal context the person chose to keep close:\n${globalAnchors.map((anchor) => `- ${anchor.title}: ${anchor.body}`).join('\n')}`
+    ? `\nGlobal context the person chose to keep close:\n${globalAnchors.map(anchorPromptLine).join('\n')}`
     : ''
 
   return `You are Anchor, a warm and thoughtful decision companion. Help this person slow down without taking their agency away. Be kind, clear, honest, and thorough. Do not pretend certainty, diagnose them, or make a high-stakes decision on their behalf. Name assumptions and uncertainty plainly.\n\nFor the first response, cover:\n1. What you hear beneath the situation.\n2. The realistic options, including the option to wait or gather more information.\n3. Benefits, costs, risks, and likely short-term and longer-term outcomes for each option.\n4. What could change the recommendation.\n5. A gentle, concrete next step and one question worth sitting with.\n\nUse readable headings and bullets. Keep the tone human rather than clinical. For follow-up questions, answer directly while remembering the full context.${projectContext}${globalContext}`
@@ -1850,10 +2076,10 @@ function DecisionView({
 
   const buildUserPrompt = () => {
     const importedContext = selectedProject && projectImported
-      ? `\n\nIMPORTED PROJECT CONTEXT\nProject: ${selectedProject.name}\nDescription: ${selectedProject.description}\nAnchors:\n${projectAnchors.map((anchor) => `- ${anchor.title}: ${anchor.body}`).join('\n') || '- None yet.'}`
+      ? `\n\nIMPORTED PROJECT CONTEXT\nProject: ${selectedProject.name}\nDescription: ${selectedProject.description}\nAnchors:\n${projectAnchors.map(anchorPromptLine).join('\n') || '- None yet.'}`
       : ''
     const globalContextText = globalAnchors.length
-      ? `\n\nGLOBAL ANCHORS\n${globalAnchors.map((anchor) => `- ${anchor.title}: ${anchor.body}`).join('\n')}`
+      ? `\n\nGLOBAL ANCHORS\n${globalAnchors.map(anchorPromptLine).join('\n')}`
       : ''
 
     return `I want to think this through carefully.\n\nSITUATION\n${situation.trim()}\n\nMORE CONTEXT\n${additionalContext.trim() || 'No additional context yet.'}${importedContext}${globalContextText}`
@@ -2210,6 +2436,7 @@ function DecisionView({
 
 interface SettingsViewProps {
   profile: UserProfile
+  security: SecuritySettings
   settings: AISettings
   availableModels: AIModel[]
   modelsLoading: boolean
@@ -2221,12 +2448,15 @@ interface SettingsViewProps {
   onRefreshModels: () => void
   onReset: () => void
   onSaveProfile: (profile: UserProfile) => void
+  onSavePin: (pin: string) => Promise<void>
+  onRemovePin: () => void
   onExportWorkspace: () => void
   onImportWorkspace: (file: File, mode: ImportMode) => Promise<string>
 }
 
 function SettingsView({
   profile,
+  security,
   settings,
   availableModels,
   modelsLoading,
@@ -2238,6 +2468,8 @@ function SettingsView({
   onRefreshModels,
   onReset,
   onSaveProfile,
+  onSavePin,
+  onRemovePin,
   onExportWorkspace,
   onImportWorkspace,
 }: SettingsViewProps) {
@@ -2245,6 +2477,11 @@ function SettingsView({
   const [profileName, setProfileName] = useState(profile.name)
   const [profileError, setProfileError] = useState<string>()
   const [profileSaved, setProfileSaved] = useState(false)
+  const [pin, setPin] = useState('')
+  const [pinConfirmation, setPinConfirmation] = useState('')
+  const [pinError, setPinError] = useState<string>()
+  const [pinSaved, setPinSaved] = useState(false)
+  const [pinBusy, setPinBusy] = useState(false)
   const [pendingImport, setPendingImport] = useState<File>()
   const [dataBusy, setDataBusy] = useState(false)
   const [dataError, setDataError] = useState<string>()
@@ -2278,6 +2515,43 @@ function SettingsView({
     setPendingImport(file)
     setDataError(undefined)
     setDataMessage(undefined)
+  }
+
+  const saveDevicePin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!isValidPin(pin)) {
+      setPinError('A device PIN must be 4 to 6 digits.')
+      setPinSaved(false)
+      return
+    }
+
+    if (pin !== pinConfirmation) {
+      setPinError('Those PINs do not match yet.')
+      setPinSaved(false)
+      return
+    }
+
+    setPinBusy(true)
+    setPinError(undefined)
+
+    try {
+      await onSavePin(pin)
+      setPin('')
+      setPinConfirmation('')
+      setPinSaved(true)
+    } catch (pinSaveError) {
+      setPinError(pinSaveError instanceof Error ? pinSaveError.message : 'The device PIN could not be saved.')
+      setPinSaved(false)
+    } finally {
+      setPinBusy(false)
+    }
+  }
+
+  const removeDevicePin = () => {
+    onRemovePin()
+    setPinSaved(false)
+    setPinError(undefined)
   }
 
   const importFile = async (mode: ImportMode) => {
@@ -2481,6 +2755,61 @@ function SettingsView({
               <div className="profile-form-footer">
                 {profileSaved && <span className="model-success"><Check size={13} /> Saved</span>}
                 <button className="secondary-button" type="submit"><Check size={15} /> Save name</button>
+              </div>
+            </form>
+          </section>
+
+          <section className="settings-card security-card">
+            <div className="settings-card-heading compact">
+              <span className="settings-card-icon security"><KeyRound size={18} /></span>
+              <div>
+                <p className="eyebrow">Optional device lock</p>
+                <h2>{security.pinHash ? 'Change device PIN' : 'Set a device PIN'}</h2>
+              </div>
+            </div>
+            <p className="settings-card-copy">A PIN keeps this local Anchor space private when you open it again. It is stored as a one-way digest and never sent anywhere.</p>
+            <form className="pin-settings-form" onSubmit={saveDevicePin}>
+              <label className="form-field">
+                <span>{security.pinHash ? 'New PIN' : 'Device PIN'} <em>4–6 digits</em></span>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  value={pin}
+                  onChange={(event) => {
+                    setPin(event.target.value.replace(/\D/g, '').slice(0, 6))
+                    setPinError(undefined)
+                    setPinSaved(false)
+                  }}
+                  placeholder="Enter a PIN"
+                  autoComplete="new-password"
+                />
+              </label>
+              <label className="form-field">
+                <span>Confirm PIN</span>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  value={pinConfirmation}
+                  onChange={(event) => {
+                    setPinConfirmation(event.target.value.replace(/\D/g, '').slice(0, 6))
+                    setPinError(undefined)
+                    setPinSaved(false)
+                  }}
+                  placeholder="Enter it again"
+                  autoComplete="new-password"
+                />
+              </label>
+              {pinError && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{pinError}</span></div>}
+              <div className="pin-settings-footer">
+                {pinSaved && <span className="model-success"><Check size={13} /> PIN saved</span>}
+                <button className="primary-button" type="submit" disabled={pinBusy}>
+                  {pinBusy ? 'Saving…' : security.pinHash ? 'Change PIN' : 'Set PIN'}
+                </button>
+                {security.pinHash && <button className="text-button pin-remove" type="button" onClick={removeDevicePin}>Remove PIN</button>}
               </div>
             </form>
           </section>

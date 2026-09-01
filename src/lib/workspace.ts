@@ -1,4 +1,4 @@
-import type { Anchor, AnchorState, ChatMessage, Decision, Project } from './anchors'
+import type { Anchor, AnchorState, ChatMessage, Decision, EvidenceSource, Project } from './anchors'
 
 export interface UserProfile {
   name: string
@@ -26,6 +26,14 @@ function isString(value: unknown): value is string {
   return typeof value === 'string'
 }
 
+function isEvidenceSource(value: unknown): value is EvidenceSource {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  return isString(value.label) && isString(value.url) && /^https:\/\//.test(value.url)
+}
+
 function isAnchor(value: unknown): value is Anchor {
   if (!isRecord(value)) {
     return false
@@ -41,7 +49,8 @@ function isAnchor(value: unknown): value is Anchor {
     isString(value.createdAt) &&
     isString(value.updatedAt) &&
     (value.projectId === undefined || isString(value.projectId)) &&
-    (value.lastSeenAt === undefined || isString(value.lastSeenAt))
+    (value.lastSeenAt === undefined || isString(value.lastSeenAt)) &&
+    (value.evidence === undefined || isEvidenceSource(value.evidence))
 }
 
 function isProject(value: unknown): value is Project {
