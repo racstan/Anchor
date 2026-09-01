@@ -1466,6 +1466,32 @@ html[data-theme='dark'] {
   flex: 0 0 auto;
 }
 
+.anchor-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.item-action-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  color: var(--muted-2);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  transition: all 150ms ease;
+}
+
+.item-action-button:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+  border-color: var(--line);
+}
+
 .pin-button {
   display: inline-flex;
   flex: 0 0 auto;
@@ -2235,8 +2261,11 @@ html[data-theme='dark'] {
   font-weight: 400;
 }
 
-.project-summary-row .secondary-button {
+.project-actions-group {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .project-section-heading {
@@ -2665,6 +2694,42 @@ fieldset.form-field {
   margin-top: 6px;
   padding-top: 18px;
   border-top: 1px solid var(--line);
+}
+
+.modal-actions-split {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.delete-button {
+  color: #ef4444 !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 10px;
+  border-radius: 8px;
+  transition: all 150ms ease;
+}
+
+.delete-button:hover {
+  background: rgba(239, 68, 68, 0.1) !important;
+  color: #dc2626 !important;
+}
+
+.delete-button.delete-confirm {
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #b91c1c !important;
+  font-weight: 600;
 }
 
 /* Toast */
@@ -3623,27 +3688,41 @@ fieldset.form-field {
   text-transform: uppercase;
 }
 
+.decision-history-item-wrap {
+  display: flex;
+  align-items: center;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  transition: all 120ms ease;
+  position: relative;
+}
+
+.decision-history-item-wrap:hover,
+.decision-history-item-wrap.active {
+  background: var(--surface-2);
+  border-color: var(--line);
+}
+
 .decision-history-item {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 9px 8px;
   color: var(--muted);
-  border: 1px solid transparent;
-  border-radius: 10px;
+  border: 0;
   background: transparent;
   font-size: 12px;
   font-weight: 500;
   text-align: left;
   transition: all 120ms ease;
+  cursor: pointer;
 }
 
-.decision-history-item:hover,
-.decision-history-item.active {
+.decision-history-item-wrap:hover .decision-history-item,
+.decision-history-item-wrap.active .decision-history-item {
   color: var(--ink-2);
-  background: var(--surface-2);
-  border-color: var(--line);
 }
 
 .decision-history-item > span:nth-child(2) {
@@ -3651,6 +3730,32 @@ fieldset.form-field {
   flex: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.decision-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 6px;
+  color: var(--muted-2);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  opacity: 0;
+  transition: all 150ms ease;
+  flex: 0 0 auto;
+}
+
+.decision-history-item-wrap:hover .decision-delete-btn,
+.decision-history-item-wrap:focus-within .decision-delete-btn {
+  opacity: 1;
+}
+
+.decision-delete-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
 }
 
 .history-orb {
@@ -5294,6 +5399,21 @@ fieldset.form-field {
 
   .sidebar.sidebar-open {
     transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    background: rgba(8, 14, 30, 0.45);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    animation: backdropFadeIn 180ms ease forwards;
+  }
+
+  @keyframes backdropFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   .sidebar-close {

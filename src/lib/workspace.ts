@@ -31,7 +31,7 @@ function isEvidenceSource(value: unknown): value is EvidenceSource {
     return false
   }
 
-  return isString(value.label) && isString(value.url) && /^https:\/\//.test(value.url)
+  return isString(value.label) && isString(value.url) && /^https?:\/\//i.test(value.url)
 }
 
 function isAnchor(value: unknown): value is Anchor {

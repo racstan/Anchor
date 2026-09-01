@@ -393,9 +393,19 @@ function extractText(payload: unknown): string {
 
       if (Array.isArray(content)) {
         return content
-          .map((part: unknown) => (typeof part === 'string' ? part : typeof part === 'object' && part !== null && 'text' in part && typeof part.text === 'string' ? part.text : ''))
+          .map((part: unknown) => {
+            if (typeof part === 'string') return part
+            if (typeof part === 'object' && part !== null && 'text' in part && typeof (part as { text: unknown }).text === 'string') {
+              return (part as { text: string }).text
+            }
+            return ''
+          })
           .join('')
       }
+    }
+
+    if (typeof choice === 'object' && choice !== null && 'text' in choice && typeof (choice as { text: unknown }).text === 'string') {
+      return (choice as { text: string }).text
     }
   }
 
@@ -403,9 +413,22 @@ function extractText(payload: unknown): string {
     const candidate = payload.candidates[0]
 
     if (typeof candidate === 'object' && candidate !== null && 'content' in candidate && typeof candidate.content === 'object' && candidate.content !== null && 'parts' in candidate.content && Array.isArray(candidate.content.parts)) {
-      return candidate.content.parts
-        .map((part: unknown) => (typeof part === 'object' && part !== null && 'text' in part && typeof part.text === 'string' ? part.text : ''))
+      const partsText = candidate.content.parts
+        .map((part: unknown) => {
+          if (typeof part === 'object' && part !== null && 'text' in part && typeof (part as { text: unknown }).text === 'string') {
+            return (part as { text: string }).text
+          }
+          return ''
+        })
         .join('')
+
+      if (partsText) {
+        return partsText
+      }
+    }
+
+    if (typeof candidate === 'object' && candidate !== null && 'finishReason' in candidate && candidate.finishReason === 'SAFETY') {
+      throw new Error('This request was blocked by the provider’s safety filter. Please rephrase the context.')
     }
   }
 
@@ -416,8 +439,13 @@ function extractText(payload: unknown): string {
       return result
     }
 
-    if (typeof result === 'object' && result !== null && 'response' in result && typeof result.response === 'string') {
-      return result.response
+    if (typeof result === 'object' && result !== null) {
+      if ('response' in result && typeof (result as { response: unknown }).response === 'string') {
+        return (result as { response: string }).response
+      }
+      if ('text' in result && typeof (result as { text: unknown }).text === 'string') {
+        return (result as { text: string }).text
+      }
     }
   }
 
@@ -455,12 +483,27 @@ export async function completeAIChat(
 
   if (provider.protocol === 'gemini') {
     const systemMessage = messages.find((message) => message.role === 'system')
-    const contents = messages
-      .filter((message) => message.role !== 'system')
-      .map((message) => ({
-        role: message.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: message.content }],
-      }))
+    const nonSystemMessages = messages.filter((message) => message.role !== 'system')
+
+    const contents: { role: string; parts: { text: string }[] }[] = []
+    for (const message of nonSystemMessages) {
+      const geminiRole = message.role === 'assistant' ? 'model' : 'user'
+      const lastEntry = contents[contents.length - 1]
+
+      if (lastEntry && lastEntry.role === geminiRole) {
+        lastEntry.parts.push({ text: message.content })
+      } else {
+        contents.push({
+          role: geminiRole,
+          parts: [{ text: message.content }],
+        })
+      }
+    }
+
+    if (contents.length > 0 && contents[0].role === 'model') {
+      contents.unshift({ role: 'user', parts: [{ text: 'Hello.' }] })
+    }
+
     const payload = await fetchJson(
       `${baseUrl}/models/${encodeURIComponent(model.replace(/^models\//, ''))}:generateContent?key=${encodeURIComponent(apiKey)}`,
       {

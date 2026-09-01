@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterAnchors, getProjectAnchorCount, matchSearchText } from './anchors'
+import { filterAnchors, formatUpdatedAt, getProjectAnchorCount, matchSearchText } from './anchors'
 import type { Anchor } from './anchors'
 
 const anchors: Anchor[] = [
@@ -11,6 +11,10 @@ const anchors: Anchor[] = [
     tag: 'Decision making',
     color: 'coral',
     pinned: true,
+    evidence: {
+      label: 'Stanford Research',
+      url: 'https://example.com/stanford',
+    },
     createdAt: '2025-01-01T00:00:00.000Z',
     updatedAt: '2025-01-01T00:00:00.000Z',
   },
@@ -41,6 +45,10 @@ describe('anchor filtering', () => {
     expect(filterAnchors(anchors, 'projects', 'trading', 'execute')).toEqual([anchors[1]])
     expect(filterAnchors(anchors, 'projects', 'trading', 'pause')).toEqual([])
   })
+
+  it('matches anchors by evidence source label', () => {
+    expect(filterAnchors(anchors, 'all', undefined, 'Stanford')).toEqual([anchors[0]])
+  })
 })
 
 describe('fuzzy search', () => {
@@ -61,5 +69,18 @@ describe('project anchor counts', () => {
   it('counts only anchors belonging to the requested project', () => {
     expect(getProjectAnchorCount(anchors, 'trading')).toBe(1)
     expect(getProjectAnchorCount(anchors, 'writing')).toBe(0)
+  })
+})
+
+describe('formatUpdatedAt', () => {
+  it('formats recent timestamps with human relative time', () => {
+    const now = new Date().toISOString()
+    expect(formatUpdatedAt(now)).toBe('Updated just now')
+
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+    expect(formatUpdatedAt(tenMinAgo)).toBe('Updated 10m ago')
+
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+    expect(formatUpdatedAt(twoHoursAgo)).toBe('Updated today')
   })
 })

@@ -23,7 +23,18 @@ function readRequestBody(request: IncomingMessage): Promise<string> {
   })
 }
 
+function setCorsHeaders(response: ServerResponse): void {
+  response.setHeader('Access-Control-Allow-Origin', '*')
+  response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+}
+
 function sendError(response: ServerResponse, statusCode: number, message: string): void {
+  if (response.headersSent) {
+    response.end()
+    return
+  }
+  setCorsHeaders(response)
   response.statusCode = statusCode
   response.setHeader('content-type', 'application/json')
   response.end(JSON.stringify({ error: { message } }))
@@ -35,6 +46,14 @@ function isAllowedTarget(target: URL): boolean {
 }
 
 export async function handleAIProxy(request: ProxyRequest, response: ServerResponse): Promise<void> {
+  setCorsHeaders(response)
+
+  if (request.method === 'OPTIONS') {
+    response.statusCode = 204
+    response.end()
+    return
+  }
+
   if (request.method !== 'POST') {
     sendError(response, 405, 'The Anchor AI proxy only accepts POST requests.')
     return

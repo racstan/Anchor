@@ -233,35 +233,63 @@ export function matchSearchText(value: string, query: string): TextSearchMatch |
   }
 
   const normalizedValue = value.toLocaleLowerCase()
-  const indices: number[] = []
+  const sequentialIndices: number[] = []
   let valueIndex = 0
+  let matchedSequential = true
 
   for (const character of normalizedQuery) {
     const matchIndex = normalizedValue.indexOf(character, valueIndex)
 
     if (matchIndex === -1) {
-      return null
+      matchedSequential = false
+      break
     }
 
-    indices.push(matchIndex)
+    sequentialIndices.push(matchIndex)
     valueIndex = matchIndex + 1
   }
 
-  const span = indices[indices.length - 1] - indices[0]
-  const consecutiveCharacters = indices.reduce(
-    (total, index, position) => total + (position > 0 && index === indices[position - 1] + 1 ? 1 : 0),
-    0,
-  )
-  const isSubstring = normalizedValue.includes(normalizedQuery)
-  const startsWithQuery = normalizedValue.startsWith(normalizedQuery)
-  const score =
-    (isSubstring ? 1000 : 500) +
-    (startsWithQuery ? 140 : 0) +
-    consecutiveCharacters * 20 -
-    indices[0] * 1.5 -
-    span * 2
+  if (matchedSequential) {
+    const span = sequentialIndices[sequentialIndices.length - 1] - sequentialIndices[0]
+    const consecutiveCharacters = sequentialIndices.reduce(
+      (total, index, position) => total + (position > 0 && index === sequentialIndices[position - 1] + 1 ? 1 : 0),
+      0,
+    )
+    const isSubstring = normalizedValue.includes(normalizedQuery)
+    const startsWithQuery = normalizedValue.startsWith(normalizedQuery)
+    const score =
+      (isSubstring ? 1000 : 500) +
+      (startsWithQuery ? 140 : 0) +
+      consecutiveCharacters * 20 -
+      sequentialIndices[0] * 1.5 -
+      span * 2
 
-  return { indices, score }
+    return { indices: sequentialIndices, score }
+  }
+
+  const words = normalizedQuery.split(/\s+/).filter(Boolean)
+  if (words.length > 1) {
+    const wordIndices: number[] = []
+    let totalScore = 0
+    let allWordsMatched = true
+
+    for (const word of words) {
+      const wordMatch = matchSearchText(value, word)
+      if (!wordMatch) {
+        allWordsMatched = false
+        break
+      }
+      wordIndices.push(...wordMatch.indices)
+      totalScore += wordMatch.score
+    }
+
+    if (allWordsMatched) {
+      const uniqueIndices = Array.from(new Set(wordIndices)).sort((a, b) => a - b)
+      return { indices: uniqueIndices, score: totalScore }
+    }
+  }
+
+  return null
 }
 
 export function getAnchorSearchMatch(anchor: Anchor, query: string): AnchorSearchMatch | null {
@@ -272,10 +300,13 @@ export function getAnchorSearchMatch(anchor: Anchor, query: string): AnchorSearc
   const title = matchSearchText(anchor.title, query)
   const body = matchSearchText(anchor.body, query)
   const tag = matchSearchText(anchor.tag, query)
+  const evidence = anchor.evidence ? matchSearchText(anchor.evidence.label, query) : null
+
   const weightedMatches = [
     { match: title, weight: 150 },
     { match: tag, weight: 80 },
     { match: body, weight: 20 },
+    { match: evidence, weight: 40 },
   ].filter((entry): entry is { match: TextSearchMatch; weight: number } => entry.match !== null)
 
   if (weightedMatches.length === 0) {
@@ -333,14 +364,30 @@ export function createId(prefix: string): string {
 }
 
 export function formatUpdatedAt(updatedAt: string): string {
-  const elapsed = Date.now() - new Date(updatedAt).getTime()
+  const time = new Date(updatedAt).getTime()
+
+  if (Number.isNaN(time)) {
+    return 'Recently updated'
+  }
+
+  const elapsed = Date.now() - time
+  const elapsedMinutes = Math.floor(elapsed / (60 * 1000))
+  const elapsedHours = Math.floor(elapsed / (60 * 60 * 1000))
   const elapsedDays = Math.floor(elapsed / (24 * 60 * 60 * 1000))
 
-  if (elapsedDays <= 0) {
+  if (elapsedMinutes < 2) {
+    return 'Updated just now'
+  }
+
+  if (elapsedHours < 1) {
+    return `Updated ${elapsedMinutes}m ago`
+  }
+
+  if (elapsedHours < 24 && new Date(updatedAt).toDateString() === new Date().toDateString()) {
     return 'Updated today'
   }
 
-  if (elapsedDays === 1) {
+  if (elapsedDays <= 1) {
     return 'Updated yesterday'
   }
 

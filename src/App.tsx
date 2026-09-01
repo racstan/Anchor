@@ -42,6 +42,7 @@ import {
   Sparkles,
   SlidersHorizontal,
   Sun,
+  Trash2,
   TrendingUp,
   Upload,
   UserRound,
@@ -67,8 +68,8 @@ import type {
   AnchorState,
   ChatMessage,
   Decision,
+  EvidenceSource,
   Project,
-  ProjectIcon,
 } from './lib/anchors'
 import {
   AI_PROVIDERS,
@@ -95,6 +96,7 @@ type View = 'home' | 'all' | 'global' | 'projects' | 'decide' | 'settings'
 
 type AnchorFormData = Pick<Anchor, 'title' | 'body' | 'scope' | 'tag' | 'color' | 'pinned'> & {
   projectId?: string
+  evidence?: EvidenceSource
 }
 
 type ProjectFormData = Pick<Project, 'name' | 'description' | 'color'>
@@ -499,7 +501,9 @@ function App() {
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [searchPaletteOpen, setSearchPaletteOpen] = useState(false)
   const [isComposerOpen, setIsComposerOpen] = useState(false)
+  const [editingAnchor, setEditingAnchor] = useState<Anchor | undefined>(undefined)
   const [isProjectComposerOpen, setIsProjectComposerOpen] = useState(false)
+  const [editingProject, setEditingProject] = useState<Project | undefined>(undefined)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [toast, setToast] = useState<string>()
   const topSearchRef = useRef<HTMLInputElement>(null)
@@ -581,6 +585,8 @@ function App() {
         setMobileMenuOpen(false)
         setIsComposerOpen(false)
         setIsProjectComposerOpen(false)
+        setEditingAnchor(undefined)
+        setEditingProject(undefined)
       }
     }
 
@@ -767,6 +773,31 @@ function App() {
     showToast('Your new anchor is close now.')
   }
 
+  const updateAnchor = (updated: Anchor) => {
+    setState((currentState) => ({
+      ...currentState,
+      anchors: currentState.anchors.map((anchor) =>
+        anchor.id === updated.id ? { ...updated, updatedAt: new Date().toISOString() } : anchor,
+      ),
+    }))
+    setEditingAnchor(undefined)
+    showToast('Anchor updated.')
+  }
+
+  const deleteAnchor = (anchorId: string) => {
+    setState((currentState) => ({
+      ...currentState,
+      anchors: currentState.anchors.filter((anchor) => anchor.id !== anchorId),
+    }))
+    setEditingAnchor(undefined)
+    setSpotlightAnchorId((currentId) =>
+      currentId === anchorId
+        ? pickRandomAnchorId(state.anchors.filter((a) => a.id !== anchorId && a.pinned))
+        : currentId,
+    )
+    showToast('Anchor removed.')
+  }
+
   const addProject = (formData: ProjectFormData) => {
     const timestamp = new Date().toISOString()
     const newProject: Project = {
@@ -783,6 +814,43 @@ function App() {
     setIsProjectComposerOpen(false)
     navigate('projects', newProject.id)
     showToast('Project created. Give it the context it needs.')
+  }
+
+  const updateProject = (updated: Project) => {
+    setState((currentState) => ({
+      ...currentState,
+      projects: currentState.projects.map((project) =>
+        project.id === updated.id ? updated : project,
+      ),
+    }))
+    setEditingProject(undefined)
+    showToast('Project updated.')
+  }
+
+  const deleteProject = (projectId: string) => {
+    setState((currentState) => ({
+      ...currentState,
+      projects: currentState.projects.filter((project) => project.id !== projectId),
+      anchors: currentState.anchors.map((anchor) =>
+        anchor.projectId === projectId
+          ? { ...anchor, scope: 'global', projectId: undefined, updatedAt: new Date().toISOString() }
+          : anchor,
+      ),
+    }))
+    setEditingProject(undefined)
+    if (activeProjectId === projectId) {
+      setActiveProjectId(undefined)
+      setActiveView('projects')
+    }
+    showToast('Project removed. Its anchors are now in Global context.')
+  }
+
+  const deleteDecision = (decisionId: string) => {
+    setState((currentState) => ({
+      ...currentState,
+      decisions: currentState.decisions.filter((decision) => decision.id !== decisionId),
+    }))
+    showToast('Decision room removed.')
   }
 
   const markNotificationRead = (notificationId: string) => {
@@ -948,6 +1016,8 @@ function App() {
         anchors={state.anchors}
         onBack={() => navigate('projects')}
         onAddAnchor={() => openAnchorComposer(activeProject.id)}
+        onEditAnchor={setEditingAnchor}
+        onEditProject={() => setEditingProject(activeProject)}
         onTogglePinned={togglePinned}
       />
     )
@@ -973,6 +1043,7 @@ function App() {
         }}
         onRemember={markAsRemembered}
         onTogglePinned={togglePinned}
+        onEditAnchor={setEditingAnchor}
         onAddAnchor={() => openAnchorComposer()}
         onOpenAll={() => navigate('all')}
         onOpenProject={(projectId) => navigate('projects', projectId)}
@@ -990,6 +1061,7 @@ function App() {
         decisions={state.decisions}
         onOpenSettings={() => navigate('settings')}
         onSaveDecision={saveDecision}
+        onDeleteDecision={deleteDecision}
       />
     )
   } else if (activeView === 'settings') {
@@ -1016,6 +1088,7 @@ function App() {
         onSaveProfile={saveProfile}
         onSavePin={savePin}
         onRemovePin={removePin}
+        onLockNow={() => setIsLocked(true)}
         onExportWorkspace={exportWorkspace}
         onImportWorkspace={importWorkspace}
       />
@@ -1027,6 +1100,7 @@ function App() {
         anchors={state.anchors}
         onOpenProject={(projectId) => navigate('projects', projectId)}
         onAddProject={() => setIsProjectComposerOpen(true)}
+        onEditProject={setEditingProject}
       />
     )
   } else {
@@ -1039,6 +1113,7 @@ function App() {
         onQueryChange={setQuery}
         onFilterChange={changeListFilter}
         onAddAnchor={() => openAnchorComposer()}
+        onEditAnchor={setEditingAnchor}
         onTogglePinned={togglePinned}
       />
     )
@@ -1308,8 +1383,32 @@ function App() {
           onSubmit={addAnchor}
         />
       )}
+      {editingAnchor && (
+        <AnchorEditModal
+          anchor={editingAnchor}
+          projects={state.projects}
+          onClose={() => setEditingAnchor(undefined)}
+          onSave={updateAnchor}
+          onDelete={deleteAnchor}
+        />
+      )}
       {isProjectComposerOpen && (
         <ProjectComposer onClose={() => setIsProjectComposerOpen(false)} onSubmit={addProject} />
+      )}
+      {editingProject && (
+        <ProjectEditModal
+          project={editingProject}
+          onClose={() => setEditingProject(undefined)}
+          onSave={updateProject}
+          onDelete={deleteProject}
+        />
+      )}
+      {mobileMenuOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setMobileMenuOpen(false)}
+          aria-hidden="true"
+        />
       )}
       {toast && (
         <div className="toast" role="status">
@@ -1358,7 +1457,7 @@ function MobileNavItem({ icon: Icon, label, active, onClick }: MobileNavItemProp
 }
 
 interface ProjectIconProps {
-  icon: ProjectIcon
+  icon: Project['icon']
   size?: number
 }
 
@@ -1556,6 +1655,7 @@ interface HomeViewProps {
   onNextSpotlight: () => void
   onRemember: (anchorId: string) => void
   onTogglePinned: (anchorId: string) => void
+  onEditAnchor: (anchor: Anchor) => void
   onAddAnchor: () => void
   onOpenAll: () => void
   onOpenProject: (projectId: string) => void
@@ -1573,6 +1673,7 @@ function HomeView({
   onNextSpotlight,
   onRemember,
   onTogglePinned,
+  onEditAnchor,
   onAddAnchor,
   onOpenAll,
   onOpenProject,
@@ -1687,6 +1788,7 @@ function HomeView({
                 projects={projects}
                 key={anchor.id}
                 onTogglePinned={onTogglePinned}
+                onEdit={onEditAnchor}
               />
             ))}
           </div>
@@ -1754,6 +1856,7 @@ interface AnchorsViewProps {
   onQueryChange: (query: string) => void
   onFilterChange: (filter: AnchorFilter) => void
   onAddAnchor: () => void
+  onEditAnchor: (anchor: Anchor) => void
   onTogglePinned: (anchorId: string) => void
 }
 
@@ -1765,6 +1868,7 @@ function AnchorsView({
   onQueryChange,
   onFilterChange,
   onAddAnchor,
+  onEditAnchor,
   onTogglePinned,
 }: AnchorsViewProps) {
   const filteredAnchors = filterAnchors(anchors, filter, undefined, query)
@@ -1841,6 +1945,7 @@ function AnchorsView({
               query={query}
               key={anchor.id}
               onTogglePinned={onTogglePinned}
+              onEdit={onEditAnchor}
             />
           ))}
         </div>
@@ -1866,9 +1971,10 @@ interface AnchorListItemProps {
   projects: Project[]
   query?: string
   onTogglePinned: (anchorId: string) => void
+  onEdit?: (anchor: Anchor) => void
 }
 
-function AnchorListItem({ anchor, projects, query, onTogglePinned }: AnchorListItemProps) {
+function AnchorListItem({ anchor, projects, query, onTogglePinned, onEdit }: AnchorListItemProps) {
   const project = getProject(projects, anchor.projectId)
 
   return (
@@ -1878,14 +1984,28 @@ function AnchorListItem({ anchor, projects, query, onTogglePinned }: AnchorListI
           <span className={`context-dot ${anchor.color}`} />
           <span>{project?.name ?? 'Global context'}</span>
         </div>
-        <button
-          className={`pin-button ${anchor.pinned ? 'pinned' : ''}`}
-          type="button"
-          aria-label={anchor.pinned ? 'Unpin anchor' : 'Pin anchor'}
-          onClick={() => onTogglePinned(anchor.id)}
-        >
-          <Pin size={16} fill={anchor.pinned ? 'currentColor' : 'none'} />
-        </button>
+        <div className="anchor-item-actions">
+          {onEdit && (
+            <button
+              className="item-action-button"
+              type="button"
+              aria-label="Edit anchor"
+              title="Edit anchor"
+              onClick={() => onEdit(anchor)}
+            >
+              <PenLine size={14} />
+            </button>
+          )}
+          <button
+            className={`pin-button ${anchor.pinned ? 'pinned' : ''}`}
+            type="button"
+            aria-label={anchor.pinned ? 'Unpin anchor' : 'Pin anchor'}
+            title={anchor.pinned ? 'Unpin anchor' : 'Pin anchor'}
+            onClick={() => onTogglePinned(anchor.id)}
+          >
+            <Pin size={15} fill={anchor.pinned ? 'currentColor' : 'none'} />
+          </button>
+        </div>
       </div>
       <h3><HighlightedText value={anchor.title} query={query} /></h3>
       <p><HighlightedText value={anchor.body} query={query} /></p>
@@ -1920,6 +2040,7 @@ interface DecisionViewProps {
   decisions: Decision[]
   onOpenSettings: () => void
   onSaveDecision: (decision: Decision) => void
+  onDeleteDecision: (decisionId: string) => void
 }
 
 function anchorPromptLine(anchor: Anchor): string {
@@ -2042,6 +2163,7 @@ function DecisionView({
   decisions,
   onOpenSettings,
   onSaveDecision,
+  onDeleteDecision,
 }: DecisionViewProps) {
   const firstDecision = decisions[0]
   const [activeDecisionId, setActiveDecisionId] = useState<string | undefined>(firstDecision?.id)
@@ -2343,16 +2465,34 @@ function DecisionView({
                 <small>{decisions.length}</small>
               </div>
               {decisions.slice(0, 4).map((decision) => (
-                <button
-                  className={`decision-history-item ${activeDecisionId === decision.id ? 'active' : ''}`}
-                  type="button"
+                <div
+                  className={`decision-history-item-wrap ${activeDecisionId === decision.id ? 'active' : ''}`}
                   key={decision.id}
-                  onClick={() => loadDecision(decision)}
                 >
-                  <span className="history-orb"><MessageCircle size={13} /></span>
-                  <span>{decisionPreview(decision)}</span>
-                  <ChevronRight size={13} />
-                </button>
+                  <button
+                    className="decision-history-item"
+                    type="button"
+                    onClick={() => loadDecision(decision)}
+                  >
+                    <span className="history-orb"><MessageCircle size={13} /></span>
+                    <span>{decisionPreview(decision)}</span>
+                  </button>
+                  <button
+                    className="decision-delete-btn"
+                    type="button"
+                    aria-label="Remove decision room"
+                    title="Remove decision room"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (activeDecisionId === decision.id) {
+                        startNewDecision()
+                      }
+                      onDeleteDecision(decision.id)
+                    }}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -2456,6 +2596,7 @@ interface SettingsViewProps {
   onSaveProfile: (profile: UserProfile) => void
   onSavePin: (pin: string) => Promise<void>
   onRemovePin: () => void
+  onLockNow: () => void
   onExportWorkspace: () => void
   onImportWorkspace: (file: File, mode: ImportMode) => Promise<string>
 }
@@ -2476,6 +2617,7 @@ function SettingsView({
   onSaveProfile,
   onSavePin,
   onRemovePin,
+  onLockNow,
   onExportWorkspace,
   onImportWorkspace,
 }: SettingsViewProps) {
@@ -2698,7 +2840,16 @@ function SettingsView({
               <button className="primary-button" type="submit" disabled={pinBusy}>
                 {pinBusy ? 'Saving…' : security.pinHash ? 'Change PIN' : 'Set PIN'}
               </button>
-              {security.pinHash && <button className="text-button pin-remove" type="button" onClick={removeDevicePin}>Remove PIN</button>}
+              {security.pinHash && (
+                <>
+                  <button className="secondary-button" type="button" onClick={onLockNow}>
+                    <KeyRound size={14} /> Lock space now
+                  </button>
+                  <button className="text-button pin-remove" type="button" onClick={removeDevicePin}>
+                    Remove PIN
+                  </button>
+                </>
+              )}
             </div>
           </form>
         </section>
@@ -2870,6 +3021,7 @@ interface ProjectsViewProps {
   anchors: Anchor[]
   onOpenProject: (projectId: string) => void
   onAddProject: () => void
+  onEditProject?: (project: Project) => void
 }
 
 function ProjectsView({ projects, anchors, onOpenProject, onAddProject }: ProjectsViewProps) {
@@ -2956,10 +3108,20 @@ interface ProjectViewProps {
   anchors: Anchor[]
   onBack: () => void
   onAddAnchor: () => void
+  onEditAnchor: (anchor: Anchor) => void
+  onEditProject: () => void
   onTogglePinned: (anchorId: string) => void
 }
 
-function ProjectView({ project, anchors, onBack, onAddAnchor, onTogglePinned }: ProjectViewProps) {
+function ProjectView({
+  project,
+  anchors,
+  onBack,
+  onAddAnchor,
+  onEditAnchor,
+  onEditProject,
+  onTogglePinned,
+}: ProjectViewProps) {
   const projectAnchors = anchors.filter((anchor) => anchor.projectId === project.id)
   const pinnedCount = projectAnchors.filter((anchor) => anchor.pinned).length
 
@@ -2992,10 +3154,16 @@ function ProjectView({ project, anchors, onBack, onAddAnchor, onTogglePinned }: 
           <span className="summary-number">{pinnedCount}</span>
           <span className="summary-label">kept close</span>
         </div>
-        <button className="secondary-button" type="button" onClick={onAddAnchor}>
-          <Plus size={16} />
-          Add context
-        </button>
+        <div className="project-actions-group">
+          <button className="secondary-button" type="button" onClick={onEditProject}>
+            <PenLine size={15} />
+            Edit space
+          </button>
+          <button className="primary-button" type="button" onClick={onAddAnchor}>
+            <Plus size={16} />
+            Add context
+          </button>
+        </div>
       </div>
 
       <div className="section-heading project-section-heading">
@@ -3012,6 +3180,7 @@ function ProjectView({ project, anchors, onBack, onAddAnchor, onTogglePinned }: 
               projects={[project]}
               key={anchor.id}
               onTogglePinned={onTogglePinned}
+              onEdit={onEditAnchor}
             />
           ))}
         </div>
@@ -3097,6 +3266,8 @@ function AnchorComposer({ projects, defaultProjectId, onClose, onSubmit }: Ancho
   const [projectId, setProjectId] = useState(defaultProjectId ?? projects[0]?.id ?? '')
   const [color, setColor] = useState<AccentColor>('coral')
   const [pinned, setPinned] = useState(true)
+  const [evidenceLabel, setEvidenceLabel] = useState('')
+  const [evidenceUrl, setEvidenceUrl] = useState('')
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -3104,6 +3275,11 @@ function AnchorComposer({ projects, defaultProjectId, onClose, onSubmit }: Ancho
     if (!title.trim() || !body.trim() || (scope === 'project' && !projectId)) {
       return
     }
+
+    const evidence =
+      evidenceLabel.trim() && evidenceUrl.trim()
+        ? { label: evidenceLabel.trim(), url: evidenceUrl.trim() }
+        : undefined
 
     onSubmit({
       title: title.trim(),
@@ -3113,6 +3289,7 @@ function AnchorComposer({ projects, defaultProjectId, onClose, onSubmit }: Ancho
       projectId: scope === 'project' ? projectId : undefined,
       color,
       pinned,
+      evidence,
     })
   }
 
@@ -3201,6 +3378,25 @@ function AnchorComposer({ projects, defaultProjectId, onClose, onSubmit }: Ancho
             </div>
           </fieldset>
         </div>
+        <div className="form-row">
+          <label className="form-field">
+            <span>Evidence source <em>optional</em></span>
+            <input
+              value={evidenceLabel}
+              onChange={(event) => setEvidenceLabel(event.target.value)}
+              placeholder="e.g. WHO guidance"
+              maxLength={40}
+            />
+          </label>
+          <label className="form-field">
+            <span>Evidence URL <em>optional</em></span>
+            <input
+              value={evidenceUrl}
+              onChange={(event) => setEvidenceUrl(event.target.value)}
+              placeholder="https://..."
+            />
+          </label>
+        </div>
         <label className="pin-toggle">
           <input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} />
           <span className="fake-checkbox"><Check size={12} /></span>
@@ -3212,6 +3408,191 @@ function AnchorComposer({ projects, defaultProjectId, onClose, onSubmit }: Ancho
             <AnchorIcon size={16} />
             Save anchor
           </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+interface AnchorEditModalProps {
+  anchor: Anchor
+  projects: Project[]
+  onClose: () => void
+  onSave: (anchor: Anchor) => void
+  onDelete: (anchorId: string) => void
+}
+
+function AnchorEditModal({ anchor, projects, onClose, onSave, onDelete }: AnchorEditModalProps) {
+  const [title, setTitle] = useState(anchor.title)
+  const [body, setBody] = useState(anchor.body)
+  const [tag, setTag] = useState(anchor.tag)
+  const [scope, setScope] = useState<AnchorScope>(anchor.scope)
+  const [projectId, setProjectId] = useState(anchor.projectId ?? projects[0]?.id ?? '')
+  const [color, setColor] = useState<AccentColor>(anchor.color)
+  const [pinned, setPinned] = useState(anchor.pinned)
+  const [evidenceLabel, setEvidenceLabel] = useState(anchor.evidence?.label ?? '')
+  const [evidenceUrl, setEvidenceUrl] = useState(anchor.evidence?.url ?? '')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!title.trim() || !body.trim() || (scope === 'project' && !projectId)) {
+      return
+    }
+
+    const evidence =
+      evidenceLabel.trim() && evidenceUrl.trim()
+        ? { label: evidenceLabel.trim(), url: evidenceUrl.trim() }
+        : undefined
+
+    onSave({
+      ...anchor,
+      title: title.trim(),
+      body: body.trim(),
+      tag: tag.trim() || (scope === 'global' ? 'Personal' : 'Project note'),
+      scope,
+      projectId: scope === 'project' ? projectId : undefined,
+      color,
+      pinned,
+      evidence,
+      updatedAt: new Date().toISOString(),
+    })
+  }
+
+  const handleDelete = () => {
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      return
+    }
+    onDelete(anchor.id)
+  }
+
+  return (
+    <Modal eyebrow="Refine your context" title="Edit anchor" onClose={onClose}>
+      <form className="composer-form" onSubmit={handleSubmit}>
+        <label className="form-field">
+          <span>What do you want to remember?</span>
+          <input
+            autoFocus
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="e.g. Patience is part of the strategy."
+            maxLength={100}
+          />
+        </label>
+        <label className="form-field">
+          <span>Give it some context</span>
+          <textarea
+            value={body}
+            onChange={(event) => setBody(event.target.value)}
+            placeholder="Why does this matter when you forget it?"
+            rows={4}
+            maxLength={320}
+          />
+          <small>{body.length}/320</small>
+        </label>
+        <div className="form-row">
+          <fieldset className="form-field scope-field">
+            <legend>Keep this in</legend>
+            <div className="scope-toggle">
+              <button
+                className={scope === 'global' ? 'selected' : ''}
+                type="button"
+                onClick={() => setScope('global')}
+              >
+                <Compass size={14} /> Everywhere
+              </button>
+              <button
+                className={scope === 'project' ? 'selected' : ''}
+                type="button"
+                onClick={() => setScope('project')}
+              >
+                <FolderOpen size={14} /> A project
+              </button>
+            </div>
+          </fieldset>
+          <label className="form-field">
+            <span>Project</span>
+            <div className="select-wrap">
+              <select
+                value={projectId}
+                disabled={scope === 'global' || projects.length === 0}
+                onChange={(event) => setProjectId(event.target.value)}
+              >
+                {projects.length === 0 && <option value="">Create a project first</option>}
+                {projects.map((project) => (
+                  <option value={project.id} key={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={15} />
+            </div>
+          </label>
+        </div>
+        <div className="form-row form-row-bottom">
+          <label className="form-field">
+            <span>Tag <em>optional</em></span>
+            <input value={tag} onChange={(event) => setTag(event.target.value)} placeholder="e.g. Patience" maxLength={32} />
+          </label>
+          <fieldset className="form-field color-field">
+            <legend>Tone</legend>
+            <div className="color-options">
+              {colorOptions.map((option) => (
+                <button
+                  className={`color-option ${option} ${color === option ? 'selected' : ''}`}
+                  key={option}
+                  type="button"
+                  aria-label={colorLabels[option]}
+                  onClick={() => setColor(option)}
+                >
+                  {color === option && <Check size={12} />}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        </div>
+        <div className="form-row">
+          <label className="form-field">
+            <span>Evidence source <em>optional</em></span>
+            <input
+              value={evidenceLabel}
+              onChange={(event) => setEvidenceLabel(event.target.value)}
+              placeholder="e.g. WHO guidance"
+              maxLength={40}
+            />
+          </label>
+          <label className="form-field">
+            <span>Evidence URL <em>optional</em></span>
+            <input
+              value={evidenceUrl}
+              onChange={(event) => setEvidenceUrl(event.target.value)}
+              placeholder="https://..."
+            />
+          </label>
+        </div>
+        <label className="pin-toggle">
+          <input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} />
+          <span className="fake-checkbox"><Check size={12} /></span>
+          <span>Keep it in my daily rotation</span>
+        </label>
+        <div className="modal-actions modal-actions-split">
+          <button
+            className={`text-button delete-button ${confirmDelete ? 'delete-confirm' : ''}`}
+            type="button"
+            onClick={handleDelete}
+          >
+            <Trash2 size={15} />
+            {confirmDelete ? 'Confirm delete' : 'Delete anchor'}
+          </button>
+          <div className="modal-actions-right">
+            <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
+            <button className="primary-button" type="submit" disabled={!title.trim() || !body.trim()}>
+              <Check size={16} />
+              Save changes
+            </button>
+          </div>
         </div>
       </form>
     </Modal>
@@ -3275,6 +3656,91 @@ function ProjectComposer({ onClose, onSubmit }: ProjectComposerProps) {
             <FolderOpen size={16} />
             Create project
           </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+interface ProjectEditModalProps {
+  project: Project
+  onClose: () => void
+  onSave: (project: Project) => void
+  onDelete: (projectId: string) => void
+}
+
+function ProjectEditModal({ project, onClose, onSave, onDelete }: ProjectEditModalProps) {
+  const [name, setName] = useState(project.name)
+  const [description, setDescription] = useState(project.description)
+  const [color, setColor] = useState<AccentColor>(project.color)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!name.trim()) {
+      return
+    }
+
+    onSave({
+      ...project,
+      name: name.trim(),
+      description: description.trim() || 'A place for the context that matters here.',
+      color,
+    })
+  }
+
+  const handleDelete = () => {
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      return
+    }
+    onDelete(project.id)
+  }
+
+  return (
+    <Modal eyebrow="Refine this space" title="Edit project" onClose={onClose}>
+      <form className="composer-form" onSubmit={handleSubmit}>
+        <label className="form-field">
+          <span>Project name</span>
+          <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Learn the piano" maxLength={48} />
+        </label>
+        <label className="form-field">
+          <span>What is this space for? <em>optional</em></span>
+          <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="A short phrase to bring you back to the point." rows={3} maxLength={100} />
+        </label>
+        <fieldset className="form-field color-field project-color-field">
+          <legend>Choose a tone</legend>
+          <div className="color-options large-color-options">
+            {colorOptions.map((option) => (
+              <button
+                className={`color-option ${option} ${color === option ? 'selected' : ''}`}
+                key={option}
+                type="button"
+                aria-label={colorLabels[option]}
+                onClick={() => setColor(option)}
+              >
+                {color === option && <Check size={13} />}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+        <div className="modal-actions modal-actions-split">
+          <button
+            className={`text-button delete-button ${confirmDelete ? 'delete-confirm' : ''}`}
+            type="button"
+            onClick={handleDelete}
+          >
+            <Trash2 size={15} />
+            {confirmDelete ? 'Confirm delete (anchors become global)' : 'Delete space'}
+          </button>
+          <div className="modal-actions-right">
+            <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
+            <button className="primary-button" type="submit" disabled={!name.trim()}>
+              <Check size={16} />
+              Save changes
+            </button>
+          </div>
         </div>
       </form>
     </Modal>
