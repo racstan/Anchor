@@ -18,6 +18,7 @@ import {
   Download,
   Command,
   Compass,
+  Copy,
   FolderOpen,
   Heart,
   Home,
@@ -2540,14 +2541,30 @@ function inlineMarkdown(value: string): React.ReactNode {
   })
 }
 
+function tableCells(value: string): string[] {
+  return value.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim())
+}
+
+function isTableDivider(cells: string[]): boolean {
+  return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell))
+}
+
+function renderInlineLines(lines: string[]): React.ReactNode[] {
+  return lines.flatMap((line, index) => index === 0
+    ? [inlineMarkdown(line)]
+    : [<br key={`line-break-${index}`} />, inlineMarkdown(line)])
+}
+
 function ChatRichText({ content }: { content: string }) {
   const blocks: React.ReactNode[] = []
   const paragraphLines: string[] = []
   const listItems: string[] = []
   const quoteLines: string[] = []
   const codeLines: string[] = []
+  const tableRows: string[][] = []
   let listType: 'ul' | 'ol' | undefined
   let inCodeBlock = false
+  let inTable = false
   let blockIndex = 0
 
   const flushParagraph = () => {
@@ -2555,7 +2572,7 @@ function ChatRichText({ content }: { content: string }) {
       return
     }
 
-    blocks.push(<p key={`paragraph-${blockIndex++}`}>{inlineMarkdown(paragraphLines.join(' '))}</p>)
+    blocks.push(<p key={`paragraph-${blockIndex++}`}>{renderInlineLines(paragraphLines)}</p>)
     paragraphLines.length = 0
   }
 
@@ -2567,7 +2584,15 @@ function ChatRichText({ content }: { content: string }) {
     const List = listType
     blocks.push(
       <List key={`list-${blockIndex++}`}>
-        {listItems.map((item, index) => <li key={`${item}-${index}`}>{inlineMarkdown(item)}</li>)}
+        {listItems.map((item, index) => {
+          const task = item.match(/^\[([ xX])\]\s+(.+)$/)
+          return task ? (
+            <li className={`chat-task-item ${task[1].toLowerCase() === 'x' ? 'checked' : ''}`} key={`${item}-${index}`}>
+              <span className="chat-task-marker" aria-hidden="true">{task[1].toLowerCase() === 'x' ? '✓' : ''}</span>
+              {inlineMarkdown(task[2])}
+            </li>
+          ) : <li key={`${item}-${index}`}>{inlineMarkdown(item)}</li>
+        })}
       </List>,
     )
     listType = undefined
@@ -2579,7 +2604,7 @@ function ChatRichText({ content }: { content: string }) {
       return
     }
 
-    blocks.push(<blockquote key={`quote-${blockIndex++}`}>{inlineMarkdown(quoteLines.join(' '))}</blockquote>)
+    blocks.push(<blockquote key={`quote-${blockIndex++}`}>{renderInlineLines(quoteLines)}</blockquote>)
     quoteLines.length = 0
   }
 
@@ -2592,13 +2617,42 @@ function ChatRichText({ content }: { content: string }) {
     codeLines.length = 0
   }
 
-  content.split(/\r?\n/).forEach((line) => {
+  const flushTable = () => {
+    if (tableRows.length === 0) {
+      return
+    }
+
+    const [header, ...body] = tableRows
+    blocks.push(
+      <div className="chat-table-wrap" key={`table-${blockIndex++}`}>
+        <table>
+          <thead>
+            <tr>{header.map((cell, index) => <th key={`${cell}-${index}`}>{inlineMarkdown(cell)}</th>)}</tr>
+          </thead>
+          {body.length > 0 && (
+            <tbody>
+              {body.map((row, rowIndex) => (
+                <tr key={`row-${rowIndex}`}>
+                  {row.map((cell, cellIndex) => <td key={`${cell}-${cellIndex}`}>{inlineMarkdown(cell)}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          )}
+        </table>
+      </div>,
+    )
+    tableRows.length = 0
+    inTable = false
+  }
+
+  content.split(/\r?\n/).forEach((line, lineIndex, lines) => {
     const trimmedLine = line.trim()
 
     if (trimmedLine.startsWith('```')) {
       flushParagraph()
       flushList()
       flushQuote()
+      flushTable()
       if (inCodeBlock) {
         flushCode()
       }
@@ -2611,6 +2665,30 @@ function ChatRichText({ content }: { content: string }) {
       return
     }
 
+    const cells = trimmedLine.includes('|') ? tableCells(trimmedLine) : []
+    const nextLine = lines[lineIndex + 1]?.trim() ?? ''
+    const nextCells = nextLine.includes('|') ? tableCells(nextLine) : []
+
+    if (!inTable && cells.length > 1 && isTableDivider(nextCells)) {
+      flushParagraph()
+      flushList()
+      flushQuote()
+      tableRows.push(cells)
+      inTable = true
+      return
+    }
+
+    if (inTable) {
+      if (isTableDivider(cells)) {
+        return
+      }
+      if (cells.length > 1) {
+        tableRows.push(cells)
+        return
+      }
+      flushTable()
+    }
+
     if (!trimmedLine) {
       flushParagraph()
       flushList()
@@ -2620,7 +2698,7 @@ function ChatRichText({ content }: { content: string }) {
 
     const heading = trimmedLine.match(/^#{1,3}\s+(.+)$/)
     const quote = trimmedLine.match(/^>\s?(.*)$/)
-    const unorderedItem = trimmedLine.match(/^[-*]\s+(.+)$/)
+    const unorderedItem = trimmedLine.match(/^[-*•]\s+(.+)$/)
     const orderedItem = trimmedLine.match(/^\d+[.)]\s+(.+)$/)
 
     if (/^(?:---+|\*\*\*+|___+)$/.test(trimmedLine)) {
@@ -2666,11 +2744,41 @@ function ChatRichText({ content }: { content: string }) {
   flushParagraph()
   flushList()
   flushQuote()
+  flushTable()
   if (inCodeBlock) {
     flushCode()
   }
 
   return <div className="chat-rich-text">{blocks}</div>
+}
+
+interface NoteImportSelectProps {
+  notes: Note[]
+  target: 'situation' | 'context'
+  onImport: (note: Note, target: 'situation' | 'context') => void
+}
+
+function NoteImportSelect({ notes, target, onImport }: NoteImportSelectProps) {
+  const targetLabel = target === 'situation' ? 'the situation' : 'more context'
+
+  return (
+    <div className="decision-note-picker">
+      <NotebookPen size={12} aria-hidden="true" />
+      <select
+        value=""
+        disabled={!notes.length}
+        onChange={(event) => {
+          const note = notes.find((item) => item.id === event.target.value)
+          if (note) onImport(note, target)
+        }}
+        aria-label={`Import a note into ${targetLabel}`}
+        title={`Import a note into ${targetLabel}`}
+      >
+        <option value="">{notes.length ? 'Import note' : 'No saved notes'}</option>
+        {notes.map((note) => <option value={note.id} key={note.id}>{note.title}</option>)}
+      </select>
+    </div>
+  )
 }
 
 function DecisionView({
@@ -2694,6 +2802,7 @@ function DecisionView({
   const [additionalContext, setAdditionalContext] = useState(firstDecision?.additionalContext ?? '')
   const [messages, setMessages] = useState<ChatMessage[]>(firstDecision?.messages ?? [])
   const [chatInput, setChatInput] = useState('')
+  const [copiedMessageId, setCopiedMessageId] = useState<string>()
   const [isThinking, setIsThinking] = useState(false)
   const [error, setError] = useState<string>()
   const requestControllerRef = useRef<AbortController | undefined>(undefined)
@@ -2703,7 +2812,6 @@ function DecisionView({
     ? anchors.filter((anchor) => anchor.projectId === selectedProject.id)
     : []
   const globalAnchors = anchors.filter((anchor) => anchor.scope === 'global' && anchor.pinned).slice(0, 6)
-  const importedNotes = notes.filter((note) => importedNoteIds.includes(note.id))
   const provider = AI_PROVIDERS.find((item) => item.id === settings.providerId)
   const connectionReady = Boolean(settings.apiKey.trim() && settings.model.trim() && (!provider?.requiresAccountId || settings.accountId.trim()))
 
@@ -2765,7 +2873,7 @@ function DecisionView({
     const aiMessages: AIMessage[] = [
       {
         role: 'system',
-        content: decisionSystemPrompt(selectedProject && projectImported ? selectedProject : undefined, projectAnchors, globalAnchors),
+        content: `${decisionSystemPrompt(selectedProject && projectImported ? selectedProject : undefined, projectAnchors, globalAnchors)}\n\nCURRENT DECISION CONTEXT\n${buildUserPrompt()}`,
       },
       ...nextMessages.map((message) => ({ role: message.role, content: message.content })),
     ]
@@ -2806,20 +2914,20 @@ function DecisionView({
     }
   }
 
-  const handleAnalyze = () => {
+  const handleAnalyze = (initialMessage = chatInput) => {
     if (!situation.trim()) {
       setError('Start with the situation that is asking for your attention.')
       return
     }
 
-    void sendToAI(buildUserPrompt())
+    void sendToAI(initialMessage.trim() || 'Help me think this through.')
   }
 
   const handleChatSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
     if (!messages.length) {
-      handleAnalyze()
+      handleAnalyze(chatInput)
       return
     }
 
@@ -2832,18 +2940,52 @@ function DecisionView({
     setIsThinking(false)
     setMessages([])
     setChatInput('')
+    setCopiedMessageId(undefined)
     setError(undefined)
     if (activeDecisionId) {
       saveCurrentDecision([])
     }
   }
 
+  const copyMessage = async (message: ChatMessage) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(message.content)
+      } else {
+        const textArea = document.createElement('textarea')
+        textArea.value = message.content
+        textArea.setAttribute('readonly', '')
+        textArea.style.position = 'fixed'
+        textArea.style.opacity = '0'
+        document.body.appendChild(textArea)
+        try {
+          textArea.select()
+          if (!document.execCommand('copy')) {
+            throw new Error('Clipboard access was not available.')
+          }
+        } finally {
+          textArea.remove()
+        }
+      }
+      setCopiedMessageId(message.id)
+      window.setTimeout(() => {
+        setCopiedMessageId((currentId) => currentId === message.id ? undefined : currentId)
+      }, 1800)
+    } catch {
+      setError('Could not copy that message. Please select and copy it manually.')
+    }
+  }
+
   const importNoteInto = (note: Note, target: 'situation' | 'context') => {
     const noteBlock = `From note — ${note.title}\n${note.content.trim()}`
     if (target === 'situation') {
-      setSituation((current) => `${current.trim() ? `${current.trim()}\n\n` : ''}${noteBlock}`.slice(0, 1200))
+      setSituation((current) => current.includes(noteBlock)
+        ? current
+        : `${current.trim() ? `${current.trim()}\n\n` : ''}${noteBlock}`.slice(0, 1200))
     } else {
-      setAdditionalContext((current) => `${current.trim() ? `${current.trim()}\n\n` : ''}${noteBlock}`.slice(0, 1800))
+      setAdditionalContext((current) => current.includes(noteBlock)
+        ? current
+        : `${current.trim() ? `${current.trim()}\n\n` : ''}${noteBlock}`.slice(0, 1800))
     }
     setImportedNoteIds((current) => current.includes(note.id) ? current : [...current, note.id])
     setError(undefined)
@@ -2965,37 +3107,28 @@ function DecisionView({
             </div>
           )}
 
-          <details className="decision-notes-import">
-            <summary>
-              <span className="decision-notes-summary"><NotebookPen size={14} /> Import a note</span>
-              <span className="decision-notes-count">{importedNotes.length ? `${importedNotes.length} added` : 'Optional'}</span>
-            </summary>
-            <div className="decision-notes-import-body">
-              {notes.length === 0 ? (
-                <span className="decision-notes-empty">Create a note in Notes first, then bring it into this decision.</span>
-              ) : (
-                <>
-                  {notes.slice(0, 6).map((note) => (
-                    <div className={`decision-note-option ${importedNoteIds.includes(note.id) ? 'added' : ''}`} key={note.id}>
-                      <div className="decision-note-option-copy">
-                        <strong>{note.title}</strong>
-                        <span>{note.content.replace(/\s+/g, ' ').trim()}</span>
-                      </div>
-                      <div className="decision-note-option-actions">
-                        <button type="button" onClick={() => importNoteInto(note, 'situation')}>Situation</button>
-                        <button type="button" onClick={() => importNoteInto(note, 'context')}>More context</button>
-                      </div>
-                    </div>
-                  ))}
-                  {notes.length > 6 && <span className="decision-notes-empty">Showing your 6 most recent notes.</span>}
-                </>
-              )}
+          <div className="form-field decision-field">
+            <div className="form-field-label-row">
+              <label htmlFor="decision-situation">The situation</label>
+              <div className="decision-field-actions">
+                <NoteImportSelect notes={notes} target="situation" onImport={importNoteInto} />
+                <button
+                  className="field-clear-button"
+                  type="button"
+                  disabled={!situation.trim()}
+                  onClick={() => {
+                    setSituation('')
+                    setError(undefined)
+                  }}
+                  aria-label="Clear situation"
+                  title="Clear situation"
+                >
+                  <X size={12} /> Clear
+                </button>
+              </div>
             </div>
-          </details>
-
-          <label className="form-field decision-field">
-            <span>The situation</span>
             <textarea
+              id="decision-situation"
               className="decision-situation-input"
               value={situation}
               onChange={(event) => setSituation(event.target.value)}
@@ -3004,10 +3137,29 @@ function DecisionView({
               maxLength={1200}
             />
             <small>{situation.length}/1200</small>
-          </label>
-          <label className="form-field decision-field">
-            <span>More context <em>optional</em></span>
+          </div>
+          <div className="form-field decision-field">
+            <div className="form-field-label-row">
+              <label htmlFor="decision-context">More context <em>optional</em></label>
+              <div className="decision-field-actions">
+                <NoteImportSelect notes={notes} target="context" onImport={importNoteInto} />
+                <button
+                  className="field-clear-button"
+                  type="button"
+                  disabled={!additionalContext.trim()}
+                  onClick={() => {
+                    setAdditionalContext('')
+                    setError(undefined)
+                  }}
+                  aria-label="Clear more context"
+                  title="Clear more context"
+                >
+                  <X size={12} /> Clear
+                </button>
+              </div>
+            </div>
             <textarea
+              id="decision-context"
               className="decision-context-input"
               value={additionalContext}
               onChange={(event) => setAdditionalContext(event.target.value)}
@@ -3016,7 +3168,7 @@ function DecisionView({
               maxLength={1800}
             />
             <small>{additionalContext.length}/1800</small>
-          </label>
+          </div>
 
           <div className={`decision-connection-note ${connectionReady ? 'ready' : ''}`}>
             <span className="connection-dot" />
@@ -3036,7 +3188,7 @@ function DecisionView({
             </div>
           )}
 
-          <button className="primary-button decision-submit" type="button" onClick={handleAnalyze} disabled={!situation.trim() || isThinking}>
+          <button className="primary-button decision-submit" type="button" onClick={() => handleAnalyze()} disabled={!situation.trim() || isThinking}>
             {isThinking ? <RefreshCw className="spin" size={16} /> : <WandSparkles size={16} />}
             {isThinking ? 'Thinking with you…' : 'Think this through'}
           </button>
@@ -3127,6 +3279,15 @@ function DecisionView({
                     {message.role === 'assistant' ? <Bot size={15} /> : <UserRound size={15} />}
                   </span>
                   <div className="chat-message-bubble">
+                    <button
+                      className={`chat-copy-button ${copiedMessageId === message.id ? 'copied' : ''}`}
+                      type="button"
+                      onClick={() => void copyMessage(message)}
+                      aria-label={copiedMessageId === message.id ? 'Message copied' : 'Copy message'}
+                      title={copiedMessageId === message.id ? 'Copied' : 'Copy message'}
+                    >
+                      {copiedMessageId === message.id ? <Check size={13} /> : <Copy size={13} />}
+                    </button>
                     <span className="chat-message-label">{message.role === 'assistant' ? 'Anchor' : 'You'}</span>
                     {message.role === 'assistant' ? <ChatRichText content={message.content} /> : <p>{message.content}</p>}
                   </div>
@@ -3211,7 +3372,7 @@ function NoteEditor({ note, onSave, onDelete }: NoteEditorProps) {
       <div className="note-editor-heading">
         <div>
           <p className="eyebrow">{note ? 'Edit note' : 'New note'}</p>
-          <h2>{note?.title || 'A place to put it down'}</h2>
+          <h2>{title.trim() || 'A place to put it down'}</h2>
         </div>
         {note && <span className="note-editor-date">{formatUpdatedAt(note.updatedAt)}</span>}
       </div>

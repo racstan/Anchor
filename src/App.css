@@ -3617,121 +3617,98 @@ fieldset.form-field {
   height: 6px;
 }
 
-.decision-notes-import {
-  margin-top: 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface-2);
-}
-
-.decision-notes-import summary {
+.form-field-label-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 12px;
-  color: var(--ink-2);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  list-style: none;
-}
-
-.decision-notes-import summary::-webkit-details-marker {
-  display: none;
-}
-
-.decision-notes-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.decision-notes-summary svg {
-  color: var(--primary);
-}
-
-.decision-notes-count {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.decision-notes-import-body {
-  display: grid;
-  gap: 8px;
-  max-height: 220px;
-  overflow: hidden;
-  padding: 0 10px 10px;
-  border-top: 1px solid var(--line);
-}
-
-.decision-note-option {
-  display: grid;
-  gap: 8px;
-  padding: 9px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-}
-
-.decision-note-option.added {
-  border-color: var(--primary-border);
-  background: var(--primary-light);
-}
-
-.decision-note-option-copy {
-  display: grid;
-  gap: 3px;
   min-width: 0;
 }
 
-.decision-note-option-copy strong {
-  overflow: hidden;
-  color: var(--ink-2);
-  font-size: 12px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.decision-note-option-copy span {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.4;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.decision-note-option-actions {
+.form-field-label-row > span,
+.form-field-label-row > label {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  font-size: 13px;
 }
 
-.decision-note-option-actions button {
-  padding: 5px 8px;
+.decision-field-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.decision-note-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 3px 6px;
   color: var(--primary);
   border: 1px solid var(--primary-border);
   border-radius: 7px;
   background: var(--primary-light);
+}
+
+.decision-note-picker > svg {
+  flex: 0 0 auto;
+}
+
+.decision-note-picker select {
+  max-width: 105px;
+  height: 21px;
+  padding: 0 12px 0 0;
+  overflow: hidden;
+  color: var(--primary);
+  border: 0;
+  outline: 0;
+  background: transparent;
   font-size: 10px;
   font-weight: 600;
+  text-overflow: ellipsis;
+  cursor: pointer;
 }
 
-.decision-note-option-actions button:hover {
-  color: #ffffff;
-  border-color: var(--primary);
-  background: var(--primary);
-}
-
-.decision-notes-empty {
-  padding: 10px 2px 2px;
+.decision-note-picker select:disabled {
   color: var(--muted);
-  font-size: 11px;
-  line-height: 1.45;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.decision-note-picker option {
+  color: var(--ink-2);
+  background: var(--surface);
+}
+
+.field-clear-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 5px;
+  color: var(--muted);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.field-clear-button:hover:not(:disabled) {
+  color: #b42318;
+  background: #fff1f2;
+}
+
+.field-clear-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .decision-connection-note {
@@ -4215,8 +4192,9 @@ fieldset.form-field {
 }
 
 .chat-message-bubble {
+  position: relative;
   max-width: min(680px, 84%);
-  padding: 12px 14px;
+  padding: 12px 42px 12px 14px;
   color: var(--ink-3);
   border: 1px solid var(--line);
   border-radius: 4px 14px 14px 14px;
@@ -4230,6 +4208,66 @@ fieldset.form-field {
   border-radius: 14px 4px 14px 14px;
   background: linear-gradient(135deg, #6366f1 0%, #585af0 100%);
   box-shadow: 0 4px 12px rgba(99, 102, 241, 0.18);
+}
+
+.chat-copy-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+  opacity: 0;
+  transition: opacity 150ms ease, color 150ms ease, background 150ms ease, border-color 150ms ease;
+}
+
+.chat-message-row:hover .chat-copy-button,
+.chat-copy-button:focus-visible,
+.chat-copy-button.copied {
+  opacity: 1;
+}
+
+.chat-copy-button:hover {
+  color: var(--primary);
+  border-color: var(--primary-border);
+  background: var(--primary-light);
+}
+
+.chat-copy-button.copied {
+  color: #047857;
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+}
+
+.theme-dark .chat-copy-button.copied {
+  color: #6ee7b7;
+  border-color: #1a4a3a;
+  background: #0f2a22;
+}
+
+.chat-message-row.user .chat-copy-button {
+  color: rgba(255, 255, 255, 0.85);
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(15, 23, 42, 0.18);
+}
+
+.chat-message-row.user .chat-copy-button:hover {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.55);
+  background: rgba(15, 23, 42, 0.32);
+}
+
+.chat-message-row.user .chat-copy-button.copied {
+  color: #ffffff;
+  border-color: rgba(167, 243, 208, 0.75);
+  background: rgba(6, 95, 70, 0.55);
 }
 
 .chat-message-label {
@@ -4547,6 +4585,67 @@ fieldset.form-field {
   font-weight: 700;
 }
 
+.chat-rich-text .chat-task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  list-style: none;
+  margin-left: -20px;
+}
+
+.chat-task-marker {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin-top: 3px;
+  color: #ffffff;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  background: var(--primary);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.chat-task-item:not(.checked) .chat-task-marker {
+  color: var(--primary);
+  background: transparent;
+}
+
+.chat-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.chat-rich-text table {
+  width: 100%;
+  min-width: 360px;
+  border-collapse: collapse;
+  color: inherit;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.chat-rich-text th,
+.chat-rich-text td {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.chat-rich-text th {
+  color: var(--ink-2);
+  background: var(--surface-2);
+  font-weight: 700;
+}
+
+.chat-rich-text td {
+  color: inherit;
+}
+
 .chat-rich-text strong {
   color: var(--ink);
   font-weight: 700;
@@ -4725,7 +4824,6 @@ fieldset.form-field {
 
   .decision-view .decision-layout.brief-collapsed .decision-panel-copy,
   .decision-view .decision-layout.brief-collapsed .decision-field,
-  .decision-view .decision-layout.brief-collapsed .decision-notes-import,
   .decision-view .decision-layout.brief-collapsed .imported-context,
   .decision-view .decision-layout.brief-collapsed .decision-connection-note,
   .decision-view .decision-layout.brief-collapsed .decision-error,
@@ -7338,6 +7436,10 @@ fieldset.form-field {
 
   .chat-message-bubble {
     max-width: 86%;
+  }
+
+  .chat-copy-button {
+    opacity: 0.85;
   }
 
   .chat-composer {
