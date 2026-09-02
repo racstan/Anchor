@@ -123,6 +123,17 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
 
 export const AI_SETTINGS_STORAGE_KEY = 'anchor-ai-settings-v1'
 
+export function isAIReady(settings: AISettings): boolean {
+  const provider = AI_PROVIDERS.find((item) => item.id === settings.providerId)
+
+  return Boolean(
+    provider &&
+    settings.apiKey.trim() &&
+    settings.model.trim() &&
+    (!provider.requiresAccountId || settings.accountId.trim()),
+  )
+}
+
 export function readAISettings(): AISettings {
   if (typeof window === 'undefined') {
     return { ...DEFAULT_AI_SETTINGS }
@@ -464,6 +475,26 @@ function ensureText(payload: unknown): string {
   }
 
   return text
+}
+
+export function parseAIObject(response: string): Record<string, unknown> {
+  const fenced = response.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim()
+  const candidate = fenced || response.trim()
+  const start = candidate.indexOf('{')
+  const end = candidate.lastIndexOf('}')
+  const json = start >= 0 && end > start ? candidate.slice(start, end + 1) : candidate
+
+  try {
+    const parsed = JSON.parse(json) as unknown
+
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error('The AI response was not an object.')
+    }
+
+    return parsed as Record<string, unknown>
+  } catch {
+    throw new Error('Anchor could not read that draft. Try again, or write it manually.')
+  }
 }
 
 export async function completeAIChat(

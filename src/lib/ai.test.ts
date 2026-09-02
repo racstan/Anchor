@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AI_PROVIDERS, discoverModels } from './ai'
+import { AI_PROVIDERS, discoverModels, isAIReady, parseAIObject } from './ai'
 import type { AISettings } from './ai'
 
 const settings: AISettings = {
@@ -29,6 +29,18 @@ describe('AI provider connections', () => {
       'gemini',
     ]))
     expect(AI_PROVIDERS.every((provider) => !('models' in provider))).toBe(true)
+  })
+
+  it('recognizes when a configured connection can be used for actions', () => {
+    expect(isAIReady({ ...settings, model: 'live-model' })).toBe(true)
+    expect(isAIReady({ ...settings, apiKey: '' })).toBe(false)
+    expect(isAIReady({ ...settings, model: '' })).toBe(false)
+    expect(isAIReady({ ...settings, providerId: 'cloudflare-workers-ai', model: 'model' })).toBe(false)
+  })
+
+  it('reads JSON drafts wrapped in markdown fences or explanatory text', () => {
+    expect(parseAIObject('```json\n{"title":"A clear title"}\n```')).toEqual({ title: 'A clear title' })
+    expect(parseAIObject('Here is the draft: {"tag":"Focus"}')).toEqual({ tag: 'Focus' })
   })
 
   it('maps the provider model response at runtime', async () => {

@@ -33,6 +33,15 @@ Open **Settings → AI connection**, choose a provider, enter its credentials, d
 
 Browser requests use `/api/anchor-ai`, a short-lived Vercel/server development relay that avoids provider CORS restrictions. The relay does not persist keys or decision context. API credentials remain in the browser's local storage, so use a private device and deploy your own relay for a production setup with stricter secrets management.
 
+Once connected, AI is available throughout the workspace:
+
+- **Dashboard:** ask for patterns, priorities, or one small next step across projects, anchors, notes, and decision rooms.
+- **Projects:** generate a project brief, uncover missing context, or turn project anchors into a realistic seven-day plan.
+- **Anchors:** draft or polish an anchor while writing, reflect on an existing anchor, find blind spots, and make reminders more actionable.
+- **Decision space:** continue the full contextual decision conversation as before.
+
+These actions are opt-in: Anchor does not silently analyze or auto-send workspace data. Each action shows what context is being used and sends it only to the provider you configured.
+
 ## Workspace backups
 
 **Settings → Workspace data** can export anchors, projects, decisions, notes, and your profile to a readable JSON file. API keys are deliberately excluded. Imports are validated and can either merge records by ID or replace the current workspace. Older state-only JSON backups are accepted too.

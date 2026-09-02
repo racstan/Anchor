@@ -80,6 +80,8 @@ import {
   completeAIChat,
   DEFAULT_AI_SETTINGS,
   discoverModels,
+  isAIReady,
+  parseAIObject,
   readAISettings,
   writeAISettings,
 } from './lib/ai'
@@ -538,6 +540,7 @@ function App() {
   const [editingAnchor, setEditingAnchor] = useState<Anchor | undefined>(undefined)
   const [isProjectComposerOpen, setIsProjectComposerOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | undefined>(undefined)
+  const [aiReflectionAnchor, setAIReflectionAnchor] = useState<Anchor | undefined>(undefined)
   const [syncSettings, setSyncSettings] = useState<SyncSettings>(() => readSyncSettings())
   const [syncBusy, setSyncBusy] = useState(false)
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo>()
@@ -1221,6 +1224,15 @@ function App() {
     navigate('settings')
   }
 
+  const openAISettings = () => {
+    setIsComposerOpen(false)
+    setEditingAnchor(undefined)
+    setIsProjectComposerOpen(false)
+    setEditingProject(undefined)
+    setAIReflectionAnchor(undefined)
+    navigate('settings')
+  }
+
   const saveProfile = (nextProfile: UserProfile) => {
     const name = nextProfile.name.trim()
 
@@ -1337,11 +1349,16 @@ function App() {
       <ProjectView
         project={activeProject}
         anchors={state.anchors}
+        decisions={state.decisions}
+        notes={state.notes}
+        settings={aiSettings}
+        onOpenSettings={openAISettings}
         onBack={() => navigate('projects')}
         onAddAnchor={() => openAnchorComposer(activeProject.id)}
         onEditAnchor={setEditingAnchor}
         onEditProject={() => setEditingProject(activeProject)}
         onTogglePinned={togglePinned}
+        onAskAnchor={setAIReflectionAnchor}
       />
     )
   } else if (activeView === 'home') {
@@ -1372,6 +1389,7 @@ function App() {
         onOpenProject={(projectId) => navigate('projects', projectId)}
         onOpenProjects={() => navigate('projects')}
         onOpenDecision={() => navigate('decide')}
+        onAskAnchor={setAIReflectionAnchor}
       />
     )
   } else if (activeView === 'dashboard') {
@@ -1379,6 +1397,12 @@ function App() {
       <DashboardView
         anchorsCount={state.anchors.length}
         projectsCount={state.projects.length}
+        anchors={state.anchors}
+        projects={state.projects}
+        decisions={state.decisions}
+        notes={state.notes}
+        settings={aiSettings}
+        onOpenSettings={openAISettings}
         onAnchorThought={anchorPhilosophyThought}
         onOpenDecision={() => navigate('decide')}
         onAddAnchor={() => openAnchorComposer()}
@@ -1454,6 +1478,10 @@ function App() {
       <ProjectsView
         projects={state.projects}
         anchors={state.anchors}
+        decisions={state.decisions}
+        notes={state.notes}
+        settings={aiSettings}
+        onOpenSettings={openAISettings}
         onOpenProject={(projectId) => navigate('projects', projectId)}
         onAddProject={() => setIsProjectComposerOpen(true)}
         onEditProject={setEditingProject}
@@ -1464,6 +1492,8 @@ function App() {
       <AnchorsView
         anchors={state.anchors}
         projects={state.projects}
+        settings={aiSettings}
+        onOpenSettings={openAISettings}
         filter={activeView === 'global' ? 'global' : listFilter}
         query={query}
         onQueryChange={setQuery}
@@ -1471,6 +1501,7 @@ function App() {
         onAddAnchor={() => openAnchorComposer()}
         onEditAnchor={setEditingAnchor}
         onTogglePinned={togglePinned}
+        onAskAnchor={setAIReflectionAnchor}
       />
     )
   }
@@ -1799,6 +1830,8 @@ function App() {
         <AnchorComposer
           projects={state.projects}
           defaultProjectId={activeProjectId}
+          settings={aiSettings}
+          onOpenSettings={openAISettings}
           onClose={() => setIsComposerOpen(false)}
           onSubmit={addAnchor}
         />
@@ -1807,20 +1840,39 @@ function App() {
         <AnchorEditModal
           anchor={editingAnchor}
           projects={state.projects}
+          settings={aiSettings}
+          onOpenSettings={openAISettings}
           onClose={() => setEditingAnchor(undefined)}
           onSave={updateAnchor}
           onDelete={deleteAnchor}
         />
       )}
       {isProjectComposerOpen && (
-        <ProjectComposer onClose={() => setIsProjectComposerOpen(false)} onSubmit={addProject} />
+        <ProjectComposer
+          settings={aiSettings}
+          onOpenSettings={openAISettings}
+          onClose={() => setIsProjectComposerOpen(false)}
+          onSubmit={addProject}
+        />
       )}
       {editingProject && (
         <ProjectEditModal
           project={editingProject}
+          settings={aiSettings}
+          onOpenSettings={openAISettings}
           onClose={() => setEditingProject(undefined)}
           onSave={updateProject}
           onDelete={deleteProject}
+        />
+      )}
+      {aiReflectionAnchor && (
+        <AnchorReflectionModal
+          anchor={aiReflectionAnchor}
+          project={getProject(state.projects, aiReflectionAnchor.projectId)}
+          relatedAnchors={state.anchors}
+          settings={aiSettings}
+          onOpenSettings={openAISettings}
+          onClose={() => setAIReflectionAnchor(undefined)}
         />
       )}
       {isUpdateModalOpen && updateInfo && (
@@ -2087,6 +2139,7 @@ interface HomeViewProps {
   onOpenProject: (projectId: string) => void
   onOpenProjects: () => void
   onOpenDecision: () => void
+  onAskAnchor: (anchor: Anchor) => void
 }
 
 function HomeView({
@@ -2105,6 +2158,7 @@ function HomeView({
   onOpenProject,
   onOpenProjects,
   onOpenDecision,
+  onAskAnchor,
 }: HomeViewProps) {
   const [greeting, setGreeting] = useState(() => getDailyGreeting(name))
 
@@ -2232,6 +2286,7 @@ function HomeView({
                 key={anchor.id}
                 onTogglePinned={onTogglePinned}
                 onEdit={onEditAnchor}
+                onAskAI={onAskAnchor}
               />
             ))}
           </div>
@@ -2301,6 +2356,9 @@ interface AnchorsViewProps {
   onAddAnchor: () => void
   onEditAnchor: (anchor: Anchor) => void
   onTogglePinned: (anchorId: string) => void
+  settings: AISettings
+  onOpenSettings: () => void
+  onAskAnchor: (anchor: Anchor) => void
 }
 
 function AnchorsView({
@@ -2313,6 +2371,9 @@ function AnchorsView({
   onAddAnchor,
   onEditAnchor,
   onTogglePinned,
+  settings,
+  onOpenSettings,
+  onAskAnchor,
 }: AnchorsViewProps) {
   const filteredAnchors = filterAnchors(anchors, filter, undefined, query)
   const heading =
@@ -2379,6 +2440,21 @@ function AnchorsView({
         </label>
       </div>
 
+      <AIInsightCard
+        className="anchors-ai-card"
+        eyebrow="Your context, understood"
+        title="Make your anchors work harder"
+        description="Ask Anchor to spot themes, simplify a group of reminders, or turn what you saved into a practical next step."
+        context={limitAIContext(anchors.map(anchorPromptLine).join('\n') || '- No anchors yet.', 12000)}
+        prompts={[
+          { label: 'Find themes', prompt: 'What themes or tensions show up across these anchors?' },
+          { label: 'Make them actionable', prompt: 'Turn the most useful anchors into three small actions for this week.' },
+          { label: 'Spot duplicates', prompt: 'Which anchors overlap, and how could I combine them without losing meaning?' },
+        ]}
+        settings={settings}
+        onOpenSettings={onOpenSettings}
+      />
+
       {filteredAnchors.length > 0 ? (
         <div className="anchor-grid">
           {filteredAnchors.map((anchor) => (
@@ -2389,6 +2465,7 @@ function AnchorsView({
               key={anchor.id}
               onTogglePinned={onTogglePinned}
               onEdit={onEditAnchor}
+              onAskAI={onAskAnchor}
             />
           ))}
         </div>
@@ -2415,9 +2492,10 @@ interface AnchorListItemProps {
   query?: string
   onTogglePinned: (anchorId: string) => void
   onEdit?: (anchor: Anchor) => void
+  onAskAI?: (anchor: Anchor) => void
 }
 
-function AnchorListItem({ anchor, projects, query, onTogglePinned, onEdit }: AnchorListItemProps) {
+function AnchorListItem({ anchor, projects, query, onTogglePinned, onEdit, onAskAI }: AnchorListItemProps) {
   const project = getProject(projects, anchor.projectId)
 
   return (
@@ -2437,6 +2515,17 @@ function AnchorListItem({ anchor, projects, query, onTogglePinned, onEdit }: Anc
               onClick={() => onEdit(anchor)}
             >
               <PenLine size={14} />
+            </button>
+          )}
+          {onAskAI && (
+            <button
+              className="item-action-button ai-item-action"
+              type="button"
+              aria-label="Reflect on anchor with AI"
+              title="Reflect on anchor with AI"
+              onClick={() => onAskAI(anchor)}
+            >
+              <Sparkles size={14} />
             </button>
           )}
           <button
@@ -2472,6 +2561,419 @@ function AnchorListItem({ anchor, projects, query, onTogglePinned, onEdit }: Anc
         </span>
       </div>
     </article>
+  )
+}
+
+function aiDraftString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function parseAnchorDraft(response: string): { title: string; body: string; tag: string } {
+  const draft = parseAIObject(response)
+  const title = aiDraftString(draft.title)
+  const body = aiDraftString(draft.body)
+  const tag = aiDraftString(draft.tag)
+
+  if (!title || !body) {
+    throw new Error('Anchor needs both a clear title and a little context. Try again with more detail.')
+  }
+
+  return { title, body, tag }
+}
+
+function parseProjectDraft(response: string): { name: string; description: string } {
+  const draft = parseAIObject(response)
+  const name = aiDraftString(draft.name)
+  const description = aiDraftString(draft.description)
+
+  if (!name || !description) {
+    throw new Error('Project drafts need a name and a short description. Try again with more detail.')
+  }
+
+  return { name, description }
+}
+
+function limitAIContext(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}\n…more context omitted for focus.` : value
+}
+
+function buildWorkspaceAIContext(
+  anchors: Anchor[],
+  projects: Project[],
+  decisions: Decision[],
+  notes: Note[],
+): string {
+  const projectLines = projects.map((project) => {
+    const count = anchors.filter((anchor) => anchor.projectId === project.id).length
+    return `- ${project.name}: ${project.description} (${count} anchor${count === 1 ? '' : 's'})`
+  })
+  const anchorLines = anchors.slice(0, 24).map(anchorPromptLine)
+  const decisionLines = decisions.slice(0, 8).map((decision) =>
+    `- ${decisionPreview(decision)}${decision.projectId ? ` [project: ${projects.find((project) => project.id === decision.projectId)?.name ?? 'unknown'}]` : ''}`,
+  )
+  const noteLines = notes.slice(0, 8).map((note) => `- ${note.title}: ${note.content.replace(/\s+/g, ' ').trim().slice(0, 280)}`)
+
+  return limitAIContext([
+    'PROJECTS',
+    projectLines.join('\n') || '- No projects yet.',
+    'ANCHORS',
+    anchorLines.join('\n') || '- No anchors yet.',
+    'RECENT DECISION ROOMS',
+    decisionLines.join('\n') || '- No decision rooms yet.',
+    'NOTES',
+    noteLines.join('\n') || '- No saved notes yet.',
+  ].join('\n\n'), 18000)
+}
+
+function buildProjectAIContext(
+  project: Project,
+  anchors: Anchor[],
+  decisions: Decision[] = [],
+  notes: Note[] = [],
+): string {
+  const projectAnchors = anchors.filter((anchor) => anchor.projectId === project.id)
+  const globalAnchors = anchors.filter((anchor) => anchor.scope === 'global' && anchor.pinned).slice(0, 6)
+  const projectDecisions = decisions.filter((decision) => decision.projectId === project.id).slice(0, 6)
+  const recentNotes = notes.slice(0, 5)
+
+  return limitAIContext([
+    `PROJECT\n${project.name}\n${project.description}`,
+    `PROJECT ANCHORS\n${projectAnchors.map(anchorPromptLine).join('\n') || '- No project anchors yet.'}`,
+    `GLOBAL PRINCIPLES\n${globalAnchors.map(anchorPromptLine).join('\n') || '- No pinned global principles.'}`,
+    `PROJECT DECISION ROOMS\n${projectDecisions.map((decision) => `- ${decisionPreview(decision)}`).join('\n') || '- No project decision rooms yet.'}`,
+    `RECENT NOTES\n${recentNotes.map((note) => `- ${note.title}: ${note.content.replace(/\s+/g, ' ').trim().slice(0, 240)}`).join('\n') || '- No saved notes yet.'}`,
+  ].join('\n\n'), 12000)
+}
+
+interface AIQuickPrompt {
+  label: string
+  prompt: string
+}
+
+interface AIInsightCardProps {
+  eyebrow: string
+  title: string
+  description: string
+  context: string
+  prompts: AIQuickPrompt[]
+  settings: AISettings
+  onOpenSettings: () => void
+  className?: string
+}
+
+function AIInsightCard({
+  eyebrow,
+  title,
+  description,
+  context,
+  prompts,
+  settings,
+  onOpenSettings,
+  className = '',
+}: AIInsightCardProps) {
+  const [answer, setAnswer] = useState<string>()
+  const [question, setQuestion] = useState('')
+  const [isThinking, setIsThinking] = useState(false)
+  const [error, setError] = useState<string>()
+  const requestControllerRef = useRef<AbortController | undefined>(undefined)
+
+  useEffect(() => () => requestControllerRef.current?.abort(), [])
+
+  const askAnchor = async (requestedPrompt: string) => {
+    const trimmedPrompt = requestedPrompt.trim()
+
+    if (!trimmedPrompt) {
+      return
+    }
+
+    if (!isAIReady(settings)) {
+      setError('Connect an AI provider, API key, and model in Settings before asking Anchor for an insight.')
+      return
+    }
+
+    requestControllerRef.current?.abort()
+    const requestController = new AbortController()
+    requestControllerRef.current = requestController
+    setIsThinking(true)
+    setError(undefined)
+    setQuestion('')
+
+    try {
+      const response = await completeAIChat(settings, [
+        {
+          role: 'system',
+          content: 'You are Anchor, a practical and compassionate workspace guide. Use only the supplied workspace context. Notice patterns without overclaiming, name uncertainty, and turn observations into small useful actions. Do not diagnose, invent facts, or make high-stakes decisions for the person. Format the answer with concise Markdown headings and bullets.',
+        },
+        {
+          role: 'user',
+          content: `WORKSPACE CONTEXT\n${context}\n\nREQUEST\n${trimmedPrompt}`,
+        },
+      ], requestController.signal)
+
+      setAnswer(response)
+    } catch (requestError) {
+      if (requestError instanceof DOMException && requestError.name === 'AbortError') {
+        return
+      }
+
+      setError(requestError instanceof Error ? requestError.message : 'Anchor could not reach your AI provider.')
+    } finally {
+      if (requestControllerRef.current === requestController) {
+        requestControllerRef.current = undefined
+        setIsThinking(false)
+      }
+    }
+  }
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void askAnchor(question)
+  }
+
+  return (
+    <section className={`ai-insight-card ${className}`.trim()}>
+      <div className="ai-insight-header">
+        <div className="ai-insight-title-wrap">
+          <span className="ai-insight-icon"><Sparkles size={17} /></span>
+          <div>
+            <p className="eyebrow">{eyebrow}</p>
+            <h2>{title}</h2>
+          </div>
+        </div>
+        {!isAIReady(settings) ? (
+          <button className="text-button ai-connect-link" type="button" onClick={onOpenSettings}>
+            Connect AI <ArrowUpRight size={13} />
+          </button>
+        ) : (
+          <span className="ai-ready-label"><span /> Ready when you are</span>
+        )}
+      </div>
+      <p className="ai-insight-description">{description}</p>
+      <div className="ai-quick-prompts">
+        {prompts.map((item) => (
+          <button
+            className="ai-quick-prompt"
+            type="button"
+            key={item.label}
+            disabled={isThinking}
+            onClick={() => void askAnchor(item.prompt)}
+          >
+            <WandSparkles size={13} /> {item.label}
+          </button>
+        ))}
+      </div>
+      {answer ? (
+        <div className="ai-insight-response">
+          <div className="ai-response-heading">
+            <span><Bot size={14} /> Anchor&apos;s read</span>
+            <button className="text-button" type="button" onClick={() => setAnswer(undefined)}>Clear</button>
+          </div>
+          <ChatRichText content={answer} />
+        </div>
+      ) : (
+        <div className="ai-insight-empty">
+          <Bot size={16} />
+          <span>Ask for a useful read on what you have already captured. Nothing runs until you choose an action.</span>
+        </div>
+      )}
+      <form className="ai-question-form" onSubmit={handleSubmit}>
+        <input
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          placeholder="Ask anything about this context…"
+          aria-label={`Ask Anchor about ${title.toLowerCase()}`}
+          disabled={isThinking}
+        />
+        <button className="ai-send-button" type="submit" disabled={isThinking || !question.trim()} aria-label="Ask Anchor">
+          {isThinking ? <RefreshCw className="spin" size={15} /> : <Send size={15} />}
+        </button>
+      </form>
+      {error && (
+        <div className="ai-inline-error" role="alert">
+          <CircleAlert size={14} />
+          <span>{error}</span>
+          {!isAIReady(settings) && <button type="button" onClick={onOpenSettings}>Open Settings</button>}
+        </div>
+      )}
+      <span className="ai-privacy-note"><ShieldCheck size={12} /> Sent to your chosen provider only when you ask.</span>
+    </section>
+  )
+}
+
+interface AIWriterButtonProps {
+  settings: AISettings
+  onOpenSettings: () => void
+  prompt: string
+  onResult: (response: string) => void
+  label: string
+  disabled?: boolean
+}
+
+function AIWriterButton({
+  settings,
+  onOpenSettings,
+  prompt,
+  onResult,
+  label,
+  disabled = false,
+}: AIWriterButtonProps) {
+  const [isWorking, setIsWorking] = useState(false)
+  const [error, setError] = useState<string>()
+  const requestControllerRef = useRef<AbortController | undefined>(undefined)
+  const ready = isAIReady(settings)
+
+  useEffect(() => () => requestControllerRef.current?.abort(), [])
+
+  const run = async () => {
+    if (!ready) {
+      setError('Connect AI in Settings first, then Anchor can help shape this draft.')
+      return
+    }
+
+    requestControllerRef.current?.abort()
+    const requestController = new AbortController()
+    requestControllerRef.current = requestController
+    setIsWorking(true)
+    setError(undefined)
+
+    try {
+      const response = await completeAIChat(settings, [
+        {
+          role: 'system',
+          content: 'You are Anchor’s writing assistant. Return only one valid JSON object with the exact requested keys. Keep the person’s meaning, remove vagueness, and never invent evidence, credentials, events, or promises.',
+        },
+        { role: 'user', content: prompt },
+      ], requestController.signal)
+      onResult(response)
+    } catch (requestError) {
+      if (requestError instanceof DOMException && requestError.name === 'AbortError') {
+        return
+      }
+
+      setError(requestError instanceof Error ? requestError.message : 'Anchor could not shape that draft.')
+    } finally {
+      if (requestControllerRef.current === requestController) {
+        requestControllerRef.current = undefined
+        setIsWorking(false)
+      }
+    }
+  }
+
+  return (
+    <div className="ai-writer-control">
+      <button className="ai-writer-button" type="button" onClick={() => void run()} disabled={disabled || isWorking}>
+        {isWorking ? <RefreshCw className="spin" size={14} /> : <Sparkles size={14} />}
+        {isWorking ? 'Shaping…' : label}
+      </button>
+      {!ready && <button className="ai-writer-settings" type="button" onClick={onOpenSettings}>Connect AI</button>}
+      {error && <span className="ai-writer-error" role="alert">{error}</span>}
+    </div>
+  )
+}
+
+interface AnchorReflectionModalProps {
+  anchor: Anchor
+  project?: Project
+  relatedAnchors: Anchor[]
+  settings: AISettings
+  onOpenSettings: () => void
+  onClose: () => void
+}
+
+function AnchorReflectionModal({
+  anchor,
+  project,
+  relatedAnchors,
+  settings,
+  onOpenSettings,
+  onClose,
+}: AnchorReflectionModalProps) {
+  const [answer, setAnswer] = useState<string>()
+  const [question, setQuestion] = useState('')
+  const [isThinking, setIsThinking] = useState(false)
+  const [error, setError] = useState<string>()
+  const requestControllerRef = useRef<AbortController | undefined>(undefined)
+
+  useEffect(() => () => requestControllerRef.current?.abort(), [])
+
+  const ask = async (requestedPrompt: string) => {
+    const trimmedPrompt = requestedPrompt.trim()
+    if (!trimmedPrompt) return
+
+    if (!isAIReady(settings)) {
+      setError('Connect an AI provider, API key, and model in Settings before asking for a reflection.')
+      return
+    }
+
+    requestControllerRef.current?.abort()
+    const requestController = new AbortController()
+    requestControllerRef.current = requestController
+    setIsThinking(true)
+    setError(undefined)
+    setQuestion('')
+
+    const related = relatedAnchors
+      .filter((item) => item.id !== anchor.id && (item.projectId === anchor.projectId || item.scope === 'global'))
+      .slice(0, 8)
+      .map(anchorPromptLine)
+      .join('\n')
+
+    try {
+      const response = await completeAIChat(settings, [
+        {
+          role: 'system',
+          content: 'You are Anchor’s context coach. Reflect on the supplied anchor with warmth and practical clarity. Suggest ways to use it, test it, or make it actionable without changing the person’s beliefs for them. Do not invent facts or make high-stakes claims. Use concise Markdown.',
+        },
+        {
+          role: 'user',
+          content: `ANCHOR\n${anchorPromptLine(anchor)}\n\n${project ? `PROJECT\n${project.name}: ${project.description}` : 'SCOPE\nGlobal context'}\n\nRELATED ANCHORS\n${related || '- None yet.'}\n\nREQUEST\n${trimmedPrompt}`,
+        },
+      ], requestController.signal)
+      setAnswer(response)
+    } catch (requestError) {
+      if (requestError instanceof DOMException && requestError.name === 'AbortError') return
+      setError(requestError instanceof Error ? requestError.message : 'Anchor could not reach your AI provider.')
+    } finally {
+      if (requestControllerRef.current === requestController) {
+        requestControllerRef.current = undefined
+        setIsThinking(false)
+      }
+    }
+  }
+
+  return (
+    <Modal eyebrow="A closer look" title="Reflect on this anchor" onClose={onClose}>
+      <div className="anchor-reflection-content">
+        <div className="anchor-reflection-source">
+          <span className={`context-dot ${anchor.color}`} />
+          <div><strong>{anchor.title}</strong><span>{project?.name ?? 'Global context'} · {anchor.tag}</span></div>
+        </div>
+        <div className="ai-quick-prompts reflection-prompts">
+          <button className="ai-quick-prompt" type="button" disabled={isThinking} onClick={() => void ask('Make this anchor more actionable for an ordinary day.')}>Make it actionable</button>
+          <button className="ai-quick-prompt" type="button" disabled={isThinking} onClick={() => void ask('What is a healthy way to test or revisit this anchor this week?')}>Test it this week</button>
+          <button className="ai-quick-prompt" type="button" disabled={isThinking} onClick={() => void ask('What might I be overlooking when I rely on this anchor?')}>Find a blind spot</button>
+        </div>
+        {answer ? (
+          <div className="ai-insight-response reflection-response">
+            <div className="ai-response-heading"><span><Bot size={14} /> Anchor&apos;s reflection</span><button className="text-button" type="button" onClick={() => setAnswer(undefined)}>Clear</button></div>
+            <ChatRichText content={answer} />
+          </div>
+        ) : (
+          <div className="ai-insight-empty"><Bot size={16} /><span>Use AI to explore how this reminder can serve you, not to replace your judgment.</span></div>
+        )}
+        <form className="ai-question-form" onSubmit={(event) => { event.preventDefault(); void ask(question) }}>
+          <input value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask a question about this anchor…" aria-label="Ask about this anchor" disabled={isThinking} />
+          <button className="ai-send-button" type="submit" disabled={isThinking || !question.trim()} aria-label="Ask about this anchor">
+            {isThinking ? <RefreshCw className="spin" size={15} /> : <Send size={15} />}
+          </button>
+        </form>
+        {!isAIReady(settings) && (
+          <div className="ai-inline-error"><CircleAlert size={14} /><span>AI is not connected yet.</span><button type="button" onClick={onOpenSettings}>Open Settings</button></div>
+        )}
+        {error && isAIReady(settings) && <div className="ai-inline-error" role="alert"><CircleAlert size={14} /><span>{error}</span></div>}
+        <span className="ai-privacy-note"><ShieldCheck size={12} /> Your anchor is sent only to your chosen provider when you ask.</span>
+      </div>
+    </Modal>
   )
 }
 
@@ -4389,12 +4891,25 @@ function SettingsView({
 interface ProjectsViewProps {
   projects: Project[]
   anchors: Anchor[]
+  decisions: Decision[]
+  notes: Note[]
+  settings: AISettings
+  onOpenSettings: () => void
   onOpenProject: (projectId: string) => void
   onAddProject: () => void
   onEditProject?: (project: Project) => void
 }
 
-function ProjectsView({ projects, anchors, onOpenProject, onAddProject }: ProjectsViewProps) {
+function ProjectsView({
+  projects,
+  anchors,
+  decisions,
+  notes,
+  settings,
+  onOpenSettings,
+  onOpenProject,
+  onAddProject,
+}: ProjectsViewProps) {
   return (
     <div className="projects-view page-enter">
       <div className="page-heading">
@@ -4422,6 +4937,21 @@ function ProjectsView({ projects, anchors, onOpenProject, onAddProject }: Projec
           <span>spaces</span>
         </div>
       </div>
+
+      <AIInsightCard
+        className="projects-ai-card"
+        eyebrow="A clear view of your projects"
+        title="Let Anchor help you choose what matters"
+        description="Ask for patterns across your spaces, a sensible priority, or a plan that respects your actual capacity."
+        context={buildWorkspaceAIContext(anchors, projects, decisions, notes)}
+        prompts={[
+          { label: 'What deserves attention?', prompt: 'Looking across my projects, what deserves attention first and why?' },
+          { label: 'Find the common thread', prompt: 'What common themes or conflicts connect my projects and anchors?' },
+          { label: 'Plan a gentle week', prompt: 'Suggest a simple weekly focus across these projects without overloading me.' },
+        ]}
+        settings={settings}
+        onOpenSettings={onOpenSettings}
+      />
 
       <div className="projects-grid">
         {projects.map((project) => (
@@ -4476,21 +5006,31 @@ function ProjectCard({ project, anchorCount, onClick }: ProjectCardProps) {
 interface ProjectViewProps {
   project: Project
   anchors: Anchor[]
+  decisions: Decision[]
+  notes: Note[]
+  settings: AISettings
+  onOpenSettings: () => void
   onBack: () => void
   onAddAnchor: () => void
   onEditAnchor: (anchor: Anchor) => void
   onEditProject: () => void
   onTogglePinned: (anchorId: string) => void
+  onAskAnchor: (anchor: Anchor) => void
 }
 
 function ProjectView({
   project,
   anchors,
+  decisions,
+  notes,
+  settings,
+  onOpenSettings,
   onBack,
   onAddAnchor,
   onEditAnchor,
   onEditProject,
   onTogglePinned,
+  onAskAnchor,
 }: ProjectViewProps) {
   const projectAnchors = anchors.filter((anchor) => anchor.projectId === project.id)
   const pinnedCount = projectAnchors.filter((anchor) => anchor.pinned).length
@@ -4536,6 +5076,21 @@ function ProjectView({
         </div>
       </div>
 
+      <AIInsightCard
+        className="project-ai-card"
+        eyebrow="A smarter project space"
+        title="Let Anchor help you move this forward"
+        description="Use the context already in this project to find the next useful step, expose a gap, or make a calmer plan."
+        context={buildProjectAIContext(project, anchors, decisions, notes)}
+        prompts={[
+          { label: 'Find the next step', prompt: 'What is the smallest meaningful next step for this project?' },
+          { label: 'Find a gap', prompt: 'What important context or question is missing from this project?' },
+          { label: 'Make a simple plan', prompt: 'Turn these anchors into a realistic plan for the next seven days.' },
+        ]}
+        settings={settings}
+        onOpenSettings={onOpenSettings}
+      />
+
       <div className="section-heading project-section-heading">
         <div>
           <p className="eyebrow">The things worth returning to</p>
@@ -4551,6 +5106,7 @@ function ProjectView({
               key={anchor.id}
               onTogglePinned={onTogglePinned}
               onEdit={onEditAnchor}
+              onAskAI={onAskAnchor}
             />
           ))}
         </div>
@@ -4624,11 +5180,20 @@ function Modal({ title, eyebrow, children, onClose }: ModalProps) {
 interface AnchorComposerProps {
   projects: Project[]
   defaultProjectId?: string
+  settings: AISettings
+  onOpenSettings: () => void
   onClose: () => void
   onSubmit: (formData: AnchorFormData) => void
 }
 
-function AnchorComposer({ projects, defaultProjectId, onClose, onSubmit }: AnchorComposerProps) {
+function AnchorComposer({
+  projects,
+  defaultProjectId,
+  settings,
+  onOpenSettings,
+  onClose,
+  onSubmit,
+}: AnchorComposerProps) {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [tag, setTag] = useState('')
@@ -4687,6 +5252,19 @@ function AnchorComposer({ projects, defaultProjectId, onClose, onSubmit }: Ancho
           />
           <small>{body.length}/320</small>
         </label>
+        <AIWriterButton
+          settings={settings}
+          onOpenSettings={onOpenSettings}
+          label="Draft with AI"
+          disabled={!title.trim() && !body.trim()}
+          prompt={`Turn this rough thought into a useful Anchor reminder. Preserve the person’s meaning, make the title memorable, and make the context concrete without inventing facts. Return only JSON with exactly these keys: title, body, tag. Keep title under 100 characters, body under 320 characters, and tag under 32 characters.\n\nROUGH TITLE\n${title || '(empty)'}\n\nROUGH CONTEXT\n${body || '(empty)'}\n\nCURRENT TAG\n${tag || '(empty)'}`}
+          onResult={(response) => {
+            const draft = parseAnchorDraft(response)
+            setTitle(draft.title.slice(0, 100))
+            setBody(draft.body.slice(0, 320))
+            if (draft.tag) setTag(draft.tag.slice(0, 32))
+          }}
+        />
         <div className="form-row">
           <fieldset className="form-field scope-field">
             <legend>Keep this in</legend>
@@ -4787,12 +5365,22 @@ function AnchorComposer({ projects, defaultProjectId, onClose, onSubmit }: Ancho
 interface AnchorEditModalProps {
   anchor: Anchor
   projects: Project[]
+  settings: AISettings
+  onOpenSettings: () => void
   onClose: () => void
   onSave: (anchor: Anchor) => void
   onDelete: (anchorId: string) => void
 }
 
-function AnchorEditModal({ anchor, projects, onClose, onSave, onDelete }: AnchorEditModalProps) {
+function AnchorEditModal({
+  anchor,
+  projects,
+  settings,
+  onOpenSettings,
+  onClose,
+  onSave,
+  onDelete,
+}: AnchorEditModalProps) {
   const [title, setTitle] = useState(anchor.title)
   const [body, setBody] = useState(anchor.body)
   const [tag, setTag] = useState(anchor.tag)
@@ -4862,6 +5450,18 @@ function AnchorEditModal({ anchor, projects, onClose, onSave, onDelete }: Anchor
           />
           <small>{body.length}/320</small>
         </label>
+        <AIWriterButton
+          settings={settings}
+          onOpenSettings={onOpenSettings}
+          label="Polish with AI"
+          prompt={`Polish this existing Anchor without changing its underlying meaning. Make it clear, memorable, and practical. Return only JSON with exactly these keys: title, body, tag. Keep title under 100 characters, body under 320 characters, and tag under 32 characters. Do not invent evidence or claims.\n\nTITLE\n${title}\n\nCONTEXT\n${body}\n\nTAG\n${tag}`}
+          onResult={(response) => {
+            const draft = parseAnchorDraft(response)
+            setTitle(draft.title.slice(0, 100))
+            setBody(draft.body.slice(0, 320))
+            if (draft.tag) setTag(draft.tag.slice(0, 32))
+          }}
+        />
         <div className="form-row">
           <fieldset className="form-field scope-field">
             <legend>Keep this in</legend>
@@ -4970,11 +5570,13 @@ function AnchorEditModal({ anchor, projects, onClose, onSave, onDelete }: Anchor
 }
 
 interface ProjectComposerProps {
+  settings: AISettings
+  onOpenSettings: () => void
   onClose: () => void
   onSubmit: (formData: ProjectFormData) => void
 }
 
-function ProjectComposer({ onClose, onSubmit }: ProjectComposerProps) {
+function ProjectComposer({ settings, onOpenSettings, onClose, onSubmit }: ProjectComposerProps) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [color, setColor] = useState<AccentColor>('sky')
@@ -5004,6 +5606,18 @@ function ProjectComposer({ onClose, onSubmit }: ProjectComposerProps) {
           <span>What is this space for? <em>optional</em></span>
           <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="A short phrase to bring you back to the point." rows={3} maxLength={100} />
         </label>
+        <AIWriterButton
+          settings={settings}
+          onOpenSettings={onOpenSettings}
+          label="Shape with AI"
+          disabled={!name.trim() && !description.trim()}
+          prompt={`Turn this rough project idea into a clear project space. Keep it grounded in what the person wrote and avoid inventing goals. Return only JSON with exactly these keys: name and description. Keep name under 48 characters and description under 100 characters.\n\nROUGH NAME\n${name || '(empty)'}\n\nROUGH DESCRIPTION\n${description || '(empty)'}`}
+          onResult={(response) => {
+            const draft = parseProjectDraft(response)
+            setName(draft.name.slice(0, 48))
+            setDescription(draft.description.slice(0, 100))
+          }}
+        />
         <fieldset className="form-field color-field project-color-field">
           <legend>Choose a tone</legend>
           <div className="color-options large-color-options">
@@ -5034,12 +5648,21 @@ function ProjectComposer({ onClose, onSubmit }: ProjectComposerProps) {
 
 interface ProjectEditModalProps {
   project: Project
+  settings: AISettings
+  onOpenSettings: () => void
   onClose: () => void
   onSave: (project: Project) => void
   onDelete: (projectId: string) => void
 }
 
-function ProjectEditModal({ project, onClose, onSave, onDelete }: ProjectEditModalProps) {
+function ProjectEditModal({
+  project,
+  settings,
+  onOpenSettings,
+  onClose,
+  onSave,
+  onDelete,
+}: ProjectEditModalProps) {
   const [name, setName] = useState(project.name)
   const [description, setDescription] = useState(project.description)
   const [color, setColor] = useState<AccentColor>(project.color)
@@ -5079,6 +5702,17 @@ function ProjectEditModal({ project, onClose, onSave, onDelete }: ProjectEditMod
           <span>What is this space for? <em>optional</em></span>
           <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="A short phrase to bring you back to the point." rows={3} maxLength={100} />
         </label>
+        <AIWriterButton
+          settings={settings}
+          onOpenSettings={onOpenSettings}
+          label="Polish with AI"
+          prompt={`Polish this project description while preserving its purpose. Return only JSON with exactly these keys: name and description. Keep name under 48 characters and description under 100 characters. Do not invent goals or commitments.\n\nPROJECT NAME\n${name}\n\nDESCRIPTION\n${description}`}
+          onResult={(response) => {
+            const draft = parseProjectDraft(response)
+            setName(draft.name.slice(0, 48))
+            setDescription(draft.description.slice(0, 100))
+          }}
+        />
         <fieldset className="form-field color-field project-color-field">
           <legend>Choose a tone</legend>
           <div className="color-options large-color-options">
@@ -5203,6 +5837,12 @@ function UpdateModal({ updateInfo, onClose }: UpdateModalProps) {
 interface DashboardViewProps {
   anchorsCount: number
   projectsCount: number
+  anchors: Anchor[]
+  projects: Project[]
+  decisions: Decision[]
+  notes: Note[]
+  settings: AISettings
+  onOpenSettings: () => void
   onAnchorThought: (thought: PhilosophyThought) => void
   onOpenDecision: () => void
   onAddAnchor: () => void
@@ -5211,6 +5851,12 @@ interface DashboardViewProps {
 function DashboardView({
   anchorsCount,
   projectsCount,
+  anchors,
+  projects,
+  decisions,
+  notes,
+  settings,
+  onOpenSettings,
   onAnchorThought,
   onOpenDecision,
   onAddAnchor,
@@ -5291,6 +5937,21 @@ function DashboardView({
           <span>{downloadMessage}</span>
         </div>
       )}
+
+      <AIInsightCard
+        className="dashboard-ai-card"
+        eyebrow="Your workspace intelligence"
+        title="A little help seeing the whole picture"
+        description="Anchor can connect the dots between your projects, reminders, notes, and decision rooms — only when you invite it."
+        context={buildWorkspaceAIContext(anchors, projects, decisions, notes)}
+        prompts={[
+          { label: 'What needs attention?', prompt: 'What seems most worth my attention today, based on my saved context?' },
+          { label: 'Find a pattern', prompt: 'What pattern, tension, or repeated theme do you notice across my workspace?' },
+          { label: 'Choose one next step', prompt: 'Give me one small next step that would create useful momentum.' },
+        ]}
+        settings={settings}
+        onOpenSettings={onOpenSettings}
+      />
 
       <div className="dashboard-layout">
         <section className="philosophy-spotlight-card">
