@@ -166,22 +166,19 @@ jobs:
         run: |
           echo "Finding Android APK/AAB artifacts..."
           mkdir -p dist-android
-          find src-tauri/gen/android -type f \( -name "*.apk" -o -name "*.aab" \) -print
+          find src-tauri/gen/android/app/build/outputs -type f \( -name "*.apk" -o -name "*.aab" \) -print
           while IFS= read -r -d '' artifact; do
             cp "$artifact" "dist-android/Anchor-${GITHUB_REF_NAME}-$(basename "$artifact")"
-          done < <(find src-tauri/gen/android -type f \( -name "*.apk" -o -name "*.aab" \) -print0)
+          done < <(find src-tauri/gen/android/app/build/outputs -type f \( -name "*.apk" -o -name "*.aab" \) -print0)
           test -n "$(find dist-android -type f -print -quit)"
           ls -lh dist-android/
 
       - name: Upload Android to Release
         if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist-android/*
-          tag_name: ${{ inputs.tag || github.ref_name }}
-          generate_release_notes: false
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: gh release upload "$RELEASE_TAG" dist-android/* --repo "$GITHUB_REPOSITORY" --clobber
 
       # Always upload as artifact so workflow_dispatch also saves files
       - name: Upload Android artifacts (action artifacts)
