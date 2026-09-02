@@ -81,6 +81,6 @@ describe('formatUpdatedAt', () => {
     expect(formatUpdatedAt(tenMinAgo)).toBe('Updated 10m ago')
 
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
-    expect(formatUpdatedAt(twoHoursAgo)).toBe('Updated today')
+    expect(formatUpdatedAt(twoHoursAgo)).toBe('Updated 2h ago')
   })
 })

@@ -28,6 +28,7 @@ import {
   MessageCircle,
   Moon,
   MoreHorizontal,
+  NotebookPen,
   PanelLeftClose,
   PanelLeftOpen,
   PenLine,
@@ -70,6 +71,7 @@ import type {
   ChatMessage,
   Decision,
   EvidenceSource,
+  Note,
   Project,
 } from './lib/anchors'
 import {
@@ -123,7 +125,7 @@ import {
 import type { PhilosophyCategory, PhilosophyThought } from './lib/philosophy'
 import './App.css'
 
-type View = 'home' | 'dashboard' | 'all' | 'global' | 'projects' | 'decide' | 'settings'
+type View = 'home' | 'dashboard' | 'all' | 'global' | 'projects' | 'notes' | 'decide' | 'settings'
 
 type AnchorFormData = Pick<Anchor, 'title' | 'body' | 'scope' | 'tag' | 'color' | 'pinned'> & {
   projectId?: string
@@ -542,6 +544,7 @@ function App() {
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [toast, setToast] = useState<string>()
+  const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now())
   const topSearchRef = useRef<HTMLInputElement>(null)
   const searchWrapRef = useRef<HTMLDivElement>(null)
   const notificationWrapRef = useRef<HTMLDivElement>(null)
@@ -569,6 +572,11 @@ function App() {
   useEffect(() => {
     writeSyncSettings(syncSettings)
   }, [syncSettings])
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setRelativeTimeNow(Date.now()), 60_000)
+    return () => window.clearInterval(interval)
+  }, [])
 
   const triggerSync = useCallback(async (isManual = false) => {
     const currentSync = syncSettingsRef.current
@@ -1028,6 +1036,22 @@ function App() {
     }))
   }
 
+  const saveNote = (note: Note) => {
+    setState((currentState) => ({
+      ...currentState,
+      notes: [note, ...currentState.notes.filter((savedNote) => savedNote.id !== note.id)],
+    }))
+    showToast('Note saved.')
+  }
+
+  const deleteNote = (noteId: string) => {
+    setState((currentState) => ({
+      ...currentState,
+      notes: currentState.notes.filter((note) => note.id !== noteId),
+    }))
+    showToast('Note removed.')
+  }
+
   const togglePinned = (anchorId: string) => {
     setState((currentState) => ({
       ...currentState,
@@ -1272,7 +1296,7 @@ function App() {
       setProfile(imported.profile)
     }
 
-    const summary = `${nextState.anchors.length} anchors, ${nextState.projects.length} projects, and ${nextState.decisions.length} decisions`
+    const summary = `${nextState.anchors.length} anchors, ${nextState.projects.length} projects, ${nextState.decisions.length} decisions, and ${nextState.notes.length} notes`
     const message = mode === 'merge' ? `Merged ${summary} into this workspace.` : `Restored ${summary}.`
 
     showToast(message)
@@ -1297,7 +1321,7 @@ function App() {
 
           setProfile({ name })
           if (!keepExamples) {
-            setState({ anchors: [], projects: [], decisions: [] })
+            setState({ anchors: [], projects: [], decisions: [], notes: [] })
             setSpotlightAnchorId(undefined)
           }
         }}
@@ -1359,12 +1383,21 @@ function App() {
         onAddAnchor={() => openAnchorComposer()}
       />
     )
+  } else if (activeView === 'notes') {
+    pageContent = (
+      <NotesView
+        notes={state.notes}
+        onSaveNote={saveNote}
+        onDeleteNote={deleteNote}
+      />
+    )
   } else if (activeView === 'decide') {
     pageContent = (
       <DecisionView
         name={profile.name}
         projects={state.projects}
         anchors={state.anchors}
+        notes={state.notes}
         settings={aiSettings}
         decisions={state.decisions}
         onOpenSettings={() => navigate('settings')}
@@ -1412,6 +1445,7 @@ function App() {
         }}
         onTriggerSync={() => triggerSync(true)}
         onTestDropbox={testDropboxConnection}
+        relativeTimeNow={relativeTimeNow}
       />
     )
   } else if (activeView === 'projects') {
@@ -1522,6 +1556,13 @@ function App() {
             onClick={() => navigate('decide')}
           />
           <NavItem
+            icon={NotebookPen}
+            label="Notes"
+            active={activeView === 'notes' && !activeProjectId}
+            onClick={() => navigate('notes')}
+            count={state.notes.length}
+          />
+          <NavItem
             icon={FolderOpen}
             label="Projects"
             active={activeView === 'projects' && !activeProjectId}
@@ -1620,9 +1661,11 @@ function App() {
                         ? 'Global context'
                         : activeView === 'decide'
                           ? 'Decision space'
-                          : activeView === 'settings'
-                            ? 'Settings'
-                            : 'Projects')}
+                          : activeView === 'notes'
+                            ? 'Notes'
+                            : activeView === 'settings'
+                              ? 'Settings'
+                              : 'Projects')}
             </strong>
           </div>
           <div className="topbar-actions">
@@ -1713,7 +1756,7 @@ function App() {
                   syncBusy
                     ? `Syncing with ${syncSettings.provider}…`
                     : syncSettings.lastSyncedAt
-                      ? `Synced with ${syncSettings.provider} (${formatUpdatedAt(syncSettings.lastSyncedAt)}). Click to sync now.`
+                      ? `Synced with ${syncSettings.provider} (${formatUpdatedAt(syncSettings.lastSyncedAt, relativeTimeNow)}). Click to sync now.`
                       : `Click to sync with ${syncSettings.provider}`
                 }
                 aria-label="Cloud sync"
@@ -2435,6 +2478,7 @@ interface DecisionViewProps {
   name: string
   projects: Project[]
   anchors: Anchor[]
+  notes: Note[]
   settings: AISettings
   decisions: Decision[]
   onOpenSettings: () => void
@@ -2468,13 +2512,28 @@ function decisionPreview(decision: Decision): string {
 }
 
 function inlineMarkdown(value: string): React.ReactNode {
-  return value.split(/(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`)/g).map((part, index) => {
+  const tokens = /(\[[^\]]+\]\(https?:\/\/[^)\s]+\)|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|`[^`\n]+`|\*[^*\n]+\*|_[^_\n]+_)/g
+
+  return value.split(tokens).map((part, index) => {
+    const link = part.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/)
+    if (link) {
+      return <a key={`${part}-${index}`} href={link[2]} target="_blank" rel="noreferrer">{link[1]}</a>
+    }
+
     if ((part.startsWith('**') && part.endsWith('**')) || (part.startsWith('__') && part.endsWith('__'))) {
       return <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong>
     }
 
+    if (part.startsWith('~~') && part.endsWith('~~')) {
+      return <del key={`${part}-${index}`}>{part.slice(2, -2)}</del>
+    }
+
     if (part.startsWith('`') && part.endsWith('`')) {
       return <code key={`${part}-${index}`}>{part.slice(1, -1)}</code>
+    }
+
+    if ((part.startsWith('*') && part.endsWith('*')) || (part.startsWith('_') && part.endsWith('_'))) {
+      return <em key={`${part}-${index}`}>{part.slice(1, -1)}</em>
     }
 
     return part
@@ -2485,7 +2544,10 @@ function ChatRichText({ content }: { content: string }) {
   const blocks: React.ReactNode[] = []
   const paragraphLines: string[] = []
   const listItems: string[] = []
+  const quoteLines: string[] = []
+  const codeLines: string[] = []
   let listType: 'ul' | 'ol' | undefined
+  let inCodeBlock = false
   let blockIndex = 0
 
   const flushParagraph = () => {
@@ -2512,18 +2574,71 @@ function ChatRichText({ content }: { content: string }) {
     listItems.length = 0
   }
 
+  const flushQuote = () => {
+    if (quoteLines.length === 0) {
+      return
+    }
+
+    blocks.push(<blockquote key={`quote-${blockIndex++}`}>{inlineMarkdown(quoteLines.join(' '))}</blockquote>)
+    quoteLines.length = 0
+  }
+
+  const flushCode = () => {
+    if (codeLines.length === 0) {
+      return
+    }
+
+    blocks.push(<pre key={`code-${blockIndex++}`}><code>{codeLines.join('\n')}</code></pre>)
+    codeLines.length = 0
+  }
+
   content.split(/\r?\n/).forEach((line) => {
     const trimmedLine = line.trim()
+
+    if (trimmedLine.startsWith('```')) {
+      flushParagraph()
+      flushList()
+      flushQuote()
+      if (inCodeBlock) {
+        flushCode()
+      }
+      inCodeBlock = !inCodeBlock
+      return
+    }
+
+    if (inCodeBlock) {
+      codeLines.push(line)
+      return
+    }
 
     if (!trimmedLine) {
       flushParagraph()
       flushList()
+      flushQuote()
       return
     }
 
     const heading = trimmedLine.match(/^#{1,3}\s+(.+)$/)
+    const quote = trimmedLine.match(/^>\s?(.*)$/)
     const unorderedItem = trimmedLine.match(/^[-*]\s+(.+)$/)
     const orderedItem = trimmedLine.match(/^\d+[.)]\s+(.+)$/)
+
+    if (/^(?:---+|\*\*\*+|___+)$/.test(trimmedLine)) {
+      flushParagraph()
+      flushList()
+      flushQuote()
+      blocks.push(<hr key={`rule-${blockIndex++}`} />)
+      return
+    }
+
+    if (quote) {
+      flushParagraph()
+      flushList()
+      quoteLines.push(quote[1])
+      return
+    }
+
+    flushQuote()
 
     if (heading) {
       flushParagraph()
@@ -2550,6 +2665,10 @@ function ChatRichText({ content }: { content: string }) {
 
   flushParagraph()
   flushList()
+  flushQuote()
+  if (inCodeBlock) {
+    flushCode()
+  }
 
   return <div className="chat-rich-text">{blocks}</div>
 }
@@ -2558,6 +2677,7 @@ function DecisionView({
   name,
   projects,
   anchors,
+  notes,
   settings,
   decisions,
   onOpenSettings,
@@ -2568,6 +2688,7 @@ function DecisionView({
   const [activeDecisionId, setActiveDecisionId] = useState<string | undefined>(firstDecision?.id)
   const [projectId, setProjectId] = useState(firstDecision?.projectId ?? '')
   const [projectImported, setProjectImported] = useState(Boolean(firstDecision?.projectId))
+  const [importedNoteIds, setImportedNoteIds] = useState<string[]>(firstDecision?.noteIds ?? [])
   const [briefCollapsed, setBriefCollapsed] = useState(false)
   const [situation, setSituation] = useState(firstDecision?.situation ?? '')
   const [additionalContext, setAdditionalContext] = useState(firstDecision?.additionalContext ?? '')
@@ -2576,13 +2697,22 @@ function DecisionView({
   const [isThinking, setIsThinking] = useState(false)
   const [error, setError] = useState<string>()
   const requestControllerRef = useRef<AbortController | undefined>(undefined)
+  const chatMessagesRef = useRef<HTMLDivElement>(null)
   const selectedProject = getProject(projects, projectId)
   const projectAnchors = projectImported && selectedProject
     ? anchors.filter((anchor) => anchor.projectId === selectedProject.id)
     : []
   const globalAnchors = anchors.filter((anchor) => anchor.scope === 'global' && anchor.pinned).slice(0, 6)
+  const importedNotes = notes.filter((note) => importedNoteIds.includes(note.id))
   const provider = AI_PROVIDERS.find((item) => item.id === settings.providerId)
   const connectionReady = Boolean(settings.apiKey.trim() && settings.model.trim() && (!provider?.requiresAccountId || settings.accountId.trim()))
+
+  useEffect(() => {
+    const chatMessages = chatMessagesRef.current
+    if (chatMessages) {
+      chatMessages.scrollTop = chatMessages.scrollHeight
+    }
+  }, [messages, isThinking])
 
   const saveCurrentDecision = (nextMessages: ChatMessage[]) => {
     const now = new Date().toISOString()
@@ -2593,6 +2723,7 @@ function DecisionView({
     onSaveDecision({
       id,
       projectId: projectImported && projectId ? projectId : undefined,
+      noteIds: importedNoteIds,
       situation: situation.trim(),
       additionalContext: additionalContext.trim(),
       messages: nextMessages,
@@ -2695,6 +2826,29 @@ function DecisionView({
     void sendToAI(chatInput)
   }
 
+  const clearChat = () => {
+    requestControllerRef.current?.abort()
+    requestControllerRef.current = undefined
+    setIsThinking(false)
+    setMessages([])
+    setChatInput('')
+    setError(undefined)
+    if (activeDecisionId) {
+      saveCurrentDecision([])
+    }
+  }
+
+  const importNoteInto = (note: Note, target: 'situation' | 'context') => {
+    const noteBlock = `From note — ${note.title}\n${note.content.trim()}`
+    if (target === 'situation') {
+      setSituation((current) => `${current.trim() ? `${current.trim()}\n\n` : ''}${noteBlock}`.slice(0, 1200))
+    } else {
+      setAdditionalContext((current) => `${current.trim() ? `${current.trim()}\n\n` : ''}${noteBlock}`.slice(0, 1800))
+    }
+    setImportedNoteIds((current) => current.includes(note.id) ? current : [...current, note.id])
+    setError(undefined)
+  }
+
   const startNewDecision = () => {
     requestControllerRef.current?.abort()
     requestControllerRef.current = undefined
@@ -2703,6 +2857,7 @@ function DecisionView({
     setActiveDecisionId(undefined)
     setProjectId('')
     setProjectImported(false)
+    setImportedNoteIds([])
     setSituation('')
     setAdditionalContext('')
     setMessages([])
@@ -2718,6 +2873,7 @@ function DecisionView({
     setActiveDecisionId(decision.id)
     setProjectId(decision.projectId ?? '')
     setProjectImported(Boolean(decision.projectId))
+    setImportedNoteIds(decision.noteIds ?? [])
     setSituation(decision.situation)
     setAdditionalContext(decision.additionalContext)
     setMessages(decision.messages)
@@ -2729,9 +2885,7 @@ function DecisionView({
     <div className="decision-view page-enter">
       <div className="page-heading decision-heading">
         <div>
-          <p className="eyebrow">A little room before the next move</p>
-          <h1>Happy thinking, dear {displayName(name)}<span className="accent-dot">.</span></h1>
-          <p className="page-subtitle">Bring the whole situation here. We&apos;ll look at it gently, together.</p>
+          <h1>Decision space, dear {displayName(name)}<span className="accent-dot">.</span></h1>
         </div>
         <button className="secondary-button" type="button" onClick={startNewDecision}>
           <RotateCcw size={16} />
@@ -2810,6 +2964,34 @@ function DecisionView({
               )}
             </div>
           )}
+
+          <details className="decision-notes-import">
+            <summary>
+              <span className="decision-notes-summary"><NotebookPen size={14} /> Import a note</span>
+              <span className="decision-notes-count">{importedNotes.length ? `${importedNotes.length} added` : 'Optional'}</span>
+            </summary>
+            <div className="decision-notes-import-body">
+              {notes.length === 0 ? (
+                <span className="decision-notes-empty">Create a note in Notes first, then bring it into this decision.</span>
+              ) : (
+                <>
+                  {notes.slice(0, 6).map((note) => (
+                    <div className={`decision-note-option ${importedNoteIds.includes(note.id) ? 'added' : ''}`} key={note.id}>
+                      <div className="decision-note-option-copy">
+                        <strong>{note.title}</strong>
+                        <span>{note.content.replace(/\s+/g, ' ').trim()}</span>
+                      </div>
+                      <div className="decision-note-option-actions">
+                        <button type="button" onClick={() => importNoteInto(note, 'situation')}>Situation</button>
+                        <button type="button" onClick={() => importNoteInto(note, 'context')}>More context</button>
+                      </div>
+                    </div>
+                  ))}
+                  {notes.length > 6 && <span className="decision-notes-empty">Showing your 6 most recent notes.</span>}
+                </>
+              )}
+            </div>
+          </details>
 
           <label className="form-field decision-field">
             <span>The situation</span>
@@ -2908,14 +3090,24 @@ function DecisionView({
                 <span>Not a verdict. A clearer view.</span>
               </div>
             </div>
-            <button className={`connection-pill ${connectionReady ? 'connected' : ''}`} type="button" onClick={onOpenSettings}>
-              <span className="connection-pill-dot" />
-              <span>{connectionReady ? `${provider?.name ?? 'AI'} · ${settings.model}` : 'Connect AI'}</span>
-              <ChevronRight size={13} />
-            </button>
+            <div className="chat-header-actions">
+              <button
+                className="text-button chat-clear-button"
+                type="button"
+                onClick={clearChat}
+                disabled={!messages.length && !isThinking}
+              >
+                <Trash2 size={14} /> Clear chat
+              </button>
+              <button className={`connection-pill ${connectionReady ? 'connected' : ''}`} type="button" onClick={onOpenSettings}>
+                <span className="connection-pill-dot" />
+                <span>{connectionReady ? `${provider?.name ?? 'AI'} · ${settings.model}` : 'Connect AI'}</span>
+                <ChevronRight size={13} />
+              </button>
+            </div>
           </div>
 
-          <div className="chat-messages" aria-live="polite">
+          <div ref={chatMessagesRef} className="chat-messages" aria-live="polite">
             {messages.length === 0 ? (
               <div className="chat-welcome">
                 <div className="chat-welcome-icon"><Bot size={22} /></div>
@@ -2981,6 +3173,190 @@ function DecisionView({
   )
 }
 
+interface NoteEditorProps {
+  note?: Note
+  onSave: (note: Note) => void
+  onDelete: (noteId: string) => void
+}
+
+function NoteEditor({ note, onSave, onDelete }: NoteEditorProps) {
+  const [title, setTitle] = useState(note?.title ?? '')
+  const [content, setContent] = useState(note?.content ?? '')
+  const [error, setError] = useState<string>()
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const trimmedContent = content.trim()
+
+    if (!trimmedContent) {
+      setError('Write something before saving this note.')
+      return
+    }
+
+    const now = new Date().toISOString()
+    const fallbackTitle = trimmedContent.split(/\r?\n/)[0]?.slice(0, 80) || 'Untitled note'
+
+    onSave({
+      id: note?.id ?? createId('note'),
+      title: title.trim() || fallbackTitle,
+      content: trimmedContent,
+      createdAt: note?.createdAt ?? now,
+      updatedAt: now,
+    })
+    setError(undefined)
+  }
+
+  return (
+    <form className="note-editor-form" onSubmit={handleSubmit}>
+      <div className="note-editor-heading">
+        <div>
+          <p className="eyebrow">{note ? 'Edit note' : 'New note'}</p>
+          <h2>{note?.title || 'A place to put it down'}</h2>
+        </div>
+        {note && <span className="note-editor-date">{formatUpdatedAt(note.updatedAt)}</span>}
+      </div>
+      <label className="form-field" htmlFor="note-title">
+        <span>Title <em>optional</em></span>
+        <input
+          id="note-title"
+          value={title}
+          onChange={(event) => {
+            setTitle(event.target.value)
+            setError(undefined)
+          }}
+          placeholder="Give this note a name"
+          maxLength={120}
+        />
+      </label>
+      <label className="form-field" htmlFor="note-content">
+        <span>Note</span>
+        <textarea
+          id="note-content"
+          value={content}
+          onChange={(event) => {
+            setContent(event.target.value)
+            setError(undefined)
+          }}
+          placeholder="Write anything you want to remember…"
+          rows={15}
+          maxLength={12000}
+          autoFocus={!note}
+        />
+        <small className="note-character-count">{content.length}/12000</small>
+      </label>
+      {error && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{error}</span></div>}
+      <div className="note-editor-footer">
+        {note ? (
+          <button
+            className="text-button note-delete-button"
+            type="button"
+            onClick={() => {
+              if (window.confirm('Delete this note? This cannot be undone.')) onDelete(note.id)
+            }}
+          >
+            <Trash2 size={14} /> Delete note
+          </button>
+        ) : <span />}
+        <button className="primary-button" type="submit">
+          <Check size={15} /> Save note
+        </button>
+      </div>
+    </form>
+  )
+}
+
+interface NotesViewProps {
+  notes: Note[]
+  onSaveNote: (note: Note) => void
+  onDeleteNote: (noteId: string) => void
+}
+
+function NotesView({ notes, onSaveNote, onDeleteNote }: NotesViewProps) {
+  const [activeNoteId, setActiveNoteId] = useState<string | undefined>(notes[0]?.id)
+  const [query, setQuery] = useState('')
+  const sortedNotes = useMemo(
+    () => [...notes].sort((first, second) => second.updatedAt.localeCompare(first.updatedAt)),
+    [notes],
+  )
+  const filteredNotes = sortedNotes.filter((note) => {
+    const normalizedQuery = query.trim().toLocaleLowerCase()
+    return !normalizedQuery || `${note.title} ${note.content}`.toLocaleLowerCase().includes(normalizedQuery)
+  })
+  const activeNote = notes.find((note) => note.id === activeNoteId)
+
+  return (
+    <div className="notes-view page-enter">
+      <div className="page-heading notes-heading">
+        <div>
+          <p className="eyebrow">A place for whatever is on your mind</p>
+          <h1>Notes<span className="accent-dot">.</span></h1>
+          <p className="page-subtitle">Keep quick thoughts, working material, lists, and anything you may want to bring into a decision later.</p>
+        </div>
+        <button className="primary-button" type="button" onClick={() => setActiveNoteId(undefined)}>
+          <Plus size={16} /> New note
+        </button>
+      </div>
+
+      <div className="notes-layout">
+        <aside className="notes-list-card">
+          <div className="notes-list-heading">
+            <div>
+              <strong>Your notes</strong>
+              <span>{notes.length} {notes.length === 1 ? 'note' : 'notes'}</span>
+            </div>
+            <NotebookPen size={17} />
+          </div>
+          <label className="notes-search">
+            <Search size={15} />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search notes"
+              aria-label="Search notes"
+            />
+          </label>
+          <div className="notes-list">
+            {filteredNotes.length > 0 ? filteredNotes.map((note) => (
+              <button
+                className={`note-list-item ${activeNoteId === note.id ? 'active' : ''}`}
+                type="button"
+                key={note.id}
+                onClick={() => setActiveNoteId(note.id)}
+              >
+                <span className="note-list-item-topline">
+                  <strong>{note.title}</strong>
+                  <small>{formatUpdatedAt(note.updatedAt)}</small>
+                </span>
+                <span>{note.content.replace(/\s+/g, ' ').trim()}</span>
+              </button>
+            )) : (
+              <div className="notes-list-empty">
+                <NotebookPen size={18} />
+                <span>{notes.length ? 'No notes match that search.' : 'Your saved notes will appear here.'}</span>
+              </div>
+            )}
+          </div>
+        </aside>
+
+        <section className="notes-editor-card">
+          <NoteEditor
+            key={activeNoteId ?? 'new-note'}
+            note={activeNote}
+            onSave={(note) => {
+              onSaveNote(note)
+              setActiveNoteId(note.id)
+            }}
+            onDelete={(noteId) => {
+              onDeleteNote(noteId)
+              setActiveNoteId(sortedNotes.find((note) => note.id !== noteId)?.id)
+            }}
+          />
+        </section>
+      </div>
+    </div>
+  )
+}
+
 interface SettingsViewProps {
   profile: UserProfile
   security: SecuritySettings
@@ -3009,6 +3385,7 @@ interface SettingsViewProps {
   onSaveSyncSettings: (settings: SyncSettings) => void
   onTriggerSync: () => Promise<void>
   onTestDropbox: (token: string, vaultName?: string) => Promise<string>
+  relativeTimeNow: number
 }
 
 function SettingsView({
@@ -3039,6 +3416,7 @@ function SettingsView({
   onSaveSyncSettings,
   onTriggerSync,
   onTestDropbox,
+  relativeTimeNow,
 }: SettingsViewProps) {
   const [showKey, setShowKey] = useState(false)
   const [profileName, setProfileName] = useState(profile.name)
@@ -3810,7 +4188,7 @@ function SettingsView({
                     </strong>
                     <span>
                       {syncSettings.lastSyncedAt
-                        ? `Last synced: ${formatUpdatedAt(syncSettings.lastSyncedAt)}`
+                        ? `Last synced: ${formatUpdatedAt(syncSettings.lastSyncedAt, relativeTimeNow)}`
                         : 'Never synced'}
                       {syncSettings.lastSyncMessage ? ` · ${syncSettings.lastSyncMessage}` : ''}
                     </span>

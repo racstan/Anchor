@@ -1,4 +1,4 @@
-import type { Anchor, AnchorState, ChatMessage, Decision, EvidenceSource, Project } from './anchors'
+import type { Anchor, AnchorState, ChatMessage, Decision, EvidenceSource, Note, Project } from './anchors'
 
 export interface UserProfile {
   name: string
@@ -84,9 +84,22 @@ function isDecision(value: unknown): value is Decision {
 
   return isString(value.id) &&
     (value.projectId === undefined || isString(value.projectId)) &&
+    (value.noteIds === undefined || (Array.isArray(value.noteIds) && value.noteIds.every(isString))) &&
     isString(value.situation) &&
     isString(value.additionalContext) &&
     Array.isArray(value.messages) && value.messages.every(isChatMessage) &&
+    isString(value.createdAt) &&
+    isString(value.updatedAt)
+}
+
+function isNote(value: unknown): value is Note {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  return isString(value.id) &&
+    isString(value.title) &&
+    isString(value.content) &&
     isString(value.createdAt) &&
     isString(value.updatedAt)
 }
@@ -104,10 +117,15 @@ function validateState(value: unknown): AnchorState {
     throw new Error('This backup does not contain valid decision history.')
   }
 
+  if (value.notes !== undefined && (!Array.isArray(value.notes) || !value.notes.every(isNote))) {
+    throw new Error('This backup does not contain valid notes.')
+  }
+
   return {
     anchors: value.anchors,
     projects: value.projects,
     decisions: value.decisions ?? [],
+    notes: value.notes ?? [],
   }
 }
 
@@ -151,6 +169,7 @@ export function createWorkspaceExport(state: AnchorState, profile: UserProfile):
       anchors: state.anchors,
       projects: state.projects,
       decisions: state.decisions,
+      notes: state.notes,
     },
   }
 }
@@ -198,5 +217,6 @@ export function mergeWorkspaceState(current: AnchorState, incoming: AnchorState)
     anchors: mergeById(current.anchors, incoming.anchors),
     projects: mergeById(current.projects, incoming.projects),
     decisions: mergeById(current.decisions, incoming.decisions),
+    notes: mergeById(current.notes, incoming.notes),
   }
 }

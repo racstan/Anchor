@@ -35,7 +35,9 @@ Browser requests use `/api/anchor-ai`, a short-lived Vercel/server development r
 
 ## Workspace backups
 
-**Settings → Workspace data** can export anchors, projects, decisions, and your profile to a readable JSON file. API keys are deliberately excluded. Imports are validated and can either merge records by ID or replace the current workspace. Older state-only JSON backups are accepted too.
+**Settings → Workspace data** can export anchors, projects, decisions, notes, and your profile to a readable JSON file. API keys are deliberately excluded. Imports are validated and can either merge records by ID or replace the current workspace. Older state-only JSON backups are accepted too.
+
+**Notes** are a flexible place for rough thoughts, lists, drafts, and reference material. From Decision space, any recent note can be added directly to the situation or more-context field before asking Anchor to think it through.
 
 ## Dropbox sync
 

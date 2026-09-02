@@ -38,6 +38,7 @@ describe('timestamp-aware CRDT merge', () => {
       ],
       projects: [],
       decisions: [],
+      notes: [],
     }
 
     const remoteState: AnchorState = {
@@ -67,6 +68,7 @@ describe('timestamp-aware CRDT merge', () => {
       ],
       projects: [],
       decisions: [],
+      notes: [],
     }
 
     const merged = mergeSyncState(localState, remoteState)

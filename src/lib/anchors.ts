@@ -44,9 +44,18 @@ export interface ChatMessage {
 export interface Decision {
   id: string
   projectId?: string
+  noteIds?: string[]
   situation: string
   additionalContext: string
   messages: ChatMessage[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Note {
+  id: string
+  title: string
+  content: string
   createdAt: string
   updatedAt: string
 }
@@ -55,6 +64,7 @@ export interface AnchorState {
   anchors: Anchor[]
   projects: Project[]
   decisions: Decision[]
+  notes: Note[]
 }
 
 const daysAgo = (days: number): string =>
@@ -62,6 +72,7 @@ const daysAgo = (days: number): string =>
 
 export const initialState: AnchorState = {
   decisions: [],
+  notes: [],
   projects: [
     {
       id: 'evidence-informed-wellbeing',
@@ -199,6 +210,7 @@ export function readAnchorState(): AnchorState {
     return {
       ...parsedState,
       decisions: Array.isArray(parsedState.decisions) ? parsedState.decisions : [],
+      notes: Array.isArray(parsedState.notes) ? parsedState.notes : [],
     }
   } catch {
     return cloneInitialState()
@@ -363,14 +375,14 @@ export function createId(prefix: string): string {
   return `${prefix}-${randomPart}`
 }
 
-export function formatUpdatedAt(updatedAt: string): string {
+export function formatUpdatedAt(updatedAt: string, now = Date.now()): string {
   const time = new Date(updatedAt).getTime()
 
   if (Number.isNaN(time)) {
     return 'Recently updated'
   }
 
-  const elapsed = Date.now() - time
+  const elapsed = Math.max(0, now - time)
   const elapsedMinutes = Math.floor(elapsed / (60 * 1000))
   const elapsedHours = Math.floor(elapsed / (60 * 60 * 1000))
   const elapsedDays = Math.floor(elapsed / (24 * 60 * 60 * 1000))
@@ -383,8 +395,8 @@ export function formatUpdatedAt(updatedAt: string): string {
     return `Updated ${elapsedMinutes}m ago`
   }
 
-  if (elapsedHours < 24 && new Date(updatedAt).toDateString() === new Date().toDateString()) {
-    return 'Updated today'
+  if (elapsedHours < 24 && new Date(updatedAt).toDateString() === new Date(now).toDateString()) {
+    return `Updated ${elapsedHours}h ago`
   }
 
   if (elapsedDays <= 1) {

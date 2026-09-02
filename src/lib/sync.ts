@@ -323,6 +323,7 @@ export function mergeSyncState(current: AnchorState, incoming: AnchorState): Anc
     anchors: mergeRecordsByTimestamp(current.anchors, incoming.anchors),
     projects: mergeRecordsByTimestamp(current.projects, incoming.projects),
     decisions: mergeRecordsByTimestamp(current.decisions, incoming.decisions),
+    notes: mergeRecordsByTimestamp(current.notes, incoming.notes),
   }
 }
 
