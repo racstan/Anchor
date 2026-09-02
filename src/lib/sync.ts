@@ -1,7 +1,7 @@
 import { normalizeAnchorState } from './anchors'
 import type { AnchorState } from './anchors'
-import type { UserProfile } from './workspace'
-import { parseWorkspaceExport, serializeWorkspaceExport } from './workspace'
+import type { UserProfile, WorkspacePreferences } from './workspace'
+import { mergeWorkspacePreferences, mergeWorkspaceProfile, parseWorkspaceExport, serializeWorkspaceExport } from './workspace'
 
 export type SyncProviderType = 'none' | 'dropbox' | 'webdav'
 
@@ -283,6 +283,7 @@ export interface SyncResult {
   message: string
   mergedState?: AnchorState
   mergedProfile?: UserProfile
+  mergedPreferences?: WorkspacePreferences
   updatedSyncSettings?: Partial<SyncSettings>
   timestamp: string
 }
@@ -606,6 +607,7 @@ export async function executeWorkspaceSync(
   localState: AnchorState,
   localProfile: UserProfile,
   settings: SyncSettings,
+  localPreferences: WorkspacePreferences = {},
 ): Promise<SyncResult> {
   const timestamp = new Date().toISOString()
 
@@ -641,16 +643,16 @@ export async function executeWorkspaceSync(
 
     let mergedState = localState
     let mergedProfile = localProfile
+    let mergedPreferences = localPreferences
 
     if (remotePayload) {
       const parsedRemote = parseWorkspaceExport(remotePayload)
       mergedState = mergeSyncState(localState, parsedRemote.state)
-      mergedProfile = {
-        name: localProfile.name.trim() || parsedRemote.profile.name.trim() || 'friend',
-      }
+      mergedProfile = mergeWorkspaceProfile(localProfile, parsedRemote.profile)
+      mergedPreferences = mergeWorkspacePreferences(localPreferences, parsedRemote.preferences)
     }
 
-    const uploadContent = serializeWorkspaceExport(mergedState, mergedProfile)
+    const uploadContent = serializeWorkspaceExport(mergedState, mergedProfile, mergedPreferences)
 
     if (effectiveSettings.provider === 'dropbox' && dropboxAccessToken) {
       await uploadDropboxVault(
@@ -670,6 +672,7 @@ export async function executeWorkspaceSync(
       message: `Vault synced with ${providerLabel} (${effectiveSettings.vaultName})`,
       mergedState,
       mergedProfile,
+      mergedPreferences,
       updatedSyncSettings,
       timestamp,
     }

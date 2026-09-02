@@ -3,6 +3,23 @@ import type { Anchor, AnchorState, ChatMessage, Decision, EvidenceSource, Note, 
 
 export interface UserProfile {
   name: string
+  updatedAt?: string
+}
+
+export interface WorkspaceAISettings {
+  providerId: string
+  model: string
+  baseUrl: string
+  accountId: string
+}
+
+// Deliberately excludes secrets and device-only security state. API keys,
+// Dropbox/WebDAV credentials, and the device PIN must never enter a vault.
+export interface WorkspacePreferences {
+  updatedAt?: string
+  theme?: 'light' | 'dark'
+  sidebarCollapsed?: boolean
+  ai?: WorkspaceAISettings
 }
 
 export const PROFILE_STORAGE_KEY = 'anchor-user-profile-v1'
@@ -13,6 +30,7 @@ export interface WorkspaceExport {
   version: 1
   exportedAt: string
   profile: UserProfile
+  preferences: WorkspacePreferences
   state: AnchorState
 }
 
@@ -142,7 +160,39 @@ function readProfileValue(value: unknown): UserProfile {
     return { ...EMPTY_PROFILE }
   }
 
-  return { name: value.name.trim() }
+  return {
+    name: value.name.trim(),
+    ...(isString(value.updatedAt) ? { updatedAt: value.updatedAt } : {}),
+  }
+}
+
+function readWorkspacePreferencesValue(value: unknown): WorkspacePreferences {
+  if (!isRecord(value)) {
+    return {}
+  }
+
+  const preferences: WorkspacePreferences = {}
+
+  if (value.updatedAt !== undefined && isString(value.updatedAt)) {
+    preferences.updatedAt = value.updatedAt
+  }
+  if (value.theme === 'light' || value.theme === 'dark') {
+    preferences.theme = value.theme
+  }
+  if (typeof value.sidebarCollapsed === 'boolean') {
+    preferences.sidebarCollapsed = value.sidebarCollapsed
+  }
+
+  if (isRecord(value.ai) && isString(value.ai.providerId) && isString(value.ai.model) && isString(value.ai.baseUrl) && isString(value.ai.accountId)) {
+    preferences.ai = {
+      providerId: value.ai.providerId,
+      model: value.ai.model,
+      baseUrl: value.ai.baseUrl,
+      accountId: value.ai.accountId,
+    }
+  }
+
+  return preferences
 }
 
 export function readUserProfile(): UserProfile {
@@ -167,7 +217,11 @@ export function writeUserProfile(profile: UserProfile): void {
   window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(readProfileValue(profile)))
 }
 
-export function createWorkspaceExport(state: AnchorState, profile: UserProfile): WorkspaceExport {
+export function createWorkspaceExport(
+  state: AnchorState,
+  profile: UserProfile,
+  preferences: WorkspacePreferences = {},
+): WorkspaceExport {
   const normalizedState = normalizeAnchorState(state)
 
   return {
@@ -175,15 +229,24 @@ export function createWorkspaceExport(state: AnchorState, profile: UserProfile):
     version: 1,
     exportedAt: new Date().toISOString(),
     profile: readProfileValue(profile),
+    preferences: readWorkspacePreferencesValue(preferences),
     state: normalizedState,
   }
 }
 
-export function serializeWorkspaceExport(state: AnchorState, profile: UserProfile): string {
-  return JSON.stringify(createWorkspaceExport(state, profile), null, 2)
+export function serializeWorkspaceExport(
+  state: AnchorState,
+  profile: UserProfile,
+  preferences: WorkspacePreferences = {},
+): string {
+  return JSON.stringify(createWorkspaceExport(state, profile, preferences), null, 2)
 }
 
-export function parseWorkspaceExport(rawValue: string): { state: AnchorState; profile: UserProfile } {
+export function parseWorkspaceExport(rawValue: string): {
+  state: AnchorState
+  profile: UserProfile
+  preferences: WorkspacePreferences
+} {
   let parsedValue: unknown
 
   try {
@@ -200,12 +263,14 @@ export function parseWorkspaceExport(rawValue: string): { state: AnchorState; pr
     return {
       state: validateState(parsedValue.state),
       profile: readProfileValue(parsedValue.profile),
+      preferences: readWorkspacePreferencesValue(parsedValue.preferences),
     }
   }
 
   return {
     state: validateState(parsedValue),
     profile: { ...EMPTY_PROFILE },
+    preferences: {},
   }
 }
 
@@ -224,4 +289,42 @@ export function mergeWorkspaceState(current: AnchorState, incoming: AnchorState)
     decisions: mergeById(current.decisions, incoming.decisions),
     notes: mergeById(current.notes, incoming.notes),
   })
+}
+
+export function mergeWorkspacePreferences(
+  current: WorkspacePreferences,
+  incoming: WorkspacePreferences,
+): WorkspacePreferences {
+  const hasIncomingPreferences = Object.keys(incoming).length > 0
+  if (!hasIncomingPreferences) {
+    return current
+  }
+
+  if (
+    (current.updatedAt && !incoming.updatedAt) ||
+    (current.updatedAt && incoming.updatedAt && incoming.updatedAt < current.updatedAt)
+  ) {
+    return current
+  }
+
+  return {
+    ...current,
+    ...incoming,
+    ai: incoming.ai ?? current.ai,
+  }
+}
+
+export function mergeWorkspaceProfile(current: UserProfile, incoming: UserProfile): UserProfile {
+  if (!incoming.name.trim()) {
+    return current
+  }
+
+  if (
+    (current.updatedAt && !incoming.updatedAt) ||
+    (current.updatedAt && incoming.updatedAt && incoming.updatedAt < current.updatedAt)
+  ) {
+    return current
+  }
+
+  return readProfileValue(incoming)
 }

@@ -1,6 +1,6 @@
 # Anchor
 
-**Version: 0.1.8**
+**Version: 0.1.9**
 
 Anchor is a calm, local-first workspace for the ideas, principles, and decisions you want to keep close. The same React frontend runs on the web and inside the Tauri 2 desktop/mobile shell.
 
@@ -44,7 +44,7 @@ These actions are opt-in: Anchor does not silently analyze or auto-send workspac
 
 ## Workspace backups
 
-**Settings → Workspace data** can export anchors, projects, decisions, notes, and your profile to a readable JSON file. API keys are deliberately excluded. Imports are validated and can either merge records by ID or replace the current workspace. Older state-only JSON backups are accepted too.
+**Settings → Workspace data** can export anchors, projects, decisions, notes, your profile, and safe preferences to a readable JSON file. AI provider/model preferences and appearance sync with the workspace when cloud sync is enabled; API keys, Dropbox/WebDAV credentials, and the device PIN are deliberately excluded. Imports are validated and can either merge records by ID or replace the current workspace. Older state-only JSON backups are accepted too.
 
 **Notes** are a flexible place for rough thoughts, lists, drafts, and reference material. From Decision space, any recent note can be added directly to the situation or more-context field before asking Anchor to think it through.
 
@@ -54,7 +54,7 @@ Every workspace record has a stable machine ID plus a readable serial such as `A
 
 ## Dropbox sync
 
-The released web app is preconfigured with Anchor's public Dropbox App Key. Users only open **Settings → Cloud sync**, choose **Dropbox**, click **Connect Dropbox**, and approve access. They do not create an app, paste an access token, or create a folder. OAuth uses the browser-compatible PKCE code flow; access and refresh tokens stay in that device's local storage.
+The released web app is preconfigured with Anchor's public Dropbox App Key. Users only open **Settings → Cloud sync**, choose **Dropbox**, click **Connect Dropbox**, and approve access. They do not create an app, paste an access token, or create a folder. OAuth uses the browser-compatible PKCE code flow; access and refresh tokens stay in that device's local storage. The vault syncs workspace data plus non-secret preferences, while provider credentials remain device-local.
 
 Desktop releases use Tauri's signed updater and can install updates from inside Anchor. Android does not support Tauri's in-app updater; Android users can download the signed APK from the GitHub release page. The workflow also produces a signed AAB that is ready for Play Store submission when distribution is configured.
 

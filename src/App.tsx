@@ -90,13 +90,14 @@ import {
 } from './lib/ai'
 import type { AIMessage, AIModel, AISettings } from './lib/ai'
 import {
+  mergeWorkspacePreferences,
   mergeWorkspaceState,
   parseWorkspaceExport,
   readUserProfile,
   serializeWorkspaceExport,
   writeUserProfile,
 } from './lib/workspace'
-import type { UserProfile } from './lib/workspace'
+import type { UserProfile, WorkspacePreferences } from './lib/workspace'
 import { hashPin, isValidPin, readSecuritySettings, verifyPin, writeSecuritySettings } from './lib/security'
 import type { SecuritySettings } from './lib/security'
 import { getDailyGreeting } from './lib/greetings'
@@ -154,6 +155,7 @@ interface AppNotification {
 
 const THEME_STORAGE_KEY = 'anchor-theme-v1'
 const SIDEBAR_STORAGE_KEY = 'anchor-sidebar-collapsed-v1'
+const WORKSPACE_PREFERENCES_UPDATED_AT_KEY = 'anchor-workspace-preferences-updated-at-v1'
 const NOTIFICATIONS_STORAGE_KEY = 'anchor-read-notifications-v1'
 const SPOTLIGHT_STORAGE_KEY = 'anchor-spotlight-v1'
 
@@ -223,6 +225,38 @@ function readStoredIds(key: string): string[] {
     return Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : []
   } catch {
     return []
+  }
+}
+
+function readStoredTimestamp(key: string): string | undefined {
+  if (typeof window === 'undefined') {
+    return undefined
+  }
+
+  try {
+    const value = window.localStorage.getItem(key)
+    return value?.trim() || undefined
+  } catch {
+    return undefined
+  }
+}
+
+function buildWorkspacePreferences(
+  settings: AISettings,
+  theme: Theme,
+  sidebarCollapsed: boolean,
+  updatedAt?: string,
+): WorkspacePreferences {
+  return {
+    updatedAt,
+    theme,
+    sidebarCollapsed,
+    ai: {
+      providerId: settings.providerId,
+      model: settings.model,
+      baseUrl: settings.baseUrl,
+      accountId: settings.accountId,
+    },
   }
 }
 
@@ -557,6 +591,9 @@ function App() {
     readStoredBoolean(SIDEBAR_STORAGE_KEY, false),
   )
   const [theme, setTheme] = useState<Theme>(() => readStoredTheme())
+  const [workspacePreferencesUpdatedAt, setWorkspacePreferencesUpdatedAt] = useState<string | undefined>(() =>
+    readStoredTimestamp(WORKSPACE_PREFERENCES_UPDATED_AT_KEY),
+  )
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() =>
     readStoredIds(NOTIFICATIONS_STORAGE_KEY),
   )
@@ -580,6 +617,10 @@ function App() {
   const notificationWrapRef = useRef<HTMLDivElement>(null)
   const stateRef = useRef(state)
   const profileRef = useRef(profile)
+  const aiSettingsRef = useRef(aiSettings)
+  const themeRef = useRef(theme)
+  const sidebarCollapsedRef = useRef(sidebarCollapsed)
+  const workspacePreferencesUpdatedAtRef = useRef(workspacePreferencesUpdatedAt)
   const syncSettingsRef = useRef(syncSettings)
   const dropboxCallbackHandledRef = useRef(false)
 
@@ -590,6 +631,22 @@ function App() {
   useEffect(() => {
     profileRef.current = profile
   }, [profile])
+
+  useEffect(() => {
+    aiSettingsRef.current = aiSettings
+  }, [aiSettings])
+
+  useEffect(() => {
+    themeRef.current = theme
+  }, [theme])
+
+  useEffect(() => {
+    sidebarCollapsedRef.current = sidebarCollapsed
+  }, [sidebarCollapsed])
+
+  useEffect(() => {
+    workspacePreferencesUpdatedAtRef.current = workspacePreferencesUpdatedAt
+  }, [workspacePreferencesUpdatedAt])
 
   useEffect(() => {
     syncSettingsRef.current = syncSettings
@@ -604,9 +661,64 @@ function App() {
   }, [syncSettings])
 
   useEffect(() => {
+    if (!workspacePreferencesUpdatedAt) return
+
+    try {
+      window.localStorage.setItem(WORKSPACE_PREFERENCES_UPDATED_AT_KEY, workspacePreferencesUpdatedAt)
+    } catch {
+      // Persistence is optional when storage is unavailable.
+    }
+  }, [workspacePreferencesUpdatedAt])
+
+  useEffect(() => {
     const interval = window.setInterval(() => setRelativeTimeNow(Date.now()), 60_000)
     return () => window.clearInterval(interval)
   }, [])
+
+  const touchWorkspacePreferences = () => {
+    const timestamp = new Date().toISOString()
+    workspacePreferencesUpdatedAtRef.current = timestamp
+    setWorkspacePreferencesUpdatedAt(timestamp)
+  }
+
+  const applyWorkspacePreferences = (preferences: WorkspacePreferences) => {
+    if (preferences.theme) {
+      setTheme(preferences.theme)
+    }
+    if (typeof preferences.sidebarCollapsed === 'boolean') {
+      setSidebarCollapsed(preferences.sidebarCollapsed)
+    }
+    if (preferences.ai) {
+      const providerId = AI_PROVIDERS.some((provider) => provider.id === preferences.ai?.providerId)
+        ? preferences.ai.providerId
+        : aiSettingsRef.current.providerId
+
+      setAISettings((currentSettings) => ({
+        ...currentSettings,
+        providerId,
+        apiKey: providerId === currentSettings.providerId ? currentSettings.apiKey : '',
+        model: preferences.ai?.model ?? currentSettings.model,
+        baseUrl: preferences.ai?.baseUrl ?? currentSettings.baseUrl,
+        accountId: preferences.ai?.accountId ?? currentSettings.accountId,
+      }))
+      setAvailableModels([])
+      setModelsError(undefined)
+    }
+    if (preferences.updatedAt) {
+      workspacePreferencesUpdatedAtRef.current = preferences.updatedAt
+      setWorkspacePreferencesUpdatedAt(preferences.updatedAt)
+    }
+  }
+
+  const changeTheme = (nextTheme: Theme | ((currentTheme: Theme) => Theme)) => {
+    touchWorkspacePreferences()
+    setTheme(nextTheme)
+  }
+
+  const changeSidebarCollapsed = (nextValue: boolean | ((currentValue: boolean) => boolean)) => {
+    touchWorkspacePreferences()
+    setSidebarCollapsed(nextValue)
+  }
 
   const triggerSync = useCallback(async (isManual = false) => {
     const currentSync = syncSettingsRef.current
@@ -621,11 +733,20 @@ function App() {
     setSyncSettings((prev) => ({ ...prev, lastSyncStatus: 'syncing' }))
 
     try {
-      const result = await executeWorkspaceSync(stateRef.current, profileRef.current, currentSync)
+      const localPreferences = buildWorkspacePreferences(
+        aiSettingsRef.current,
+        themeRef.current,
+        sidebarCollapsedRef.current,
+        workspacePreferencesUpdatedAtRef.current,
+      )
+      const result = await executeWorkspaceSync(stateRef.current, profileRef.current, currentSync, localPreferences)
       if (result.success && result.mergedState) {
         setState(result.mergedState)
         if (result.mergedProfile && result.mergedProfile.name.trim()) {
           setProfile(result.mergedProfile)
+        }
+        if (result.mergedPreferences) {
+          applyWorkspacePreferences(result.mergedPreferences)
         }
         setSyncSettings((prev) => ({
           ...prev,
@@ -1026,6 +1147,7 @@ function App() {
       setAvailableModels(models)
 
       if (models.length > 0 && !settingsToLoad.model) {
+        touchWorkspacePreferences()
         setAISettings((currentSettings) =>
           currentSettings.providerId === settingsToLoad.providerId
             ? { ...currentSettings, model: models[0].id }
@@ -1048,12 +1170,13 @@ function App() {
       setModelsError(undefined)
     }
 
+    touchWorkspacePreferences()
     setAISettings((currentSettings) => ({ ...currentSettings, ...changes }))
   }
 
   const saveAISettings = () => {
     writeAISettings(aiSettings)
-    showToast('Your AI connection is saved on this device.')
+    showToast('Your AI connection is saved. Provider settings sync when cloud sync is enabled; the key stays on this device.')
     void refreshModels(aiSettings)
   }
 
@@ -1290,7 +1413,7 @@ function App() {
       return
     }
 
-    setProfile({ name })
+    setProfile({ name, updatedAt: new Date().toISOString() })
     showToast(`I’ll call you ${name} from here on.`)
   }
 
@@ -1335,7 +1458,18 @@ function App() {
   }
 
   const exportWorkspace = () => {
-    const file = new Blob([serializeWorkspaceExport(state, profile)], { type: 'application/json' })
+    const file = new Blob([
+      serializeWorkspaceExport(
+        state,
+        profile,
+        buildWorkspacePreferences(
+          aiSettingsRef.current,
+          themeRef.current,
+          sidebarCollapsedRef.current,
+          workspacePreferencesUpdatedAtRef.current,
+        ),
+      ),
+    ], { type: 'application/json' })
     const url = URL.createObjectURL(file)
     const link = document.createElement('a')
     const date = new Date().toISOString().slice(0, 10)
@@ -1352,8 +1486,20 @@ function App() {
   const importWorkspace = async (file: File, mode: 'replace' | 'merge'): Promise<string> => {
     const imported = parseWorkspaceExport(await file.text())
     const nextState = mode === 'merge' ? mergeWorkspaceState(state, imported.state) : imported.state
+    const importedPreferences = mode === 'merge'
+      ? mergeWorkspacePreferences(
+        buildWorkspacePreferences(
+          aiSettingsRef.current,
+          themeRef.current,
+          sidebarCollapsedRef.current,
+          workspacePreferencesUpdatedAtRef.current,
+        ),
+        imported.preferences,
+      )
+      : imported.preferences
 
     setState(nextState)
+    applyWorkspacePreferences(importedPreferences)
 
     if (imported.profile.name) {
       setProfile(imported.profile)
@@ -1382,7 +1528,7 @@ function App() {
             setIsLocked(false)
           }
 
-          setProfile({ name })
+          setProfile({ name, updatedAt: new Date().toISOString() })
           if (!keepExamples) {
             setState({ anchors: [], projects: [], decisions: [], notes: [] })
             setSpotlightAnchorId(undefined)
@@ -1491,11 +1637,12 @@ function App() {
         modelsLoading={modelsLoading}
         modelsError={modelsError}
         theme={theme}
-        onThemeChange={setTheme}
+        onThemeChange={changeTheme}
         onSettingsChange={updateAISettings}
         onSave={saveAISettings}
         onRefreshModels={() => void refreshModels(aiSettings)}
         onReset={() => {
+          touchWorkspacePreferences()
           setAISettings({ ...DEFAULT_AI_SETTINGS })
           setAvailableModels([])
           setModelsError(undefined)
@@ -1569,7 +1716,7 @@ function App() {
             title={sidebarCollapsed ? 'Expand sidebar' : 'Anchor home'}
             onClick={() => {
               if (sidebarCollapsed) {
-                setSidebarCollapsed(false)
+                changeSidebarCollapsed(false)
               } else {
                 navigate('home')
               }
@@ -1589,7 +1736,7 @@ function App() {
             aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             aria-expanded={!sidebarCollapsed}
             title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            onClick={() => changeSidebarCollapsed((collapsed) => !collapsed)}
           >
             {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
           </button>
@@ -1853,7 +2000,7 @@ function App() {
               type="button"
               aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
               title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-              onClick={() => setTheme((currentTheme) => (currentTheme === 'dark' ? 'light' : 'dark'))}
+              onClick={() => changeTheme((currentTheme) => (currentTheme === 'dark' ? 'light' : 'dark'))}
             >
               {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
@@ -4525,7 +4672,7 @@ function SettingsView({
             <div>
               <p className="eyebrow">04 — Decision companion</p>
               <h2>AI connection</h2>
-              <span>Models are discovered live from the provider you choose.</span>
+              <span>Provider, model, endpoint, and account settings sync when cloud sync is enabled. Your API key stays on this device.</span>
             </div>
           </div>
 
@@ -4631,7 +4778,7 @@ function SettingsView({
               <h2>Workspace data</h2>
             </div>
           </div>
-          <p className="settings-card-copy">Export your anchors, projects, decisions, and profile as a portable JSON backup. API keys are never included.</p>
+          <p className="settings-card-copy">Export your workspace and safe preferences as a portable JSON backup. API keys, cloud credentials, and your device PIN are never included.</p>
           <input
             ref={importInputRef}
             className="visually-hidden"
@@ -4757,7 +4904,7 @@ function SettingsView({
               <small className="field-help">
                 {dropboxConnected
                   ? 'Locked while Dropbox is connected. Revoke Dropbox access before changing the storage provider.'
-                  : 'All your devices connect to the same remote storage vault and sync their anchors.'}
+                  : 'Your workspace, profile, appearance, and safe AI preferences sync to the same remote vault. Secrets stay on each device.'}
               </small>
             </div>
 
