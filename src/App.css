@@ -4725,6 +4725,7 @@ fieldset.form-field {
 
   .decision-view .decision-layout.brief-collapsed .decision-panel-copy,
   .decision-view .decision-layout.brief-collapsed .decision-field,
+  .decision-view .decision-layout.brief-collapsed .decision-notes-import,
   .decision-view .decision-layout.brief-collapsed .imported-context,
   .decision-view .decision-layout.brief-collapsed .decision-connection-note,
   .decision-view .decision-layout.brief-collapsed .decision-error,
