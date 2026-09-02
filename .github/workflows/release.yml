@@ -66,9 +66,9 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Uncomment if you configure signing — generate via `npm run tauri signer generate`
-          # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          # Used by Tauri to create signed updater artifacts and latest.json.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ inputs.tag || github.ref_name || 'v__AUTO__' }}
           releaseName: 'Anchor ${{ inputs.tag || github.ref_name }}'
@@ -81,18 +81,20 @@ jobs:
             - **macOS** — `dmg` (Apple Silicon `aarch64` + Intel `x86_64` — two separate jobs)
 
             ### Android
-            Built in separate `android` workflow job — see `app-universal-release.apk` / `app-universal-release.aab`.
+            Built in a separate `android` workflow job as a universal release APK and AAB for direct distribution.
 
-            > Install: download your platform's installer. For macOS unsigned builds, right-click → Open.
+            > Install: download your platform's installer. Desktop updater artifacts are signed; macOS app bundles may still require the normal first-run security approval.
             > Web stays live at https://anchor-chi-eight.vercel.app
           releaseDraft: false
           prerelease: false
+          uploadUpdaterSignatures: true
           args: ${{ matrix.args }}
 
   # ─────────────────────────────────────────────────────────────
   # Android — Tauri 2 Android (APK + AAB)
   # ─────────────────────────────────────────────────────────────
   android:
+    needs: publish-desktop
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -128,31 +130,48 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Init Android (if missing)
+      - name: Install Android SDK components
+        run: |
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+
+      - name: Init Android project (if missing)
         run: |
           if [ ! -d "src-tauri/gen/android" ]; then
-            echo "No android gen found — init"
             npm run tauri android init
-          else
-            echo "android gen exists"
-            ls -R src-tauri/gen/android | head -n 20
           fi
 
-      - name: Build Android APK & AAB (debug)
-        run: npm run tauri android build
-        # For signed release, add env:
-        # env:
-        #   NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/<version>
-        # and provide keystore via secrets + tauri.conf android signing.
+      - name: Configure Android release signing
+        env:
+          ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEY_BASE64"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          printf '%s' "$ANDROID_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/anchor-release.p12"
+          {
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "password=$ANDROID_KEY_PASSWORD"
+            echo "storeFile=$RUNNER_TEMP/anchor-release.p12"
+            echo "storeType=PKCS12"
+          } > src-tauri/gen/android/keystore.properties
+          node scripts/prepare-android-signing.mjs
+
+      - name: Build Android release APK & AAB
+        run: npm run tauri android build -- --ci --apk true --aab true
 
       - name: Collect Android artifacts
         run: |
-          echo "Finding APK/AAB..."
-          find src-tauri/gen/android -type f -name "*.apk" -o -name "*.aab" | head -n 20
-          ls -lh src-tauri/gen/android/app/build/outputs/bundle/universalRelease 2>/dev/null || true
-          ls -lh src-tauri/gen/android/app/build/outputs/apk/universal/release 2>/dev/null || true
+          echo "Finding Android APK/AAB artifacts..."
           mkdir -p dist-android
-          find src-tauri/gen/android -type f \( -name "*.apk" -o -name "*.aab" \) -exec cp {} dist-android/ \;
+          find src-tauri/gen/android -type f \( -name "*.apk" -o -name "*.aab" \) -print
+          while IFS= read -r -d '' artifact; do
+            cp "$artifact" "dist-android/Anchor-${GITHUB_REF_NAME}-$(basename "$artifact")"
+          done < <(find src-tauri/gen/android -type f \( -name "*.apk" -o -name "*.aab" \) -print0)
+          test -n "$(find dist-android -type f -print -quit)"
           ls -lh dist-android/
 
       - name: Upload Android to Release

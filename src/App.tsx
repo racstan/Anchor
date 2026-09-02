@@ -5123,11 +5123,42 @@ interface UpdateModalProps {
 }
 
 function UpdateModal({ updateInfo, onClose }: UpdateModalProps) {
-  const handleDownload = () => {
+  const [isInstalling, setIsInstalling] = useState(false)
+  const [installError, setInstallError] = useState<string>()
+
+  const handleDownload = async () => {
+    if (updateInfo.installUpdate) {
+      setIsInstalling(true)
+      setInstallError(undefined)
+      try {
+        await updateInfo.installUpdate()
+      } catch (error) {
+        setInstallError(error instanceof Error ? error.message : 'The update could not be installed. Please try again from the release page.')
+      } finally {
+        setIsInstalling(false)
+      }
+      return
+    }
+
+    if (updateInfo.platform === 'web') {
+      window.location.reload()
+      return
+    }
+
     if (updateInfo.downloadUrl) {
-      window.open(updateInfo.downloadUrl, '_blank')
+      window.open(updateInfo.downloadUrl, '_blank', 'noopener,noreferrer')
     }
   }
+
+  const actionLabel = isInstalling
+    ? 'Installing…'
+    : updateInfo.installUpdate
+      ? 'Install and relaunch'
+      : updateInfo.platform === 'android'
+        ? 'Download APK'
+        : updateInfo.platform === 'web'
+          ? 'Refresh Anchor'
+          : 'Download installer'
 
   return (
     <Modal eyebrow="A fresh release is ready" title={`Anchor v${updateInfo.latestVersion}`} onClose={onClose}>
@@ -5146,6 +5177,7 @@ function UpdateModal({ updateInfo, onClose }: UpdateModalProps) {
             Target installer for your {updateInfo.platform}: <code>{updateInfo.assetName}</code>
           </p>
         )}
+        {installError && <div className="update-install-error" role="alert"><CircleAlert size={14} /> <span>{installError}</span></div>}
         <div className="modal-actions modal-actions-split">
           <a
             className="text-button"
@@ -5157,9 +5189,9 @@ function UpdateModal({ updateInfo, onClose }: UpdateModalProps) {
           </a>
           <div className="modal-actions-right">
             <button className="secondary-button" type="button" onClick={onClose}>Later</button>
-            <button className="primary-button" type="button" onClick={handleDownload}>
-              <Download size={15} />
-              Download &amp; Update
+            <button className="primary-button" type="button" onClick={() => void handleDownload()} disabled={isInstalling}>
+              {isInstalling ? <RefreshCw className="spin" size={15} /> : <Download size={15} />}
+              {actionLabel}
             </button>
           </div>
         </div>

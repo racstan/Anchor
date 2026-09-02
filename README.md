@@ -1,6 +1,6 @@
 # Anchor
 
-**Version: 0.1.4**
+**Version: 0.1.5**
 
 Anchor is a calm, local-first workspace for the ideas, principles, and decisions you want to keep close. The same React frontend runs on the web and inside the Tauri 2 desktop/mobile shell.
 
@@ -43,7 +43,9 @@ Browser requests use `/api/anchor-ai`, a short-lived Vercel/server development r
 
 The released web app is preconfigured with Anchor's public Dropbox App Key. Users only open **Settings → Cloud sync**, choose **Dropbox**, click **Connect Dropbox**, and approve access. They do not create an app, paste an access token, or create a folder. OAuth uses the browser-compatible PKCE code flow; access and refresh tokens stay in that device's local storage.
 
-The Dropbox app owner must configure an **App folder** app with `account_info.read`, `files.metadata.read`, `files.content.read`, and `files.content.write`, and register the exact callback `https://anchor-chi-eight.vercel.app/dropbox/callback`. Anchor creates a folder named after the vault automatically, then stores the workspace JSON at `/Anchor/anchor-vault.json` inside the Dropbox app folder. Decisions, anchors, projects, and profile data are included; AI provider keys are not.
+Desktop releases use Tauri's signed updater and can install updates from inside Anchor. Android does not support Tauri's in-app updater; Android users can download the signed APK from the GitHub release page. The workflow also produces a signed AAB that is ready for Play Store submission when distribution is configured.
+
+The Dropbox app owner must configure an **App folder** app with `account_info.read`, `files.metadata.read`, `files.content.read`, and `files.content.write`, and register the exact callback `https://anchor-chi-eight.vercel.app/dropbox/callback`. Anchor creates a folder named after the vault automatically, then stores the workspace JSON at `/Anchor/anchor-vault.json` inside the Dropbox app folder. Decisions, anchors, projects, notes, and profile data are included; AI provider keys are not.
 
 Starter wellbeing anchors are evidence-informed rather than medical prescriptions. They link to public guidance from WHO, CDC, NCCIH, and MedlinePlus, and remind people to seek qualified care for symptoms or treatment decisions.
 

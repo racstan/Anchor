@@ -80,10 +80,10 @@ curl -I https://anchor-chi-eight.vercel.app
 - **Trigger:** `git tag vX.Y.Z && git push origin vX.Y.Z` (or `workflow_dispatch` in GitHub UI)
 - **What builds:**
   - `publish-desktop` (matrix): `windows-latest` → `msi`+`nsis`, `ubuntu-22.04` → `deb`+`AppImage`, `macos-latest` → `dmg` for both `aarch64` and `x86_64`
-  - `android` (ubuntu): `tauri android build` → `apk` + `aab` (debug, unsigned). Run `npm run tauri android init` locally first if `src-tauri/gen/android` missing — workflow auto-inits.
+  - `android` (ubuntu): `tauri android build --ci --apk true --aab true` → signed universal release `apk` + `aab`. Android is distributed as a direct APK today; the in-app Tauri updater is desktop-only by design.
 - **Tooling:** `tauri-apps/tauri-action@v0`, `dtolnay/rust-toolchain@stable`, `actions/setup-node@v4`, `actions/setup-java@v4` + `android-actions/setup-android@v3`
 - **Release creation:** Tauri action creates GitHub Release `vX.Y.Z` and attaches desktop bundles; `softprops/action-gh-release` appends Android `apk/aab`. Also uploads `anchor-android-apk-aab` as workflow artifact.
-- **Version source:** `src-tauri/tauri.conf.json` (`version`) + `package.json` (`version`) + `src-tauri/Cargo.toml` — keep them in sync before tagging (currently `0.1.4`).
+- **Version source:** `src-tauri/tauri.conf.json` (`version`) + `package.json` (`version`) + `src-tauri/Cargo.toml` — keep them in sync before tagging (currently `0.1.5`).
 - **Local test before tag:**
   ```bash
   npm run build                      # must pass
@@ -99,7 +99,7 @@ curl -I https://anchor-chi-eight.vercel.app
   git push origin main --follow-tags      # pushes commit + tag → Actions builds → Release appears in ~15-25 min
   # or trigger manually: gh workflow run release.yml -f tag=v0.1.0
   ```
-- **Signing (optional):** For verified `dmg/msi` + Android release signing, add `TAURI_PRIVATE_KEY` / `TAURI_KEY_PASSWORD` and Android `keystore` as GitHub Secrets and wire them in workflow env. Currently ships unsigned (user right-click → Open on macOS).
+- **Signing:** Desktop updater artifacts are signed with `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` GitHub Secrets. Android release artifacts are signed with `ANDROID_KEY_BASE64`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`; the keystore is reconstructed only in CI and never committed.
 
 ## Local Dev (agents)
 ```bash

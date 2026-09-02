@@ -6159,6 +6159,25 @@ fieldset.form-field {
   border: 1px solid var(--line);
 }
 
+.update-install-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  color: #b42318;
+  border: 1px solid #fecaca;
+  border-radius: 9px;
+  background: #fff1f2;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.theme-dark .update-install-error {
+  color: #fda4af;
+  border-color: #5a2230;
+  background: #3a1520;
+}
+
 .settings-card-heading > div {
   display: grid;
   gap: 3px;
