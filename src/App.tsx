@@ -91,6 +91,7 @@ import {
 import type { AIMessage, AIModel, AISettings } from './lib/ai'
 import {
   mergeWorkspacePreferences,
+  mergeWorkspaceProfile,
   mergeWorkspaceState,
   parseWorkspaceExport,
   readUserProfile,
@@ -122,6 +123,18 @@ import {
   writeSyncSettings,
 } from './lib/sync'
 import type { SyncProviderType, SyncSettings } from './lib/sync'
+import {
+  getNextReminderDate,
+  normalizeNotificationSettings,
+  notificationsHaveReminder,
+  notifyAIResponse,
+  readNotificationSettings,
+  requestNotificationPermission,
+  scheduleNativeReminderNotifications,
+  sendAppNotification,
+  writeNotificationSettings,
+} from './lib/notifications'
+import type { NotificationContent, NotificationSettings } from './lib/notifications'
 import {
   CATEGORY_LABELS,
   downloadAndExpandPhilosophyVault,
@@ -168,6 +181,16 @@ const colorLabels: Record<AccentColor, string> = {
   gold: 'Gold',
   plum: 'Violet',
 }
+
+const notificationWeekdays = [
+  { value: 1, label: 'Sunday' },
+  { value: 2, label: 'Monday' },
+  { value: 3, label: 'Tuesday' },
+  { value: 4, label: 'Wednesday' },
+  { value: 5, label: 'Thursday' },
+  { value: 6, label: 'Friday' },
+  { value: 7, label: 'Saturday' },
+]
 
 function displayName(name: string): string {
   return name.trim() || 'friend'
@@ -245,12 +268,14 @@ function buildWorkspacePreferences(
   settings: AISettings,
   theme: Theme,
   sidebarCollapsed: boolean,
+  notificationSettings: NotificationSettings,
   updatedAt?: string,
 ): WorkspacePreferences {
   return {
     updatedAt,
     theme,
     sidebarCollapsed,
+    notifications: notificationSettings,
     ai: {
       providerId: settings.providerId,
       model: settings.model,
@@ -359,17 +384,52 @@ function buildNotifications(
     })
 }
 
+function buildReminderNotificationContent(
+  anchors: Anchor[],
+  settings: NotificationSettings,
+): NotificationContent | null {
+  const pinnedAnchors = anchors.filter((anchor) => anchor.pinned)
+  const anchor = settings.anchorReminders && pinnedAnchors.length > 0
+    ? pinnedAnchors[Math.floor(Date.now() / 86_400_000) % pinnedAnchors.length]
+    : undefined
+  const thought = settings.thoughtReminders ? getDailyPhilosophy() : undefined
+
+  if (!anchor && !thought) return null
+
+  if (anchor && thought) {
+    return {
+      title: 'A gentle moment for you',
+      body: `${anchor.title}\n\n${thought.quote} — ${thought.author}`,
+    }
+  }
+  if (anchor) {
+    return {
+      title: 'A reminder worth returning to',
+      body: anchor.title,
+    }
+  }
+  return {
+    title: 'A thought for today',
+    body: `${thought?.quote ?? ''} — ${thought?.author ?? 'Anchor'}`,
+  }
+}
+
 interface OnboardingViewProps {
   theme: Theme
   onComplete: (name: string, keepExamples: boolean, pin?: string) => Promise<void>
+  onRestoreFromDropbox: () => Promise<void>
+  restoreStatus?: SyncSettings['lastSyncStatus']
+  restoreMessage?: string
 }
 
-function OnboardingView({ theme, onComplete }: OnboardingViewProps) {
+function OnboardingView({ theme, onComplete, onRestoreFromDropbox, restoreStatus, restoreMessage }: OnboardingViewProps) {
   const [name, setName] = useState('')
   const [starterChoice, setStarterChoice] = useState<'examples' | 'fresh'>('fresh')
   const [pin, setPin] = useState('')
   const [pinConfirmation, setPinConfirmation] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isRestoring, setIsRestoring] = useState(false)
+  const [restoreError, setRestoreError] = useState<string>()
   const [error, setError] = useState<string>()
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -399,6 +459,18 @@ function OnboardingView({ theme, onComplete }: OnboardingViewProps) {
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Anchor could not finish setting up this device.')
       setIsSubmitting(false)
+    }
+  }
+
+  const handleRestoreFromDropbox = async () => {
+    setIsRestoring(true)
+    setRestoreError(undefined)
+
+    try {
+      await onRestoreFromDropbox()
+    } catch (restoreFailure) {
+      setRestoreError(restoreFailure instanceof Error ? restoreFailure.message : 'Dropbox could not be opened right now.')
+      setIsRestoring(false)
     }
   }
 
@@ -486,11 +558,23 @@ function OnboardingView({ theme, onComplete }: OnboardingViewProps) {
             </label>
           )}
           {error && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{error}</span></div>}
-          <button className="primary-button onboarding-submit" type="submit" disabled={isSubmitting}>
+          <button className="primary-button onboarding-submit" type="submit" disabled={isSubmitting || isRestoring}>
             {isSubmitting ? 'Setting up…' : 'Enter my space'} <ArrowUpRight size={16} />
           </button>
         </form>
-        <p className="onboarding-note"><ShieldCheck size={14} /> Your name and optional PIN stay on this device. Change them later in Settings.</p>
+        <div className="onboarding-restore">
+          <div>
+            <strong>Already set up on another device?</strong>
+            <span>Load your saved profile and workspace from Dropbox.</span>
+          </div>
+          <button className="secondary-button onboarding-restore-button" type="button" onClick={() => void handleRestoreFromDropbox()} disabled={isSubmitting || isRestoring}>
+            <Cloud size={15} /> {isRestoring ? 'Opening Dropbox…' : 'Load from Dropbox'}
+          </button>
+          {restoreError && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{restoreError}</span></div>}
+          {restoreStatus === 'syncing' && !restoreError && <div className="onboarding-restore-status"><RefreshCw className="spin" size={14} /> <span>Loading your saved Anchor workspace…</span></div>}
+          {restoreStatus === 'error' && restoreMessage && !restoreError && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{restoreMessage}</span></div>}
+        </div>
+        <p className="onboarding-note"><ShieldCheck size={14} /> Your device PIN and provider credentials stay on this device. Your profile and workspace can travel with your Dropbox vault.</p>
       </main>
     </div>
   )
@@ -597,6 +681,7 @@ function App() {
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() =>
     readStoredIds(NOTIFICATIONS_STORAGE_KEY),
   )
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(() => readNotificationSettings())
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [searchPaletteOpen, setSearchPaletteOpen] = useState(false)
   const [isComposerOpen, setIsComposerOpen] = useState(false)
@@ -620,6 +705,7 @@ function App() {
   const aiSettingsRef = useRef(aiSettings)
   const themeRef = useRef(theme)
   const sidebarCollapsedRef = useRef(sidebarCollapsed)
+  const notificationSettingsRef = useRef(notificationSettings)
   const workspacePreferencesUpdatedAtRef = useRef(workspacePreferencesUpdatedAt)
   const syncSettingsRef = useRef(syncSettings)
   const dropboxCallbackHandledRef = useRef(false)
@@ -643,6 +729,10 @@ function App() {
   useEffect(() => {
     sidebarCollapsedRef.current = sidebarCollapsed
   }, [sidebarCollapsed])
+
+  useEffect(() => {
+    notificationSettingsRef.current = notificationSettings
+  }, [notificationSettings])
 
   useEffect(() => {
     workspacePreferencesUpdatedAtRef.current = workspacePreferencesUpdatedAt
@@ -669,6 +759,10 @@ function App() {
       // Persistence is optional when storage is unavailable.
     }
   }, [workspacePreferencesUpdatedAt])
+
+  useEffect(() => {
+    writeNotificationSettings(notificationSettings)
+  }, [notificationSettings])
 
   useEffect(() => {
     const interval = window.setInterval(() => setRelativeTimeNow(Date.now()), 60_000)
@@ -704,6 +798,9 @@ function App() {
       setAvailableModels([])
       setModelsError(undefined)
     }
+    if (preferences.notifications) {
+      setNotificationSettings(normalizeNotificationSettings(preferences.notifications))
+    }
     if (preferences.updatedAt) {
       workspacePreferencesUpdatedAtRef.current = preferences.updatedAt
       setWorkspacePreferencesUpdatedAt(preferences.updatedAt)
@@ -718,6 +815,23 @@ function App() {
   const changeSidebarCollapsed = (nextValue: boolean | ((currentValue: boolean) => boolean)) => {
     touchWorkspacePreferences()
     setSidebarCollapsed(nextValue)
+  }
+
+  const restoreFromDropbox = async () => {
+    const currentSettings = syncSettingsRef.current
+    const appKey = currentSettings.dropboxAppKey?.trim() || DEFAULT_DROPBOX_APP_KEY
+    const setupSettings = normalizeSyncSettings({
+      ...currentSettings,
+      enabled: false,
+      provider: 'dropbox',
+      dropboxAppKey: appKey,
+      lastSyncStatus: 'syncing',
+      lastSyncMessage: 'Dropbox authorization started. Your saved workspace will load after sign-in…',
+    })
+
+    setSyncSettings(setupSettings)
+    writeSyncSettings(setupSettings)
+    await startDropboxOAuth(appKey, false)
   }
 
   const triggerSync = useCallback(async (isManual = false) => {
@@ -737,6 +851,7 @@ function App() {
         aiSettingsRef.current,
         themeRef.current,
         sidebarCollapsedRef.current,
+        notificationSettingsRef.current,
         workspacePreferencesUpdatedAtRef.current,
       )
       const result = await executeWorkspaceSync(stateRef.current, profileRef.current, currentSync, localPreferences)
@@ -783,13 +898,13 @@ function App() {
 
   // Auto-sync on startup
   useEffect(() => {
-    if (syncSettings.enabled && syncSettings.autoSyncOnStartup && syncSettings.provider !== 'none') {
+    if (profile.name.trim() && syncSettings.enabled && syncSettings.autoSyncOnStartup && syncSettings.provider !== 'none') {
       const timer = setTimeout(() => {
         void triggerSync(false)
       }, 1200)
       return () => clearTimeout(timer)
     }
-  }, [syncSettings.enabled, syncSettings.autoSyncOnStartup, syncSettings.provider, triggerSync])
+  }, [profile.name, syncSettings.enabled, syncSettings.autoSyncOnStartup, syncSettings.provider, triggerSync])
 
   // Periodic background auto-sync
   useEffect(() => {
@@ -851,23 +966,65 @@ function App() {
       // Persist the authorization before folder setup so a missing Dropbox
       // permission cannot strand the user without a revoke control.
       setSyncSettings(authorizedSettings)
-      setActiveView('settings')
-      setActiveProjectId(undefined)
-      setListFilter('all')
-      setQuery('')
-      setSearchPaletteOpen(false)
-      setNotificationsOpen(false)
-      setMobileMenuOpen(false)
+      writeSyncSettings(authorizedSettings)
+      const restoringBeforeSetup = !profileRef.current.name.trim()
+      if (!restoringBeforeSetup) {
+        setActiveView('settings')
+        setActiveProjectId(undefined)
+        setListFilter('all')
+        setQuery('')
+        setSearchPaletteOpen(false)
+        setNotificationsOpen(false)
+        setMobileMenuOpen(false)
+      }
 
       try {
         const connectionMessage = await testDropboxConnection(token, vaultName)
-        setSyncSettings(normalizeSyncSettings({
+        const connectedSettings = normalizeSyncSettings({
           ...authorizedSettings,
           enabled: true,
+          lastSyncStatus: 'syncing',
+          lastSyncMessage: `${connectionMessage} Loading your saved Anchor workspace…`,
+        })
+        const restoreState = restoringBeforeSetup
+          ? { anchors: [], projects: [], decisions: [], notes: [] }
+          : stateRef.current
+        const result = await executeWorkspaceSync(
+          restoreState,
+          profileRef.current,
+          connectedSettings,
+          buildWorkspacePreferences(
+            aiSettingsRef.current,
+            themeRef.current,
+            sidebarCollapsedRef.current,
+            notificationSettingsRef.current,
+            workspacePreferencesUpdatedAtRef.current,
+          ),
+        )
+
+        if (!result.success || !result.mergedState) {
+          throw new Error(result.message)
+        }
+
+        setState(result.mergedState)
+        if (result.mergedProfile && result.mergedProfile.name.trim()) {
+          setProfile(result.mergedProfile)
+        }
+        if (result.mergedPreferences) {
+          applyWorkspacePreferences(result.mergedPreferences)
+        }
+        setSyncSettings((previous) => ({
+          ...previous,
+          ...result.updatedSyncSettings,
+          enabled: true,
+          lastSyncedAt: result.timestamp,
           lastSyncStatus: 'success',
-          lastSyncMessage: connectionMessage,
+          lastSyncMessage: result.message,
         }))
-        showToast(connectionMessage)
+        if (restoringBeforeSetup && result.mergedProfile?.name.trim()) {
+          setActiveView('home')
+        }
+        showToast(result.message)
       } catch (setupError) {
         const setupMessage = setupError instanceof Error ? setupError.message : 'Dropbox vault setup failed.'
         const connectionMessage = `Dropbox authorized, but vault setup is incomplete: ${setupMessage}`
@@ -1093,6 +1250,42 @@ function App() {
   const unreadNotifications = notifications.filter((notification) => !notification.isRead)
 
   useEffect(() => {
+    const content = buildReminderNotificationContent(state.anchors, notificationSettings)
+    const isAndroidNative = isNativeApp() && getAppPlatform() === 'android'
+
+    if (isAndroidNative) {
+      void scheduleNativeReminderNotifications(notificationSettings, content)
+      return undefined
+    }
+
+    if (!content || !notificationsHaveReminder(notificationSettings)) {
+      return undefined
+    }
+
+    let cancelled = false
+    let timer: number | undefined
+    const scheduleNextReminder = () => {
+      if (cancelled) return
+
+      const nextReminder = getNextReminderDate(notificationSettings)
+      if (!nextReminder) return
+
+      const delay = Math.max(nextReminder.getTime() - Date.now(), 1_000)
+      timer = window.setTimeout(async () => {
+        if (cancelled) return
+        await sendAppNotification(content)
+        scheduleNextReminder()
+      }, delay)
+    }
+
+    scheduleNextReminder()
+    return () => {
+      cancelled = true
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [notificationSettings, state.anchors])
+
+  useEffect(() => {
     if (pinnedAnchors.length < 2) {
       return
     }
@@ -1172,6 +1365,27 @@ function App() {
 
     touchWorkspacePreferences()
     setAISettings((currentSettings) => ({ ...currentSettings, ...changes }))
+  }
+
+  const updateNotificationSettings = (changes: Partial<NotificationSettings>) => {
+    touchWorkspacePreferences()
+    setNotificationSettings((currentSettings) => normalizeNotificationSettings({ ...currentSettings, ...changes }))
+  }
+
+  const enableNotifications = async () => {
+    const granted = await requestNotificationPermission()
+    if (!granted) {
+      showToast('Notifications are unavailable or blocked in this browser or device settings.')
+      return
+    }
+
+    touchWorkspacePreferences()
+    setNotificationSettings((currentSettings) => ({ ...currentSettings, enabled: true }))
+    await sendAppNotification({
+      title: 'Anchor notifications are on',
+      body: 'You will hear from Anchor according to the choices you made in Settings.',
+    })
+    showToast('Anchor notifications are enabled.')
   }
 
   const saveAISettings = () => {
@@ -1466,6 +1680,7 @@ function App() {
           aiSettingsRef.current,
           themeRef.current,
           sidebarCollapsedRef.current,
+          notificationSettingsRef.current,
           workspacePreferencesUpdatedAtRef.current,
         ),
       ),
@@ -1492,17 +1707,22 @@ function App() {
           aiSettingsRef.current,
           themeRef.current,
           sidebarCollapsedRef.current,
+          notificationSettingsRef.current,
           workspacePreferencesUpdatedAtRef.current,
         ),
         imported.preferences,
       )
       : imported.preferences
 
+    const importedProfile = mode === 'merge'
+      ? mergeWorkspaceProfile(profile, imported.profile)
+      : imported.profile
+
     setState(nextState)
     applyWorkspacePreferences(importedPreferences)
 
-    if (imported.profile.name) {
-      setProfile(imported.profile)
+    if (importedProfile.name) {
+      setProfile(importedProfile)
     }
 
     const summary = `${nextState.anchors.length} anchors, ${nextState.projects.length} projects, ${nextState.decisions.length} decisions, and ${nextState.notes.length} notes`
@@ -1520,6 +1740,9 @@ function App() {
     return (
       <OnboardingView
         theme={theme}
+        onRestoreFromDropbox={restoreFromDropbox}
+        restoreStatus={syncSettings.lastSyncStatus}
+        restoreMessage={syncSettings.lastSyncMessage}
         onComplete={async (name, keepExamples, pin) => {
           if (pin) {
             await savePin(pin)
@@ -1633,12 +1856,15 @@ function App() {
         profile={profile}
         security={security}
         settings={aiSettings}
+        notificationSettings={notificationSettings}
         availableModels={availableModels}
         modelsLoading={modelsLoading}
         modelsError={modelsError}
         theme={theme}
         onThemeChange={changeTheme}
         onSettingsChange={updateAISettings}
+        onNotificationsChange={updateNotificationSettings}
+        onEnableNotifications={enableNotifications}
         onSave={saveAISettings}
         onRefreshModels={() => void refreshModels(aiSettings)}
         onReset={() => {
@@ -2965,6 +3191,7 @@ function AIInsightCard({
       ], requestController.signal)
 
       setAnswer(response)
+      void notifyAIResponse('Anchor insight ready', response)
     } catch (requestError) {
       if (requestError instanceof DOMException && requestError.name === 'AbortError') {
         return
@@ -3099,6 +3326,7 @@ function AIWriterButton({
         { role: 'user', content: prompt },
       ], requestController.signal)
       onResult(response)
+      void notifyAIResponse(`${label} ready`, 'Anchor finished preparing your AI-assisted draft.')
     } catch (requestError) {
       if (requestError instanceof DOMException && requestError.name === 'AbortError') {
         return
@@ -3184,6 +3412,7 @@ function AnchorReflectionModal({
         },
       ], requestController.signal)
       setAnswer(response)
+      void notifyAIResponse('Anchor reflection ready', response)
     } catch (requestError) {
       if (requestError instanceof DOMException && requestError.name === 'AbortError') return
       setError(requestError instanceof Error ? requestError.message : 'Anchor could not reach your AI provider.')
@@ -3665,6 +3894,7 @@ function DecisionView({
 
       setMessages(completedMessages)
       saveCurrentDecision(completedMessages)
+      void notifyAIResponse('Anchor replied', response)
     } catch (requestError) {
       if (requestError instanceof DOMException && requestError.name === 'AbortError') {
         return
@@ -4321,12 +4551,15 @@ interface SettingsViewProps {
   profile: UserProfile
   security: SecuritySettings
   settings: AISettings
+  notificationSettings: NotificationSettings
   availableModels: AIModel[]
   modelsLoading: boolean
   modelsError?: string
   theme: Theme
   onThemeChange: (theme: Theme) => void
   onSettingsChange: (changes: Partial<AISettings>) => void
+  onNotificationsChange: (changes: Partial<NotificationSettings>) => void
+  onEnableNotifications: () => Promise<void>
   onSave: () => void
   onRefreshModels: () => void
   onReset: () => void
@@ -4352,12 +4585,15 @@ function SettingsView({
   profile,
   security,
   settings,
+  notificationSettings,
   availableModels,
   modelsLoading,
   modelsError,
   theme,
   onThemeChange,
   onSettingsChange,
+  onNotificationsChange,
+  onEnableNotifications,
   onSave,
   onRefreshModels,
   onReset,
@@ -4770,11 +5006,122 @@ function SettingsView({
           </div>
         </section>
 
+        <section className="settings-card notifications-card">
+          <div className="settings-card-heading compact">
+            <span className="settings-card-icon notifications"><Bell size={18} /></span>
+            <div>
+              <p className="eyebrow">05 — Gentle nudges</p>
+              <h2>Notifications</h2>
+            </div>
+          </div>
+          <p className="settings-card-copy">Let Anchor bring back an AI response, a saved anchor, or a philosophical thought at a time you choose. Notifications are opt-in.</p>
+
+          <label className="notification-toggle-row">
+            <input
+              type="checkbox"
+              checked={notificationSettings.enabled}
+              onChange={(event) => {
+                if (event.target.checked) {
+                  void onEnableNotifications()
+                } else {
+                  onNotificationsChange({ enabled: false })
+                }
+              }}
+            />
+            <span className="sync-toggle-track" aria-hidden="true" />
+            <span>
+              <strong>{notificationSettings.enabled ? 'Notifications are on' : 'Notifications are off'}</strong>
+              <small>{notificationSettings.enabled ? 'Anchor can notify you on this device.' : 'Turn them on when you want a gentle reminder.'}</small>
+            </span>
+          </label>
+
+          <div className="notification-options-grid">
+            <label className="notification-check-row">
+              <input
+                type="checkbox"
+                checked={notificationSettings.aiResponses}
+                disabled={!notificationSettings.enabled}
+                onChange={(event) => onNotificationsChange({ aiResponses: event.target.checked })}
+              />
+              <span><strong>AI responses</strong><small>Notify me when Anchor finishes thinking.</small></span>
+            </label>
+            <label className="notification-check-row">
+              <input
+                type="checkbox"
+                checked={notificationSettings.anchorReminders}
+                disabled={!notificationSettings.enabled}
+                onChange={(event) => onNotificationsChange({ anchorReminders: event.target.checked })}
+              />
+              <span><strong>Saved anchors</strong><small>Bring back a pinned reminder.</small></span>
+            </label>
+            <label className="notification-check-row">
+              <input
+                type="checkbox"
+                checked={notificationSettings.thoughtReminders}
+                disabled={!notificationSettings.enabled}
+                onChange={(event) => onNotificationsChange({ thoughtReminders: event.target.checked })}
+              />
+              <span><strong>Daily thoughts</strong><small>Include a philosophical thought.</small></span>
+            </label>
+          </div>
+
+          <div className="notification-schedule-grid">
+            <label className="form-field">
+              <span>Reminder frequency</span>
+              <div className="select-wrap">
+                <select
+                  value={notificationSettings.frequency}
+                  disabled={!notificationSettings.enabled}
+                  onChange={(event) => onNotificationsChange({ frequency: event.target.value as NotificationSettings['frequency'] })}
+                >
+                  <option value="off">No scheduled reminders</option>
+                  <option value="hourly">Every hour</option>
+                  <option value="daily">Every day</option>
+                  <option value="weekdays">Weekdays</option>
+                  <option value="weekly">Every week</option>
+                </select>
+                <ChevronDown size={15} />
+              </div>
+            </label>
+            <label className="form-field">
+              <span>Time</span>
+              <input
+                type="time"
+                value={notificationSettings.time}
+                disabled={!notificationSettings.enabled || notificationSettings.frequency === 'off'}
+                onChange={(event) => onNotificationsChange({ time: event.target.value })}
+              />
+            </label>
+            {notificationSettings.frequency === 'weekly' && (
+              <label className="form-field">
+                <span>Day</span>
+                <div className="select-wrap">
+                  <select
+                    value={notificationSettings.weekday}
+                    disabled={!notificationSettings.enabled}
+                    onChange={(event) => onNotificationsChange({ weekday: Number(event.target.value) })}
+                  >
+                    {notificationWeekdays.map((day) => <option value={day.value} key={day.value}>{day.label}</option>)}
+                  </select>
+                  <ChevronDown size={15} />
+                </div>
+              </label>
+            )}
+          </div>
+
+          <div className="notification-settings-footer">
+            <button className="secondary-button" type="button" onClick={() => void onEnableNotifications()}>
+              <Bell size={15} /> {notificationSettings.enabled ? 'Send test notification' : 'Enable notifications'}
+            </button>
+            <span>{isNativeApp() && getAppPlatform() === 'android' ? 'Android can deliver scheduled reminders while Anchor is closed.' : 'Web and desktop reminders run while Anchor is open.'}</span>
+          </div>
+        </section>
+
         <section className="settings-card data-card">
           <div className="settings-card-heading compact">
             <span className="settings-card-icon data"><Download size={18} /></span>
             <div>
-              <p className="eyebrow">07 — Keep your context close</p>
+              <p className="eyebrow">08 — Keep your context close</p>
               <h2>Workspace data</h2>
             </div>
           </div>
@@ -4816,7 +5163,7 @@ function SettingsView({
           <div className="settings-card-heading compact">
             <span className="settings-card-icon updates"><Sparkles size={18} /></span>
             <div>
-              <p className="eyebrow">05 — Always getting steadier</p>
+              <p className="eyebrow">06 — Always getting steadier</p>
               <h2>App updates &amp; about</h2>
             </div>
           </div>
@@ -4867,7 +5214,7 @@ function SettingsView({
           <div className="settings-card-heading compact">
             <span className="settings-card-icon sync"><Cloud size={18} /></span>
             <div>
-              <p className="eyebrow">06 — Shared across all your devices</p>
+              <p className="eyebrow">07 — Shared across all your devices</p>
               <h2>Cloud sync</h2>
             </div>
           </div>

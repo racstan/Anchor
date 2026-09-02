@@ -1,5 +1,6 @@
 import { normalizeAnchorState } from './anchors'
 import type { Anchor, AnchorState, ChatMessage, Decision, EvidenceSource, Note, Project } from './anchors'
+import type { NotificationSettings } from './notifications'
 
 export interface UserProfile {
   name: string
@@ -20,6 +21,7 @@ export interface WorkspacePreferences {
   theme?: 'light' | 'dark'
   sidebarCollapsed?: boolean
   ai?: WorkspaceAISettings
+  notifications?: NotificationSettings
 }
 
 export const PROFILE_STORAGE_KEY = 'anchor-user-profile-v1'
@@ -189,6 +191,30 @@ function readWorkspacePreferencesValue(value: unknown): WorkspacePreferences {
       model: value.ai.model,
       baseUrl: value.ai.baseUrl,
       accountId: value.ai.accountId,
+    }
+  }
+
+  if (
+    isRecord(value.notifications) &&
+    typeof value.notifications.enabled === 'boolean' &&
+    typeof value.notifications.aiResponses === 'boolean' &&
+    typeof value.notifications.anchorReminders === 'boolean' &&
+    typeof value.notifications.thoughtReminders === 'boolean' &&
+    (value.notifications.frequency === 'off' || value.notifications.frequency === 'hourly' || value.notifications.frequency === 'daily' || value.notifications.frequency === 'weekdays' || value.notifications.frequency === 'weekly') &&
+    isString(value.notifications.time) &&
+    typeof value.notifications.weekday === 'number' &&
+    Number.isInteger(value.notifications.weekday) &&
+    value.notifications.weekday >= 1 &&
+    value.notifications.weekday <= 7
+  ) {
+    preferences.notifications = {
+      enabled: value.notifications.enabled,
+      aiResponses: value.notifications.aiResponses,
+      anchorReminders: value.notifications.anchorReminders,
+      thoughtReminders: value.notifications.thoughtReminders,
+      frequency: value.notifications.frequency,
+      time: value.notifications.time,
+      weekday: value.notifications.weekday,
     }
   }
 

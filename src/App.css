@@ -5386,6 +5386,18 @@ fieldset.form-field {
   color: #38bdf8;
 }
 
+.settings-card-icon.notifications {
+  color: #7c3aed;
+  background: #f5f3ff;
+  border-color: #ddd6fe;
+}
+
+.theme-dark .settings-card-icon.notifications {
+  background: #1e1633;
+  border-color: #352a5a;
+  color: #a78bfa;
+}
+
 /* Sync Card layout */
 .sync-guide-box {
   margin-top: 8px;
@@ -6356,6 +6368,127 @@ fieldset.form-field {
   color: #34d399;
 }
 
+.notification-toggle-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  margin-top: 18px;
+  padding: 9px 11px;
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.notification-toggle-row:hover {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+
+.notification-toggle-row input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.notification-toggle-row input:focus-visible + .sync-toggle-track {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.notification-toggle-row input:checked + .sync-toggle-track {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.notification-toggle-row input:checked + .sync-toggle-track::after {
+  background: #ffffff;
+  transform: translateX(16px);
+}
+
+.notification-toggle-row > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.notification-toggle-row strong,
+.notification-check-row strong {
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.notification-toggle-row small,
+.notification-check-row small,
+.notification-settings-footer > span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.notification-options-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.notification-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 58px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.notification-check-row > span {
+  display: grid;
+  gap: 3px;
+}
+
+.notification-check-row input {
+  margin: 2px 0 0;
+  accent-color: var(--primary);
+}
+
+.notification-check-row:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.notification-schedule-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.notification-settings-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.notification-settings-footer > span {
+  flex: 1 1 220px;
+}
+
+.notification-settings-footer .secondary-button {
+  flex: 0 0 auto;
+}
+
 .model-success svg {
   color: #10b981;
 }
@@ -6738,6 +6871,52 @@ fieldset.form-field {
   min-height: 44px;
   margin-top: 4px;
   font-size: 14px;
+}
+
+.onboarding-restore {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 14px;
+  text-align: left;
+  border: 1px solid var(--primary-border);
+  border-radius: 14px;
+  background: var(--primary-light);
+}
+
+.onboarding-restore > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.onboarding-restore strong {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.onboarding-restore span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.onboarding-restore-button {
+  justify-content: center;
+  width: 100%;
+}
+
+.onboarding-restore .settings-error,
+.onboarding-restore-status {
+  margin: 0;
+}
+
+.onboarding-restore-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--primary);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .onboarding-note {
@@ -7477,6 +7656,20 @@ fieldset.form-field {
 
   .settings-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .notification-options-grid,
+  .notification-schedule-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .notification-settings-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .notification-settings-footer .secondary-button {
+    width: 100%;
   }
 
   .settings-actions {

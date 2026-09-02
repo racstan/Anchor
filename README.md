@@ -1,6 +1,6 @@
 # Anchor
 
-**Version: 0.1.9**
+**Version: 0.1.10**
 
 Anchor is a calm, local-first workspace for the ideas, principles, and decisions you want to keep close. The same React frontend runs on the web and inside the Tauri 2 desktop/mobile shell.
 
@@ -23,7 +23,7 @@ The live web app is deployed at [anchor-chi-eight.vercel.app](https://anchor-chi
 
 ## First launch
 
-Anchor asks what to call you once, stores that profile on the device, and uses it for greetings and your avatar. You can change it later from the profile button in the bottom-left sidebar or from Settings.
+Anchor asks what to call you once, stores a local copy of that profile, and uses it for greetings and your avatar. If you already set up Anchor elsewhere, onboarding can load the saved profile and workspace from Dropbox before asking you to start over. You can change the name later from the profile button in the bottom-left sidebar or from Settings.
 
 Onboarding also lets you start with a blank workspace or keep the gentle starter examples. An optional 4–6 digit device PIN adds a local lock on the next visit; the PIN is stored only as a SHA-256 digest. If it is forgotten, the recovery action resets local Anchor data.
 
@@ -44,7 +44,7 @@ These actions are opt-in: Anchor does not silently analyze or auto-send workspac
 
 ## Workspace backups
 
-**Settings → Workspace data** can export anchors, projects, decisions, notes, your profile, and safe preferences to a readable JSON file. AI provider/model preferences and appearance sync with the workspace when cloud sync is enabled; API keys, Dropbox/WebDAV credentials, and the device PIN are deliberately excluded. Imports are validated and can either merge records by ID or replace the current workspace. Older state-only JSON backups are accepted too.
+**Settings → Workspace data** can export anchors, projects, decisions, notes, your profile, and safe preferences to a readable JSON file. AI provider/model preferences, appearance, and notification schedules sync with the workspace when cloud sync is enabled; API keys, Dropbox/WebDAV credentials, and the device PIN are deliberately excluded. Imports are validated and can either merge records by ID or replace the current workspace. Older state-only JSON backups are accepted too.
 
 **Notes** are a flexible place for rough thoughts, lists, drafts, and reference material. From Decision space, any recent note can be added directly to the situation or more-context field before asking Anchor to think it through.
 
@@ -54,11 +54,15 @@ Every workspace record has a stable machine ID plus a readable serial such as `A
 
 ## Dropbox sync
 
-The released web app is preconfigured with Anchor's public Dropbox App Key. Users only open **Settings → Cloud sync**, choose **Dropbox**, click **Connect Dropbox**, and approve access. They do not create an app, paste an access token, or create a folder. OAuth uses the browser-compatible PKCE code flow; access and refresh tokens stay in that device's local storage. The vault syncs workspace data plus non-secret preferences, while provider credentials remain device-local.
+The released web app is preconfigured with Anchor's public Dropbox App Key. Users only open **Settings → Cloud sync**, choose **Dropbox**, click **Connect Dropbox**, and approve access. They do not create an app, paste an access token, or create a folder. OAuth uses the browser-compatible PKCE code flow; access and refresh tokens stay in that device's local storage. The vault syncs workspace data plus non-secret preferences, including notification choices; provider credentials and device-only locks remain local.
 
 Desktop releases use Tauri's signed updater and can install updates from inside Anchor. Android does not support Tauri's in-app updater; Android users can download the signed APK from the GitHub release page. The workflow also produces a signed AAB that is ready for Play Store submission when distribution is configured.
 
-The Dropbox app owner must configure an **App folder** app with `account_info.read`, `files.metadata.read`, `files.content.read`, and `files.content.write`, and register the exact callback `https://anchor-chi-eight.vercel.app/dropbox/callback`. Anchor creates a folder named after the vault automatically, then stores the workspace JSON at `/Anchor/anchor-vault.json` inside the Dropbox app folder. Decisions, anchors, projects, notes, and profile data are included; AI provider keys are not.
+The Dropbox app owner must configure an **App folder** app with `account_info.read`, `files.metadata.read`, `files.content.read`, and `files.content.write`, and register the exact callback `https://anchor-chi-eight.vercel.app/dropbox/callback`. Anchor creates a folder named after the vault automatically, then stores the workspace JSON at `/Anchor/anchor-vault.json` inside the Dropbox app folder. Decisions, anchors, notes, profile data, safe AI preferences, and notification choices are included; AI provider keys are not.
+
+## Notifications
+
+Open **Settings → Notifications** to opt in to AI-response notices and scheduled anchor or thought reminders. Choose hourly, daily, weekday, or weekly delivery and a local time. Android schedules can fire while the app is closed; web and desktop reminders run while Anchor is open. Permission is requested only after you choose to enable notifications.
 
 Starter wellbeing anchors are evidence-informed rather than medical prescriptions. They link to public guidance from WHO, CDC, NCCIH, and MedlinePlus, and remind people to seek qualified care for symptoms or treatment decisions.
 
@@ -69,6 +73,7 @@ Starter wellbeing anchors are evidence-informed rather than medical prescription
 - `src/lib/anchors.ts` — anchor/project/decision models and local persistence
 - `src/lib/workspace.ts` — profile persistence and validated backup format
 - `src/lib/ai.ts` — provider adapters and live model discovery
+- `src/lib/notifications.ts` — opt-in OS/browser notifications and reminder schedules
 - `api/anchor-ai.ts` — Vercel production AI relay
 - `vite-ai-proxy.ts` — local development/preview AI relay
 - `src-tauri/` — Tauri 2 packaging shell

@@ -36,12 +36,22 @@ describe('workspace backups', () => {
         baseUrl: 'https://api.openai.com/v1',
         accountId: 'account-123',
       },
+      notifications: {
+        enabled: true,
+        aiResponses: true,
+        anchorReminders: true,
+        thoughtReminders: false,
+        frequency: 'daily',
+        time: '09:30',
+        weekday: 1,
+      },
     })
     const parsed = parseWorkspaceExport(raw)
 
     expect(parsed.preferences.theme).toBe('dark')
     expect(parsed.preferences.sidebarCollapsed).toBe(true)
     expect(parsed.preferences.ai?.model).toBe('gpt-4.1-mini')
+    expect(parsed.preferences.notifications?.time).toBe('09:30')
     expect(raw).not.toContain('apiKey')
   })
 

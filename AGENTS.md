@@ -83,7 +83,7 @@ curl -I https://anchor-chi-eight.vercel.app
   - `android` (ubuntu): `tauri android build --ci --apk true --aab true` → signed universal release `apk` + `aab`. Android is distributed as a direct APK today; the in-app Tauri updater is desktop-only by design.
 - **Tooling:** `tauri-apps/tauri-action@v0`, `dtolnay/rust-toolchain@stable`, `actions/setup-node@v4`, `actions/setup-java@v4` + `android-actions/setup-android@v3`
 - **Release creation:** Tauri action creates GitHub Release `vX.Y.Z` and attaches desktop bundles; the Android job uses `gh release upload` to append the signed `apk/aab`. It also uploads `anchor-android-apk-aab` as a workflow artifact.
-- **Version source:** `src-tauri/tauri.conf.json` (`version`) + `package.json` (`version`) + `src-tauri/Cargo.toml` — keep them in sync before tagging (currently `0.1.9`).
+- **Version source:** `src-tauri/tauri.conf.json` (`version`) + `package.json` (`version`) + `src-tauri/Cargo.toml` — keep them in sync before tagging (currently `0.1.10`).
 - **Local test before tag:**
   ```bash
   npm run build                      # must pass
@@ -113,8 +113,8 @@ npm run build    # tsc -b && vite build → dist/
 ## Repo Layout
 - `src/App.tsx` — shell + views (sidebar, home, anchors, projects, decide, settings)
 - `src/App.css` — harbor design system, responsive + collapsed sidebar
-- `src/lib/anchors.ts`, `workspace.ts`, `ai.ts`, `security.ts`
-- Workspace records carry stable IDs, readable per-type serials (`A-0001`, `P-0001`, `N-0001`, `D-0001`, `M-0001`), and timestamps; `normalizeAnchorState` migrates older local/backup data. Sync/export also carries profile, appearance, and non-secret AI preferences; API keys, provider credentials, and device PINs remain local.
+- `src/lib/anchors.ts`, `workspace.ts`, `ai.ts`, `notifications.ts`, `security.ts`
+- Workspace records carry stable IDs, readable per-type serials (`A-0001`, `P-0001`, `N-0001`, `D-0001`, `M-0001`), and timestamps; `normalizeAnchorState` migrates older local/backup data. Sync/export also carries profile, appearance, notification schedules, and non-secret AI preferences; API keys, provider credentials, and device PINs remain local.
 - `api/anchor-ai.ts` — prod relay
 - `vite-ai-proxy.ts` — dev relay logic
 - `src-tauri/` — Tauri 2 shell
@@ -122,7 +122,7 @@ npm run build    # tsc -b && vite build → dist/
 
 ## Recent Fixes to Remember
 - **Sidebar collapsed:** hide nav labels/counts (`span`/`small`) when `.sidebar-collapsed` — prevents “hideous” clipped text. See `src/App.css` @ `min-width: 701px`.
-- **Settings stacked:** `settings-layout` is now single centered column (`760px`), linear order `01 Profile → 02 Appearance → 03 Security → 04 AI → 05 Privacy → 06 Data` — no side-by-side cards or inner grids. See `src/App.tsx` `SettingsView` + `src/App.css` `.settings-layout`.
+- **Settings stacked:** `settings-layout` is now single centered column (`760px`), linear order `01 Profile → 02 Appearance → 03 Security → 04 AI → 05 Notifications → 06 Updates → 07 Sync → 08 Data` — no side-by-side cards or inner grids. See `src/App.tsx` `SettingsView` + `src/App.css` `.settings-layout`.
 
 ---
 *If you change deployment (domain, framework, env), update this file + `README.md` + `vercel.json` together.*
