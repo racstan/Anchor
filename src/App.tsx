@@ -2742,7 +2742,7 @@ function DecisionView({
       <div className={`decision-layout ${briefCollapsed ? 'brief-collapsed' : ''}`}>
         <section className="decision-brief">
           <div className="decision-panel-heading">
-            <span className="step-badge">01</span>
+            <span className="step-badge" aria-hidden="true"><WandSparkles size={17} /></span>
             <div>
               <p className="eyebrow">Set the scene</p>
               <h2>What is going on?</h2>
@@ -2923,9 +2923,9 @@ function DecisionView({
                 <h2>Let&apos;s slow this down together.</h2>
                 <p>Share the situation on the left, and I&apos;ll help you see the options, trade-offs, and possible paths without rushing you toward one.</p>
                 <div className="chat-welcome-points">
-                  <span><span>01</span>What matters most</span>
-                  <span><span>02</span>What could happen</span>
-                  <span><span>03</span>What to do next</span>
+                  <span>What matters most</span>
+                  <span>What could happen</span>
+                  <span>What to do next</span>
                 </div>
               </div>
             ) : (
@@ -3549,6 +3549,7 @@ function SettingsView({
               <select
                 id="sync-provider-select"
                 value={syncDraft.provider}
+                disabled={dropboxConnected}
                 onChange={(e) => {
                   const provider = e.target.value as SyncProviderType
                   setSyncDraft((prev) => ({
@@ -3563,7 +3564,9 @@ function SettingsView({
                 <option value="webdav">WebDAV (Nextcloud / ownCloud / Fastmail / Synology)</option>
               </select>
               <small className="field-help">
-                All your devices connect to the same remote storage vault and sync their anchors.
+                {dropboxConnected
+                  ? 'Locked while Dropbox is connected. Revoke Dropbox access before changing the storage provider.'
+                  : 'All your devices connect to the same remote storage vault and sync their anchors.'}
               </small>
             </div>
 
@@ -3577,10 +3580,13 @@ function SettingsView({
                     value={syncDraft.vaultName}
                     onChange={(e) => setSyncDraft((prev) => ({ ...prev, vaultName: e.target.value }))}
                     placeholder="anchor-vault"
+                    disabled={dropboxConnected}
                     required
                   />
                   <small className="field-help">
-                    Use the exact same vault name on your PCs, laptops, phones, and tablets so they share the same data.
+                    {dropboxConnected
+                      ? 'Locked while Dropbox is connected to prevent writing to a different vault. Revoke access before changing it.'
+                      : 'Use the exact same vault name on your PCs, laptops, phones, and tablets so they share the same data.'}
                   </small>
                 </div>
 
@@ -3776,14 +3782,20 @@ function SettingsView({
                       <option value="60">Every 1 hour</option>
                     </select>
                   </div>
-                  <div className="form-field">
-                    <label className="checkbox-label" style={{ marginTop: '26px' }}>
+                  <div className="form-field sync-auto-field">
+                    <span>Startup behavior</span>
+                    <label className="sync-toggle">
                       <input
                         type="checkbox"
                         checked={syncDraft.autoSyncOnStartup}
                         onChange={(e) => setSyncDraft((prev) => ({ ...prev, autoSyncOnStartup: e.target.checked }))}
+                        aria-label="Auto-sync when Anchor opens"
                       />
-                      <span>Auto-sync when Anchor opens</span>
+                      <span className="sync-toggle-track" aria-hidden="true" />
+                      <span className="sync-toggle-copy">
+                        <strong>Auto-sync when Anchor opens</strong>
+                        <small>{syncDraft.autoSyncOnStartup ? 'Enabled' : 'Off'}</small>
+                      </span>
                     </label>
                   </div>
                 </div>
