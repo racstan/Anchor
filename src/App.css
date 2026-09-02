@@ -229,6 +229,11 @@ html[data-theme='dark'] {
   position: relative;
 }
 
+/* Tauri Android may draw the WebView beneath the system status/navigation bars. */
+.native-android {
+  --android-safe-top: max(env(safe-area-inset-top), 24px);
+}
+
 /* Sidebar */
 .sidebar {
   width: var(--sidebar-w);
@@ -6971,6 +6976,11 @@ fieldset.form-field {
   color: #f87171;
 }
 
+.native-android.onboarding-shell {
+  padding-top: calc(24px + var(--android-safe-top));
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+
 .theme-dark .onboarding-shell {
   background:
     radial-gradient(900px 500px at 16% 8%, rgba(99, 102, 241, 0.14), transparent 60%),
@@ -7194,6 +7204,10 @@ fieldset.form-field {
     padding-bottom: 68px;
   }
 
+  .native-android.anchor-app {
+    padding-top: var(--android-safe-top);
+  }
+
   .sidebar {
     position: fixed;
     z-index: 30;
@@ -7210,6 +7224,12 @@ fieldset.form-field {
 
   .sidebar.sidebar-open {
     transform: translateX(0);
+  }
+
+  .native-android .sidebar {
+    top: var(--android-safe-top);
+    height: calc(100vh - var(--android-safe-top));
+    height: calc(100dvh - var(--android-safe-top));
   }
 
   .sidebar-backdrop {
@@ -7253,6 +7273,10 @@ fieldset.form-field {
     height: 60px;
     gap: 10px;
     padding: 0 14px;
+  }
+
+  .native-android .topbar {
+    top: var(--android-safe-top);
   }
 
   .mobile-menu-button {
@@ -7352,6 +7376,11 @@ fieldset.form-field {
 
   .notification-wrap {
     position: static;
+  }
+
+  .native-android .search-palette,
+  .native-android .notification-panel {
+    top: calc(66px + var(--android-safe-top));
   }
 
   .page-content {

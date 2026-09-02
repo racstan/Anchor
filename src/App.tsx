@@ -474,8 +474,10 @@ function OnboardingView({ theme, onComplete, onRestoreFromDropbox, restoreStatus
     }
   }
 
+  const isAndroidNative = isNativeApp() && getAppPlatform() === 'android'
+
   return (
-    <div className={`onboarding-shell ${theme === 'dark' ? 'theme-dark' : ''}`}>
+    <div className={`onboarding-shell ${theme === 'dark' ? 'theme-dark' : ''} ${isAndroidNative ? 'native-android' : ''}`}>
       <main className="onboarding-card">
         <div className="onboarding-brand">
           <span className="brand-mark" aria-hidden="true"><AnchorIcon size={19} strokeWidth={2.5} /></span>
@@ -617,8 +619,10 @@ function PinLockView({ theme, name, onUnlock, onReset }: PinLockViewProps) {
     }
   }
 
+  const isAndroidNative = isNativeApp() && getAppPlatform() === 'android'
+
   return (
-    <div className={`pin-lock-shell onboarding-shell ${theme === 'dark' ? 'theme-dark' : ''}`}>
+    <div className={`pin-lock-shell onboarding-shell ${theme === 'dark' ? 'theme-dark' : ''} ${isAndroidNative ? 'native-android' : ''}`}>
       <main className="onboarding-card pin-lock-card">
         <div className="onboarding-brand">
           <span className="brand-mark" aria-hidden="true"><AnchorIcon size={19} strokeWidth={2.5} /></span>
@@ -1931,8 +1935,10 @@ function App() {
 
   const isDecisionRoute = activeView === 'decide' && !activeProjectId
 
+  const isAndroidNative = isNativeApp() && getAppPlatform() === 'android'
+
   return (
-    <div className={`anchor-app ${theme === 'dark' ? 'theme-dark' : ''}`}>
+    <div className={`anchor-app ${theme === 'dark' ? 'theme-dark' : ''} ${isAndroidNative ? 'native-android' : ''}`}>
       <aside className={`sidebar ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'sidebar-open' : ''}`}>
         <div className="brand-row">
           <button

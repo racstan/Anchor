@@ -1,6 +1,6 @@
 export type PlatformType = 'web' | 'desktop-windows' | 'desktop-macos' | 'desktop-linux' | 'android'
 
-export const CURRENT_APP_VERSION = '0.1.10'
+export const CURRENT_APP_VERSION = '0.1.11'
 export const GITHUB_REPO = 'racstan/Anchor'
 export const RELEASES_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
 export const RELEASES_WEB_URL = `https://github.com/${GITHUB_REPO}/releases/latest`
