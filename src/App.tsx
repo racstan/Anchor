@@ -3627,7 +3627,7 @@ function SettingsView({
 
                     {hasManagedDropboxApp ? (
                       <div className="sync-note-muted">
-                        Dropbox is already configured for Anchor. You do not need to enter an App Key or Access Token; Dropbox creates those credentials during authorization and Anchor keeps them on this device.
+                        Dropbox is already configured for Anchor. You do not need to enter an App Key, Access Token, or extra sync password; Dropbox creates the authorization during sign-in and Anchor keeps the credentials on this device.
                       </div>
                     ) : (
                       <div className="form-field">
