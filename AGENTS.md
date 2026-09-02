@@ -23,7 +23,8 @@ This guide is for AI coding agents (and humans) working in this repo. Keep it ti
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "framework": "vite"
+  "framework": "vite",
+  "rewrites": [{ "source": "/dropbox/callback", "destination": "/" }]
 }
 ```
 - **Build command:** `npm run build` → `tsc -b && vite build`
@@ -82,7 +83,7 @@ curl -I https://anchor-chi-eight.vercel.app
   - `android` (ubuntu): `tauri android build` → `apk` + `aab` (debug, unsigned). Run `npm run tauri android init` locally first if `src-tauri/gen/android` missing — workflow auto-inits.
 - **Tooling:** `tauri-apps/tauri-action@v0`, `dtolnay/rust-toolchain@stable`, `actions/setup-node@v4`, `actions/setup-java@v4` + `android-actions/setup-android@v3`
 - **Release creation:** Tauri action creates GitHub Release `vX.Y.Z` and attaches desktop bundles; `softprops/action-gh-release` appends Android `apk/aab`. Also uploads `anchor-android-apk-aab` as workflow artifact.
-- **Version source:** `src-tauri/tauri.conf.json` (`version`) + `package.json` (`version`) + `src-tauri/Cargo.toml` — keep them in sync before tagging (currently `0.1.0`).
+- **Version source:** `src-tauri/tauri.conf.json` (`version`) + `package.json` (`version`) + `src-tauri/Cargo.toml` — keep them in sync before tagging (currently `0.1.4`).
 - **Local test before tag:**
   ```bash
   npm run build                      # must pass
