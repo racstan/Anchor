@@ -107,6 +107,7 @@ import {
   extractDropboxOAuthToken,
   normalizeSyncSettings,
   readSyncSettings,
+  revokeDropboxAccess,
   startDropboxOAuth,
   testDropboxConnection,
   writeSyncSettings,
@@ -675,7 +676,7 @@ function App() {
       tokenDetails: { refreshToken?: string; expiresAt?: number; accountId?: string } = {},
     ) => {
       const vaultName = syncSettingsRef.current.vaultName || DEFAULT_VAULT_NAME
-      const name = await testDropboxConnection(token, vaultName)
+      const connectionMessage = await testDropboxConnection(token, vaultName)
       const nextSettings = normalizeSyncSettings({
         ...syncSettingsRef.current,
         enabled: true,
@@ -686,7 +687,7 @@ function App() {
         dropboxTokenExpiresAt: tokenDetails.expiresAt,
         dropboxAccountId: tokenDetails.accountId || syncSettingsRef.current.dropboxAccountId,
         lastSyncStatus: 'success',
-        lastSyncMessage: `Connected to ${name}`,
+        lastSyncMessage: connectionMessage,
       })
       setSyncSettings(nextSettings)
       setActiveView('settings')
@@ -696,7 +697,7 @@ function App() {
       setSearchPaletteOpen(false)
       setNotificationsOpen(false)
       setMobileMenuOpen(false)
-      showToast(`Successfully connected to ${name}!`)
+      showToast(connectionMessage)
       if (window.opener) {
         try {
           window.opener.postMessage({
@@ -3031,12 +3032,18 @@ function SettingsView({
   const [dataMessage, setDataMessage] = useState<string>()
   const [syncDraft, setSyncDraft] = useState<SyncSettings>(syncSettings)
   const [showSyncToken, setShowSyncToken] = useState(false)
-  const [showSyncPassword, setShowSyncPassword] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string }>()
   const [testingDropbox, setTestingDropbox] = useState(false)
+  const [revokingDropbox, setRevokingDropbox] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
   const provider = AI_PROVIDERS.find((item) => item.id === settings.providerId) ?? AI_PROVIDERS[0]
   const hasManagedDropboxApp = syncDraft.dropboxAppKey === DEFAULT_DROPBOX_APP_KEY
+  const dropboxConnected = Boolean(
+    syncDraft.dropboxAccessToken?.trim() ||
+    syncDraft.dropboxRefreshToken?.trim() ||
+    syncSettings.dropboxAccessToken?.trim() ||
+    syncSettings.dropboxRefreshToken?.trim(),
+  )
 
   const saveProfile = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -3125,6 +3132,49 @@ function SettingsView({
       setDataBusy(false)
     }
   }
+  const revokeDropbox = async () => {
+    if (!dropboxConnected) {
+      return
+    }
+
+    setRevokingDropbox(true)
+    setTestResult(undefined)
+
+    const revokeSettings: SyncSettings = {
+      ...syncDraft,
+      dropboxAccessToken: syncDraft.dropboxAccessToken || syncSettings.dropboxAccessToken,
+      dropboxRefreshToken: syncDraft.dropboxRefreshToken || syncSettings.dropboxRefreshToken,
+      dropboxTokenExpiresAt: syncDraft.dropboxTokenExpiresAt || syncSettings.dropboxTokenExpiresAt,
+      dropboxAccountId: syncDraft.dropboxAccountId || syncSettings.dropboxAccountId,
+    }
+
+    try {
+      await revokeDropboxAccess(revokeSettings)
+      setTestResult({ success: true, message: 'Dropbox access revoked.' })
+    } catch (revokeError) {
+      setTestResult({
+        success: false,
+        message: `Local Dropbox credentials were cleared, but remote revocation could not be confirmed: ${revokeError instanceof Error ? revokeError.message : 'request failed.'}`,
+      })
+    } finally {
+      const disconnected = normalizeSyncSettings({
+        ...syncDraft,
+        enabled: false,
+        provider: 'dropbox',
+        dropboxAccessToken: undefined,
+        dropboxRefreshToken: undefined,
+        dropboxTokenExpiresAt: undefined,
+        dropboxAccountId: undefined,
+        lastSyncedAt: undefined,
+        lastSyncStatus: 'idle',
+        lastSyncMessage: 'Dropbox access revoked.',
+      })
+      setSyncDraft(disconnected)
+      onSaveSyncSettings(disconnected)
+      setRevokingDropbox(false)
+    }
+  }
+
   const currentModelIsLoaded = availableModels.some((model) => model.id === settings.model)
 
   return (
@@ -3469,7 +3519,7 @@ function SettingsView({
             <span className="settings-card-icon sync"><Cloud size={18} /></span>
             <div>
               <p className="eyebrow">08 — Shared across all your devices</p>
-              <h2>Cloud sync (Remotely Save)</h2>
+              <h2>Cloud sync</h2>
             </div>
           </div>
           <p className="settings-card-copy">
@@ -3525,40 +3575,54 @@ function SettingsView({
 
                 {syncDraft.provider === 'dropbox' && (
                   <>
-                    <div className="dropbox-oauth-card">
+                    <div className={`dropbox-oauth-card ${dropboxConnected ? 'connected' : ''}`} role="status" aria-live="polite">
                       <div className="dropbox-oauth-copy">
-                        <strong>Connect with Dropbox</strong>
+                        <strong>{dropboxConnected ? 'Dropbox connected' : 'Connect with Dropbox'}</strong>
                         <span>
-                          One secure authorization connects this device. Anchor will create <strong>/{syncDraft.vaultName || DEFAULT_VAULT_NAME}</strong> inside the Dropbox app folder automatically.
+                          {dropboxConnected
+                            ? <>This device is authorized for the <strong>/{syncDraft.vaultName || DEFAULT_VAULT_NAME}</strong> vault. You can revoke Dropbox access at any time.</>
+                            : <>One secure authorization connects this device. Anchor will create <strong>/{syncDraft.vaultName || DEFAULT_VAULT_NAME}</strong> inside the Dropbox app folder automatically.</>}
                         </span>
                       </div>
-                      <button
-                        className="primary-button dropbox-authorize-btn"
-                        type="button"
-                        disabled={testingDropbox}
-                        onClick={() => {
-                          const appKey = syncDraft.dropboxAppKey?.trim() || DEFAULT_DROPBOX_APP_KEY
-                          onSaveSyncSettings(normalizeSyncSettings({
-                            ...syncDraft,
-                            enabled: true,
-                            provider: 'dropbox',
-                            dropboxAppKey: appKey,
-                          }))
-                          setTestingDropbox(true)
-                          setTestResult(undefined)
-                          void startDropboxOAuth(appKey, false)
-                            .catch((err) => {
-                              setTestResult({
-                                success: false,
-                                message: err instanceof Error ? err.message : 'Could not open Dropbox authorization.',
+                      {dropboxConnected ? (
+                        <button
+                          className="secondary-button dropbox-revoke-btn"
+                          type="button"
+                          disabled={revokingDropbox || testingDropbox}
+                          onClick={() => void revokeDropbox()}
+                        >
+                          <ShieldCheck size={15} />
+                          {revokingDropbox ? 'Revoking access…' : 'Revoke Dropbox access'}
+                        </button>
+                      ) : (
+                        <button
+                          className="primary-button dropbox-authorize-btn"
+                          type="button"
+                          disabled={testingDropbox || revokingDropbox}
+                          onClick={() => {
+                            const appKey = syncDraft.dropboxAppKey?.trim() || DEFAULT_DROPBOX_APP_KEY
+                            onSaveSyncSettings(normalizeSyncSettings({
+                              ...syncDraft,
+                              enabled: true,
+                              provider: 'dropbox',
+                              dropboxAppKey: appKey,
+                            }))
+                            setTestingDropbox(true)
+                            setTestResult(undefined)
+                            void startDropboxOAuth(appKey, false)
+                              .catch((err) => {
+                                setTestResult({
+                                  success: false,
+                                  message: err instanceof Error ? err.message : 'Could not open Dropbox authorization.',
+                                })
+                                setTestingDropbox(false)
                               })
-                              setTestingDropbox(false)
-                            })
-                        }}
-                      >
-                        <Cloud size={16} />
-                        {testingDropbox ? 'Opening Dropbox…' : 'Connect Dropbox'}
-                      </button>
+                          }}
+                        >
+                          <Cloud size={16} />
+                          {testingDropbox ? 'Opening Dropbox…' : 'Connect Dropbox'}
+                        </button>
+                      )}
                     </div>
 
                     {hasManagedDropboxApp ? (
@@ -3582,32 +3646,6 @@ function SettingsView({
                             dropbox.com/developers/apps <ArrowUpRight size={12} style={{ display: 'inline', verticalAlign: 'middle' }} />
                           </a>.
                         </small>
-                      </div>
-                    )}
-
-                    {(syncDraft.dropboxAccessToken || syncSettings.dropboxAccessToken) && (
-                      <div className="model-success sync-connected-pill">
-                        <Check size={14} />
-                        <span>Dropbox account connected. Vault: <strong>{syncDraft.vaultName}</strong></span>
-                        <button
-                          className="text-button disconnect-btn"
-                          type="button"
-                          onClick={() => {
-                            const disconnected = normalizeSyncSettings({
-                              ...syncDraft,
-                              enabled: false,
-                              provider: 'none',
-                              dropboxAccessToken: undefined,
-                              dropboxRefreshToken: undefined,
-                              dropboxTokenExpiresAt: undefined,
-                              dropboxAccountId: undefined,
-                            })
-                            setSyncDraft(disconnected)
-                            onSaveSyncSettings(disconnected)
-                          }}
-                        >
-                          Disconnect
-                        </button>
                       </div>
                     )}
 
@@ -3709,30 +3747,6 @@ function SettingsView({
                   </>
                 )}
 
-                <div className="form-field">
-                  <div className="field-label-row">
-                    <label htmlFor="sync-encryption-pass">End-to-End Encryption (E2EE) password (Optional)</label>
-                    <button
-                      className="field-action-button"
-                      type="button"
-                      onClick={() => setShowSyncPassword((prev) => !prev)}
-                    >
-                      {showSyncPassword ? 'Hide' : 'Show'}
-                    </button>
-                  </div>
-                  <input
-                    id="sync-encryption-pass"
-                    type={showSyncPassword ? 'text' : 'password'}
-                    value={syncDraft.encryptionPassword ?? ''}
-                    onChange={(e) => setSyncDraft((prev) => ({ ...prev, encryptionPassword: e.target.value }))}
-                    placeholder="Leave empty for plaintext JSON in your private storage"
-                    autoComplete="new-password"
-                  />
-                  <small className="field-help">
-                    Zero-knowledge AES-GCM encryption. If set, data is encrypted before leaving your device. All your devices must use this identical password.
-                  </small>
-                </div>
-
                 <div className="form-row">
                   <div className="form-field">
                     <label htmlFor="sync-interval-select">Auto-sync interval</label>
@@ -3780,10 +3794,10 @@ function SettingsView({
                       className="primary-button"
                       type="button"
                       onClick={onTriggerSync}
-                      disabled={syncBusy}
+                      disabled={syncBusy || (syncDraft.provider === 'dropbox' && !dropboxConnected)}
                     >
                       <RefreshCw className={syncBusy ? 'spin' : ''} size={15} />
-                      {syncBusy ? 'Syncing…' : 'Sync now'}
+                      {syncBusy ? 'Syncing…' : dropboxConnected || syncDraft.provider !== 'dropbox' ? 'Sync now' : 'Connect Dropbox first'}
                     </button>
                     <button className="secondary-button" type="submit">
                       Save sync settings

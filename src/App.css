@@ -4904,6 +4904,24 @@ fieldset.form-field {
   line-height: 1.45;
 }
 
+.dropbox-oauth-card.connected {
+  border-color: #6ee7b7;
+  background: #ecfdf5;
+}
+
+.dropbox-oauth-card.connected .dropbox-oauth-copy > strong {
+  color: #047857;
+}
+
+.theme-dark .dropbox-oauth-card.connected {
+  border-color: #1a4a3a;
+  background: #0f2a22;
+}
+
+.theme-dark .dropbox-oauth-card.connected .dropbox-oauth-copy > strong {
+  color: #6ee7b7;
+}
+
 .dropbox-authorize-btn {
   background: #0061fe;
   color: #ffffff;
@@ -4917,24 +4935,26 @@ fieldset.form-field {
   transform: translateY(-1px);
 }
 
-.sync-connected-pill {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  margin-top: 6px;
+.dropbox-revoke-btn {
+  color: #b42318;
+  border-color: #fecaca;
+  background: #fff1f2;
 }
 
-.sync-connected-pill .disconnect-btn {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--muted);
-  text-decoration: underline;
-  cursor: pointer;
+.dropbox-revoke-btn:hover {
+  color: #9f1239;
+  border-color: #fda4af;
+  background: #ffe4e6;
 }
 
-.sync-connected-pill .disconnect-btn:hover {
-  color: var(--danger, #e05252);
+.theme-dark .dropbox-revoke-btn {
+  color: #fda4af;
+  border-color: #5a2230;
+  background: #3a1520;
+}
+
+.theme-dark .dropbox-revoke-btn:hover {
+  background: #4a1b29;
 }
 
 .sync-note-muted {
@@ -6872,7 +6892,6 @@ fieldset.form-field {
   .page-enter .philosophy-card:nth-child(4) { animation-delay: 105ms; }
 
   .dropbox-oauth-card,
-  .sync-connected-pill,
   .decision-brief,
   .decision-chat {
     animation: softSettle 420ms cubic-bezier(0.16, 1, 0.3, 1) both;

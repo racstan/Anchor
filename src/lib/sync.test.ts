@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  decryptVault,
-  encryptVault,
   getDropboxAuthUrl,
   getDropboxBackupPath,
   getDropboxVaultFolder,
@@ -10,35 +8,6 @@ import {
   readSyncSettings,
 } from './sync'
 import type { AnchorState } from './anchors'
-
-describe('sync encryption (E2EE)', () => {
-  it('encrypts and decrypts vault content symmetrically', async () => {
-    const rawVault = JSON.stringify({ hello: 'anchor world', count: 42 })
-    const password = 'calm-harbor-secret-password-123'
-
-    const encrypted = await encryptVault(rawVault, password)
-    expect(encrypted).toContain('anchor-encrypted-vault')
-    expect(encrypted).not.toContain('anchor world')
-
-    const decrypted = await decryptVault(encrypted, password)
-    expect(decrypted).toBe(rawVault)
-  })
-
-  it('fails decryption when provided with the wrong password', async () => {
-    const rawVault = 'confidential notes'
-    const encrypted = await encryptVault(rawVault, 'correct-pass')
-
-    await expect(decryptVault(encrypted, 'wrong-pass')).rejects.toThrow(
-      'Incorrect sync encryption password',
-    )
-  })
-
-  it('returns plaintext unchanged if data was not encrypted', async () => {
-    const unencrypted = JSON.stringify({ unencrypted: true })
-    const result = await decryptVault(unencrypted, 'any-pass')
-    expect(result).toBe(unencrypted)
-  })
-})
 
 describe('timestamp-aware CRDT merge', () => {
   it('merges records preferring the newer timestamp', () => {

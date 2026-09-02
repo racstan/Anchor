@@ -21,8 +21,6 @@ export interface SyncSettings {
   webdavUrl?: string
   webdavUsername?: string
   webdavPassword?: string
-  // Optional Encryption Password (E2EE)
-  encryptionPassword?: string
   // Metadata
   lastSyncedAt?: string
   lastSyncStatus?: 'idle' | 'syncing' | 'success' | 'error'
@@ -289,121 +287,6 @@ export interface SyncResult {
 }
 
 // -------------------------------------------------------------
-// End-to-End Encryption (E2EE) Helpers with Web Crypto API
-// -------------------------------------------------------------
-
-function bufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i])
-  }
-  return btoa(binary)
-}
-
-function base64ToBuffer(base64: string): ArrayBuffer {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i)
-  }
-  return bytes.buffer
-}
-
-export async function encryptVault(plaintext: string, password: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const salt = crypto.getRandomValues(new Uint8Array(16))
-  const iv = crypto.getRandomValues(new Uint8Array(12))
-
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(password),
-    'PBKDF2',
-    false,
-    ['deriveKey'],
-  )
-
-  const key = await crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt,
-      iterations: 100000,
-      hash: 'SHA-256',
-    },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt'],
-  )
-
-  const encrypted = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    encoder.encode(plaintext),
-  )
-
-  const payload = {
-    format: 'anchor-encrypted-vault',
-    version: 1,
-    salt: bufferToBase64(salt.buffer),
-    iv: bufferToBase64(iv.buffer),
-    data: bufferToBase64(encrypted),
-  }
-
-  return JSON.stringify(payload)
-}
-
-export async function decryptVault(payloadString: string, password: string): Promise<string> {
-  try {
-    const payload = JSON.parse(payloadString)
-    if (payload.format !== 'anchor-encrypted-vault' || !payload.salt || !payload.iv || !payload.data) {
-      // Not encrypted, return as is
-      return payloadString
-    }
-
-    const encoder = new TextEncoder()
-    const decoder = new TextDecoder()
-    const salt = new Uint8Array(base64ToBuffer(payload.salt))
-    const iv = new Uint8Array(base64ToBuffer(payload.iv))
-    const encryptedData = base64ToBuffer(payload.data)
-
-    const keyMaterial = await crypto.subtle.importKey(
-      'raw',
-      encoder.encode(password),
-      'PBKDF2',
-      false,
-      ['deriveKey'],
-    )
-
-    const key = await crypto.subtle.deriveKey(
-      {
-        name: 'PBKDF2',
-        salt,
-        iterations: 100000,
-        hash: 'SHA-256',
-      },
-      keyMaterial,
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['decrypt'],
-    )
-
-    const decrypted = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv },
-      key,
-      encryptedData,
-    )
-
-    return decoder.decode(decrypted)
-  } catch (error) {
-    if (error instanceof Error && error.name === 'OperationError') {
-      throw new Error('Incorrect sync encryption password. Could not decrypt vault.')
-    }
-    throw error
-  }
-}
-
-// -------------------------------------------------------------
 // Timestamp-Aware CRDT Merge
 // -------------------------------------------------------------
 
@@ -590,10 +473,14 @@ export function normalizeSyncSettings(settings: SyncSettings): SyncSettings {
   const provider = settings.provider || 'none'
   const rawAppKey = settings.dropboxAppKey?.trim() || ''
   const isLegacyApp = LEGACY_DROPBOX_APP_KEYS.has(rawAppKey)
+  const settingsWithoutEncryption = { ...settings } as SyncSettings & { encryptionPassword?: string }
+  // Remove the old optional encryption setting so existing devices immediately
+  // return to the normal plaintext workspace format without keeping a stale password.
+  delete settingsWithoutEncryption.encryptionPassword
 
   return {
     ...DEFAULT_SYNC_SETTINGS,
-    ...settings,
+    ...settingsWithoutEncryption,
     ...(isLegacyApp ? {
       dropboxAccessToken: undefined,
       dropboxRefreshToken: undefined,
@@ -688,6 +575,22 @@ async function getUsableDropboxToken(settings: SyncSettings): Promise<{
   }
 }
 
+export async function revokeDropboxAccess(settings: SyncSettings): Promise<void> {
+  const { accessToken } = await getUsableDropboxToken(settings)
+  const response = await fetch(`${DROPBOX_API_ENDPOINT}/auth/token/revoke`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken.trim()}`,
+    },
+  })
+
+  // Dropbox returns 401 when the token was already revoked or expired. In that
+  // case there is nothing left for Anchor to revoke remotely.
+  if (!response.ok && response.status !== 401) {
+    throw new Error(`Dropbox revoke failed (HTTP ${response.status}): ${await readDropboxError(response)}`)
+  }
+}
+
 // -------------------------------------------------------------
 // Orchestrated Multi-Device Sync Pipeline
 // -------------------------------------------------------------
@@ -733,22 +636,14 @@ export async function executeWorkspaceSync(
     let mergedProfile = localProfile
 
     if (remotePayload) {
-      let plaintextRemote = remotePayload
-      if (effectiveSettings.encryptionPassword) {
-        plaintextRemote = await decryptVault(remotePayload, effectiveSettings.encryptionPassword)
-      }
-
-      const parsedRemote = parseWorkspaceExport(plaintextRemote)
+      const parsedRemote = parseWorkspaceExport(remotePayload)
       mergedState = mergeSyncState(localState, parsedRemote.state)
       mergedProfile = {
         name: localProfile.name.trim() || parsedRemote.profile.name.trim() || 'friend',
       }
     }
 
-    let uploadContent = serializeWorkspaceExport(mergedState, mergedProfile)
-    if (effectiveSettings.encryptionPassword) {
-      uploadContent = await encryptVault(uploadContent, effectiveSettings.encryptionPassword)
-    }
+    const uploadContent = serializeWorkspaceExport(mergedState, mergedProfile)
 
     if (effectiveSettings.provider === 'dropbox' && dropboxAccessToken) {
       await uploadDropboxVault(
