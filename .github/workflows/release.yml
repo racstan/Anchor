@@ -163,12 +163,14 @@ jobs:
         run: npm run tauri android build -- --ci --apk true --aab true
 
       - name: Collect Android artifacts
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           echo "Finding Android APK/AAB artifacts..."
           mkdir -p dist-android
           find src-tauri/gen/android/app/build/outputs -type f \( -name "*.apk" -o -name "*.aab" \) -print
           while IFS= read -r -d '' artifact; do
-            cp "$artifact" "dist-android/Anchor-${GITHUB_REF_NAME}-$(basename "$artifact")"
+            cp "$artifact" "dist-android/Anchor-${RELEASE_TAG}-$(basename "$artifact")"
           done < <(find src-tauri/gen/android/app/build/outputs -type f \( -name "*.apk" -o -name "*.aab" \) -print0)
           test -n "$(find dist-android -type f -print -quit)"
           ls -lh dist-android/
