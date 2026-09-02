@@ -676,20 +676,22 @@ function App() {
       tokenDetails: { refreshToken?: string; expiresAt?: number; accountId?: string } = {},
     ) => {
       const vaultName = syncSettingsRef.current.vaultName || DEFAULT_VAULT_NAME
-      const connectionMessage = await testDropboxConnection(token, vaultName)
-      const nextSettings = normalizeSyncSettings({
+      const authorizedSettings = normalizeSyncSettings({
         ...syncSettingsRef.current,
-        enabled: true,
+        enabled: false,
         provider: 'dropbox',
         dropboxAppKey: syncSettingsRef.current.dropboxAppKey || DEFAULT_DROPBOX_APP_KEY,
         dropboxAccessToken: token,
         dropboxRefreshToken: tokenDetails.refreshToken || syncSettingsRef.current.dropboxRefreshToken,
         dropboxTokenExpiresAt: tokenDetails.expiresAt,
         dropboxAccountId: tokenDetails.accountId || syncSettingsRef.current.dropboxAccountId,
-        lastSyncStatus: 'success',
-        lastSyncMessage: connectionMessage,
+        lastSyncStatus: 'syncing',
+        lastSyncMessage: 'Dropbox authorization received. Setting up your Anchor vault…',
       })
-      setSyncSettings(nextSettings)
+
+      // Persist the authorization before folder setup so a missing Dropbox
+      // permission cannot strand the user without a revoke control.
+      setSyncSettings(authorizedSettings)
       setActiveView('settings')
       setActiveProjectId(undefined)
       setListFilter('all')
@@ -697,7 +699,28 @@ function App() {
       setSearchPaletteOpen(false)
       setNotificationsOpen(false)
       setMobileMenuOpen(false)
-      showToast(connectionMessage)
+
+      try {
+        const connectionMessage = await testDropboxConnection(token, vaultName)
+        setSyncSettings(normalizeSyncSettings({
+          ...authorizedSettings,
+          enabled: true,
+          lastSyncStatus: 'success',
+          lastSyncMessage: connectionMessage,
+        }))
+        showToast(connectionMessage)
+      } catch (setupError) {
+        const setupMessage = setupError instanceof Error ? setupError.message : 'Dropbox vault setup failed.'
+        const connectionMessage = `Dropbox authorized, but vault setup is incomplete: ${setupMessage}`
+        setSyncSettings(normalizeSyncSettings({
+          ...authorizedSettings,
+          enabled: false,
+          lastSyncStatus: 'error',
+          lastSyncMessage: connectionMessage,
+        }))
+        showToast(connectionMessage)
+      }
+
       if (window.opener) {
         try {
           window.opener.postMessage({
@@ -3409,23 +3432,11 @@ function SettingsView({
           </div>
         </section>
 
-        <section className="settings-card privacy-card">
-          <div className="settings-card-heading compact">
-            <span className="settings-card-icon privacy"><ShieldCheck size={18} /></span>
-            <div>
-              <p className="eyebrow">05 — Your trust matters</p>
-              <h2>Private by default</h2>
-            </div>
-          </div>
-          <p className="settings-card-copy">Your key and connection settings stay in this device&apos;s local storage. Anchor only sends them to your chosen provider when you test or think.</p>
-          <div className="privacy-note"><ShieldCheck size={14} /> The relay forwards requests without saving your key or decision context.</div>
-        </section>
-
         <section className="settings-card data-card">
           <div className="settings-card-heading compact">
             <span className="settings-card-icon data"><Download size={18} /></span>
             <div>
-              <p className="eyebrow">06 — Keep your context close</p>
+              <p className="eyebrow">07 — Keep your context close</p>
               <h2>Workspace data</h2>
             </div>
           </div>
@@ -3467,7 +3478,7 @@ function SettingsView({
           <div className="settings-card-heading compact">
             <span className="settings-card-icon updates"><Sparkles size={18} /></span>
             <div>
-              <p className="eyebrow">07 — Always getting steadier</p>
+              <p className="eyebrow">05 — Always getting steadier</p>
               <h2>App updates &amp; about</h2>
             </div>
           </div>
@@ -3518,7 +3529,7 @@ function SettingsView({
           <div className="settings-card-heading compact">
             <span className="settings-card-icon sync"><Cloud size={18} /></span>
             <div>
-              <p className="eyebrow">08 — Shared across all your devices</p>
+              <p className="eyebrow">06 — Shared across all your devices</p>
               <h2>Cloud sync</h2>
             </div>
           </div>
@@ -3583,6 +3594,9 @@ function SettingsView({
                             ? <>This device is authorized for the <strong>/{syncDraft.vaultName || DEFAULT_VAULT_NAME}</strong> vault. You can revoke Dropbox access at any time.</>
                             : <>One secure authorization connects this device. Anchor will create <strong>/{syncDraft.vaultName || DEFAULT_VAULT_NAME}</strong> inside the Dropbox app folder automatically.</>}
                         </span>
+                        {dropboxConnected && syncSettings.lastSyncStatus === 'error' && syncSettings.lastSyncMessage && (
+                          <small className="dropbox-connection-warning">{syncSettings.lastSyncMessage}</small>
+                        )}
                       </div>
                       {dropboxConnected ? (
                         <button

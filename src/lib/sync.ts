@@ -380,7 +380,12 @@ export async function ensureDropboxFolder(accessToken: string, vaultName = DEFAU
     }
   }
 
-  throw new Error(`Dropbox folder setup failed (HTTP ${response.status}): ${await readDropboxError(response)}`)
+  const errorMessage = await readDropboxError(response)
+  if (errorMessage.includes('files.content.write')) {
+    throw new Error('The Anchor Dropbox app is missing the files.content.write permission. Enable it in Dropbox App Console → Permissions, then revoke and reconnect Dropbox.')
+  }
+
+  throw new Error(`Dropbox folder setup failed (HTTP ${response.status}): ${errorMessage}`)
 }
 
 // Dropbox API v2 implementation. The backup always lives inside a folder named
