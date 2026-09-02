@@ -87,7 +87,6 @@ jobs:
             > Web stays live at https://anchor-chi-eight.vercel.app
           releaseDraft: false
           prerelease: false
-          uploadUpdaterSignatures: true
           args: ${{ matrix.args }}
 
   # ─────────────────────────────────────────────────────────────
