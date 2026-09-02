@@ -5420,7 +5420,6 @@ function AnchorComposer({
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="e.g. Patience is part of the strategy."
-            maxLength={100}
           />
         </label>
         <label className="form-field">
@@ -5430,21 +5429,19 @@ function AnchorComposer({
             onChange={(event) => setBody(event.target.value)}
             placeholder="Why does this matter when you forget it?"
             rows={4}
-            maxLength={320}
           />
-          <small>{body.length}/320</small>
         </label>
         <AIWriterButton
           settings={settings}
           onOpenSettings={onOpenSettings}
           label="Draft with AI"
           disabled={!title.trim() && !body.trim()}
-          prompt={`Turn this rough thought into a useful Anchor reminder. Preserve the person’s meaning, make the title memorable, and make the context concrete without inventing facts. Return only JSON with exactly these keys: title, body, tag. Keep title under 100 characters, body under 320 characters, and tag under 32 characters.\n\nROUGH TITLE\n${title || '(empty)'}\n\nROUGH CONTEXT\n${body || '(empty)'}\n\nCURRENT TAG\n${tag || '(empty)'}`}
+          prompt={`Turn this rough thought into a useful Anchor reminder. Preserve the person’s meaning, make the title memorable, and make the context concrete without inventing facts. Return only JSON with exactly these keys: title, body, tag. Do not shorten or omit meaningful details.\n\nROUGH TITLE\n${title || '(empty)'}\n\nROUGH CONTEXT\n${body || '(empty)'}\n\nCURRENT TAG\n${tag || '(empty)'}`}
           onResult={(response) => {
             const draft = parseAnchorDraft(response)
-            setTitle(draft.title.slice(0, 100))
-            setBody(draft.body.slice(0, 320))
-            if (draft.tag) setTag(draft.tag.slice(0, 32))
+            setTitle(draft.title)
+            setBody(draft.body)
+            if (draft.tag) setTag(draft.tag)
           }}
         />
         <div className="form-row">
@@ -5626,7 +5623,6 @@ function AnchorEditModal({
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="e.g. Patience is part of the strategy."
-            maxLength={100}
           />
         </label>
         <label className="form-field">
@@ -5636,20 +5632,18 @@ function AnchorEditModal({
             onChange={(event) => setBody(event.target.value)}
             placeholder="Why does this matter when you forget it?"
             rows={4}
-            maxLength={320}
           />
-          <small>{body.length}/320</small>
         </label>
         <AIWriterButton
           settings={settings}
           onOpenSettings={onOpenSettings}
           label="Polish with AI"
-          prompt={`Polish this existing Anchor without changing its underlying meaning. Make it clear, memorable, and practical. Return only JSON with exactly these keys: title, body, tag. Keep title under 100 characters, body under 320 characters, and tag under 32 characters. Do not invent evidence or claims.\n\nTITLE\n${title}\n\nCONTEXT\n${body}\n\nTAG\n${tag}`}
+          prompt={`Polish this existing Anchor without changing its underlying meaning. Make it clear, memorable, and practical. Return only JSON with exactly these keys: title, body, tag. Preserve all meaningful details without shortening the content. Do not invent evidence or claims.\n\nTITLE\n${title}\n\nCONTEXT\n${body}\n\nTAG\n${tag}`}
           onResult={(response) => {
             const draft = parseAnchorDraft(response)
-            setTitle(draft.title.slice(0, 100))
-            setBody(draft.body.slice(0, 320))
-            if (draft.tag) setTag(draft.tag.slice(0, 32))
+            setTitle(draft.title)
+            setBody(draft.body)
+            if (draft.tag) setTag(draft.tag)
           }}
         />
         <div className="form-row">

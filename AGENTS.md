@@ -83,7 +83,7 @@ curl -I https://anchor-chi-eight.vercel.app
   - `android` (ubuntu): `tauri android build --ci --apk true --aab true` → signed universal release `apk` + `aab`. Android is distributed as a direct APK today; the in-app Tauri updater is desktop-only by design.
 - **Tooling:** `tauri-apps/tauri-action@v0`, `dtolnay/rust-toolchain@stable`, `actions/setup-node@v4`, `actions/setup-java@v4` + `android-actions/setup-android@v3`
 - **Release creation:** Tauri action creates GitHub Release `vX.Y.Z` and attaches desktop bundles; the Android job uses `gh release upload` to append the signed `apk/aab`. It also uploads `anchor-android-apk-aab` as a workflow artifact.
-- **Version source:** `src-tauri/tauri.conf.json` (`version`) + `package.json` (`version`) + `src-tauri/Cargo.toml` — keep them in sync before tagging (currently `0.1.7`).
+- **Version source:** `src-tauri/tauri.conf.json` (`version`) + `package.json` (`version`) + `src-tauri/Cargo.toml` — keep them in sync before tagging (currently `0.1.8`).
 - **Local test before tag:**
   ```bash
   npm run build                      # must pass
