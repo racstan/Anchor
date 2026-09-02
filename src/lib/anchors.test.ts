@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { filterAnchors, formatUpdatedAt, getProjectAnchorCount, matchSearchText } from './anchors'
+import {
+  filterAnchors,
+  formatEntitySerial,
+  formatTimestamp,
+  formatUpdatedAt,
+  getProjectAnchorCount,
+  matchSearchText,
+  normalizeAnchorState,
+  nextSerialNumber,
+} from './anchors'
 import type { Anchor } from './anchors'
 
 const anchors: Anchor[] = [
   {
     id: 'global-pause',
+    serialNumber: 1,
     title: 'Pause before you pivot.',
     body: 'Give the current direction a fair attempt.',
     scope: 'global',
@@ -20,6 +30,7 @@ const anchors: Anchor[] = [
   },
   {
     id: 'trade-plan',
+    serialNumber: 2,
     title: 'Trade the plan.',
     body: 'The job is to execute the setup.',
     scope: 'project',
@@ -49,6 +60,11 @@ describe('anchor filtering', () => {
   it('matches anchors by evidence source label', () => {
     expect(filterAnchors(anchors, 'all', undefined, 'Stanford')).toEqual([anchors[0]])
   })
+
+  it('matches anchors by their human serial or stable ID', () => {
+    expect(filterAnchors(anchors, 'all', undefined, 'A-0002')).toEqual([anchors[1]])
+    expect(filterAnchors(anchors, 'all', undefined, 'trade-plan')).toEqual([anchors[1]])
+  })
 })
 
 describe('fuzzy search', () => {
@@ -69,6 +85,26 @@ describe('project anchor counts', () => {
   it('counts only anchors belonging to the requested project', () => {
     expect(getProjectAnchorCount(anchors, 'trading')).toBe(1)
     expect(getProjectAnchorCount(anchors, 'writing')).toBe(0)
+  })
+})
+
+describe('record identity and timestamps', () => {
+  it('assigns stable serial numbers while preserving valid existing values', () => {
+    const normalized = normalizeAnchorState({
+      anchors: [anchors[0], { ...anchors[1], serialNumber: 7 }, { ...anchors[1], id: 'third', serialNumber: 7 }],
+      projects: [],
+      decisions: [],
+      notes: [],
+    })
+
+    expect(normalized.anchors.map((anchor) => anchor.serialNumber)).toEqual([1, 7, 8])
+    expect(nextSerialNumber(normalized.anchors)).toBe(9)
+    expect(formatEntitySerial('A', normalized.anchors[0].serialNumber)).toBe('A-0001')
+  })
+
+  it('formats an exact timestamp for record details', () => {
+    expect(formatTimestamp('2026-01-02T15:04:00.000Z')).toContain('2026')
+    expect(formatTimestamp(undefined)).toBe('Time not recorded')
   })
 })
 

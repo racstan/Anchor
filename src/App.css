@@ -1338,6 +1338,12 @@ html[data-theme='dark'] {
   flex-wrap: wrap;
 }
 
+.spotlight-record {
+  color: rgba(255, 255, 255, 0.9);
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
 .spotlight-scope {
   color: rgba(255, 255, 255, 0.88);
   font-weight: 500;
@@ -7593,6 +7599,254 @@ fieldset.form-field {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* ---------- Record identity, serials, and timestamps ---------- */
+.entity-identity {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted-2);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.entity-identity.compact {
+  gap: 4px;
+  font-size: 9.5px;
+}
+
+.entity-serial,
+.record-number,
+.search-result-id {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.entity-serial {
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-2);
+}
+
+.entity-identity.compact .entity-serial {
+  padding: 2px 4px;
+  font-size: 9px;
+}
+
+.entity-id-copy {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0;
+  color: var(--muted-2);
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  transition: all 140ms ease;
+}
+
+.entity-id-copy:hover,
+.entity-id-copy.copied {
+  color: var(--primary);
+  border-color: var(--primary-border);
+  background: var(--primary-light);
+}
+
+.entity-id-copy.copied {
+  color: var(--sage);
+}
+
+.entity-timestamp {
+  overflow: hidden;
+  max-width: 120px;
+  color: var(--muted-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-identity:not(.compact) .entity-timestamp {
+  max-width: 240px;
+}
+
+.entity-identity.compact .entity-timestamp {
+  max-width: 92px;
+}
+
+.record-number {
+  margin-right: 6px;
+  color: var(--primary);
+}
+
+.philosophy-card-tags {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.philosophy-thought-id {
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.philosophy-author-info .philosophy-thought-id {
+  margin-top: 5px;
+}
+
+.project-card-open {
+  width: 100%;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.project-card-open:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.project-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.project-card-edit {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--muted-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  transition: all 140ms ease;
+}
+
+.project-card-edit:hover {
+  color: var(--primary);
+  border-color: var(--primary-border);
+  background: var(--primary-light);
+}
+
+.project-card-identity {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.project-card-identity .entity-identity {
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.project-identity-summary {
+  min-width: 0;
+}
+
+.project-identity-summary .entity-identity {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.project-identity-summary .entity-timestamp {
+  max-width: none;
+}
+
+.note-list-item-topline strong {
+  min-width: 0;
+}
+
+.decision-history-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 3px;
+}
+
+.decision-history-copy strong {
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.decision-history-copy small {
+  overflow: hidden;
+  color: var(--muted-2);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-message-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -3px 0 6px;
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+}
+
+.chat-message-meta time {
+  font-family: var(--font-sans);
+  letter-spacing: 0;
+}
+
+.chat-message-row.user .chat-message-meta {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.search-result-id {
+  margin-right: 5px;
+  color: var(--primary);
+}
+
+.search-quick-item-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.search-quick-item-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-quick-item-copy small {
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
 /* ---------- AI workspace tools ---------- */
 .ai-insight-card {
   position: relative;
@@ -8070,6 +8324,35 @@ fieldset.form-field {
 
   .anchor-reflection-content .ai-quick-prompt {
     justify-content: center;
+  }
+
+  .entity-identity {
+    max-width: 100%;
+  }
+
+  .entity-identity:not(.compact) .entity-timestamp {
+    max-width: 135px;
+  }
+
+  .entity-identity.compact .entity-timestamp {
+    max-width: 70px;
+  }
+
+  .project-card-identity .entity-identity {
+    justify-content: flex-start;
+  }
+
+  .project-identity-summary {
+    flex-basis: 100%;
+  }
+
+  .project-actions-group {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .project-actions-group .primary-button {
+    flex: 1;
   }
 }
 

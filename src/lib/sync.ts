@@ -1,3 +1,4 @@
+import { normalizeAnchorState } from './anchors'
 import type { AnchorState } from './anchors'
 import type { UserProfile } from './workspace'
 import { parseWorkspaceExport, serializeWorkspaceExport } from './workspace'
@@ -319,12 +320,12 @@ function mergeRecordsByTimestamp<T extends { id: string; updatedAt?: string; cre
 }
 
 export function mergeSyncState(current: AnchorState, incoming: AnchorState): AnchorState {
-  return {
+  return normalizeAnchorState({
     anchors: mergeRecordsByTimestamp(current.anchors, incoming.anchors),
     projects: mergeRecordsByTimestamp(current.projects, incoming.projects),
     decisions: mergeRecordsByTimestamp(current.decisions, incoming.decisions),
     notes: mergeRecordsByTimestamp(current.notes, incoming.notes),
-  }
+  })
 }
 
 // -------------------------------------------------------------

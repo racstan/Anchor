@@ -13,7 +13,6 @@ import {
   ChevronRight,
   CircleAlert,
   CirclePlus,
-  Clock3,
   Cloud,
   Download,
   Command,
@@ -56,10 +55,13 @@ import type { LucideIcon } from 'lucide-react'
 import {
   createId,
   filterAnchors,
+  formatEntitySerial,
+  formatTimestamp,
   formatUpdatedAt,
   matchSearchText,
   getProject,
   getProjectAnchorCount,
+  nextSerialNumber,
   readAnchorState,
   writeAnchorState,
 } from './lib/anchors'
@@ -70,6 +72,7 @@ import type {
   AnchorScope,
   AnchorState,
   ChatMessage,
+  EntitySerialPrefix,
   Decision,
   EvidenceSource,
   Note,
@@ -172,6 +175,29 @@ function profileInitial(name: string): string {
   const trimmedName = name.trim()
 
   return trimmedName ? trimmedName.charAt(0).toUpperCase() : '?'
+}
+
+async function copyTextToClipboard(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+
+  const textArea = document.createElement('textarea')
+  textArea.value = value
+  textArea.setAttribute('readonly', '')
+  textArea.style.position = 'fixed'
+  textArea.style.opacity = '0'
+  document.body.appendChild(textArea)
+
+  try {
+    textArea.select()
+    if (!document.execCommand('copy')) {
+      throw new Error('Clipboard access was not available.')
+    }
+  } finally {
+    textArea.remove()
+  }
 }
 
 function readStoredBoolean(key: string, fallback: boolean): boolean {
@@ -788,6 +814,7 @@ function App() {
     const timestamp = new Date().toISOString()
     const newAnchor: Anchor = {
       id: createId('anchor'),
+      serialNumber: nextSerialNumber(state.anchors),
       title: `${thought.author}: ${thought.quote.slice(0, 55)}${thought.quote.length > 55 ? '…' : ''}`,
       body: `"${thought.quote}"\n\nTakeaway: ${thought.takeaway || thought.school}`,
       scope: 'global',
@@ -1031,20 +1058,36 @@ function App() {
   }
 
   const saveDecision = (decision: Decision) => {
-    setState((currentState) => ({
-      ...currentState,
-      decisions: [
-        decision,
-        ...currentState.decisions.filter((savedDecision) => savedDecision.id !== decision.id),
-      ],
-    }))
+    setState((currentState) => {
+      const existingDecision = currentState.decisions.find((savedDecision) => savedDecision.id === decision.id)
+      const savedDecision: Decision = {
+        ...decision,
+        serialNumber: decision.serialNumber ?? existingDecision?.serialNumber ?? nextSerialNumber(currentState.decisions),
+      }
+
+      return {
+        ...currentState,
+        decisions: [
+          savedDecision,
+          ...currentState.decisions.filter((item) => item.id !== decision.id),
+        ],
+      }
+    })
   }
 
   const saveNote = (note: Note) => {
-    setState((currentState) => ({
-      ...currentState,
-      notes: [note, ...currentState.notes.filter((savedNote) => savedNote.id !== note.id)],
-    }))
+    setState((currentState) => {
+      const existingNote = currentState.notes.find((savedNote) => savedNote.id === note.id)
+      const savedNote: Note = {
+        ...note,
+        serialNumber: note.serialNumber ?? existingNote?.serialNumber ?? nextSerialNumber(currentState.notes),
+      }
+
+      return {
+        ...currentState,
+        notes: [savedNote, ...currentState.notes.filter((item) => item.id !== note.id)],
+      }
+    })
     showToast('Note saved.')
   }
 
@@ -1057,10 +1100,11 @@ function App() {
   }
 
   const togglePinned = (anchorId: string) => {
+    const timestamp = new Date().toISOString()
     setState((currentState) => ({
       ...currentState,
       anchors: currentState.anchors.map((anchor) =>
-        anchor.id === anchorId ? { ...anchor, pinned: !anchor.pinned } : anchor,
+        anchor.id === anchorId ? { ...anchor, pinned: !anchor.pinned, updatedAt: timestamp } : anchor,
       ),
     }))
   }
@@ -1085,6 +1129,7 @@ function App() {
     const newAnchor: Anchor = {
       ...formData,
       id: createId('anchor'),
+      serialNumber: nextSerialNumber(state.anchors),
       createdAt: timestamp,
       updatedAt: timestamp,
     }
@@ -1129,8 +1174,10 @@ function App() {
     const newProject: Project = {
       ...formData,
       id: createId('project'),
+      serialNumber: nextSerialNumber(state.projects),
       icon: 'spark',
       createdAt: timestamp,
+      updatedAt: timestamp,
     }
 
     setState((currentState) => ({
@@ -1143,10 +1190,13 @@ function App() {
   }
 
   const updateProject = (updated: Project) => {
+    const timestamp = new Date().toISOString()
     setState((currentState) => ({
       ...currentState,
       projects: currentState.projects.map((project) =>
-        project.id === updated.id ? updated : project,
+        project.id === updated.id
+          ? { ...updated, serialNumber: updated.serialNumber ?? project.serialNumber, updatedAt: timestamp }
+          : project,
       ),
     }))
     setEditingProject(undefined)
@@ -1622,8 +1672,8 @@ function App() {
               className={`sidebar-project ${activeProjectId === project.id ? 'active' : ''}`}
               key={project.id}
               type="button"
-              title={project.name}
-              aria-label={project.name}
+              title={`${formatEntitySerial('P', project.serialNumber)} · ${project.name} · ID ${project.id}`}
+              aria-label={`${formatEntitySerial('P', project.serialNumber)} ${project.name}`}
               onClick={() => navigate('projects', project.id)}
             >
               <span className={`project-dot ${project.color}`}>
@@ -1946,6 +1996,57 @@ function ProjectIcon({ icon, size = 18 }: ProjectIconProps) {
   return <Icon size={size} />
 }
 
+interface EntityIdentityProps {
+  prefix: EntitySerialPrefix
+  serialNumber?: number
+  id: string
+  createdAt?: string
+  updatedAt?: string
+  compact?: boolean
+  exact?: boolean
+}
+
+function EntityIdentity({ prefix, serialNumber, id, createdAt, updatedAt, compact = false, exact = false }: EntityIdentityProps) {
+  const [copied, setCopied] = useState(false)
+
+  const copyId = async () => {
+    try {
+      await copyTextToClipboard(id)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1600)
+    } catch {
+      // The full ID remains available through the element title when clipboard access is unavailable.
+    }
+  }
+
+  const timestampTitle = [
+    createdAt ? `Created ${formatTimestamp(createdAt)}` : '',
+    updatedAt ? `Updated ${formatTimestamp(updatedAt)}` : '',
+  ].filter(Boolean).join(' · ')
+
+  return (
+    <div className={`entity-identity ${compact ? 'compact' : ''}`}>
+      <span className="entity-serial" title={`Serial ${formatEntitySerial(prefix, serialNumber)} · ID ${id}`}>
+        {formatEntitySerial(prefix, serialNumber)}
+      </span>
+      <button
+        className={`entity-id-copy ${copied ? 'copied' : ''}`}
+        type="button"
+        onClick={() => void copyId()}
+        aria-label={copied ? 'ID copied' : `Copy ${formatEntitySerial(prefix, serialNumber)} ID`}
+        title={copied ? 'ID copied' : `Copy ID: ${id}`}
+      >
+        {copied ? <Check size={11} /> : <Copy size={11} />}
+      </button>
+      {updatedAt && (
+        <time className="entity-timestamp" dateTime={updatedAt} title={timestampTitle}>
+          {exact ? formatTimestamp(updatedAt) : formatUpdatedAt(updatedAt)}
+        </time>
+      )}
+    </div>
+  )
+}
+
 interface HighlightedTextProps {
   value: string
   query?: string
@@ -2008,6 +2109,7 @@ function SearchPalette({ anchors, projects, query, onQueryChange, onSelect }: Se
                   <span className="search-result-copy">
                     <strong><HighlightedText value={anchor.title} query={query} /></strong>
                     <small>
+                      <span className="search-result-id">{formatEntitySerial('A', anchor.serialNumber)}</span>
                       {project?.name ?? 'Global context'} <span>·</span>{' '}
                       <HighlightedText value={anchor.tag} query={query} />
                     </small>
@@ -2050,7 +2152,7 @@ function SearchPalette({ anchors, projects, query, onQueryChange, onSelect }: Se
               {quickAnchors.map((anchor) => (
                 <button className="search-quick-item" type="button" key={anchor.id} onClick={() => onSelect(anchor)}>
                   <span className={`search-result-mark ${anchor.color}`} />
-                  <span>{anchor.title}</span>
+                  <span className="search-quick-item-copy"><strong>{anchor.title}</strong><small>{formatEntitySerial('A', anchor.serialNumber)}</small></span>
                   <ChevronRight size={13} />
                 </button>
               ))}
@@ -2236,6 +2338,8 @@ function HomeView({
                   )}
                   <div className="spotlight-bottom">
                     <div className="spotlight-meta">
+                      <span className="spotlight-record">{formatEntitySerial('A', spotlight.serialNumber)}</span>
+                      <span className="meta-separator">/</span>
                       <span className="spotlight-scope">
                         {spotlight.scope === 'global' ? 'Global context' : 'Project context'}
                       </span>
@@ -2555,10 +2659,13 @@ function AnchorListItem({ anchor, projects, query, onTogglePinned, onEdit, onAsk
       )}
       <div className="anchor-item-footer">
         <span className="anchor-tag"><HighlightedText value={anchor.tag} query={query} /></span>
-        <span className="updated-label">
-          <Clock3 size={12} />
-          {formatUpdatedAt(anchor.updatedAt)}
-        </span>
+        <EntityIdentity
+          prefix="A"
+          serialNumber={anchor.serialNumber}
+          id={anchor.id}
+          createdAt={anchor.createdAt}
+          updatedAt={anchor.updatedAt}
+        />
       </div>
     </article>
   )
@@ -2991,8 +3098,9 @@ interface DecisionViewProps {
 
 function anchorPromptLine(anchor: Anchor): string {
   const evidence = anchor.evidence ? ` [Evidence reference: ${anchor.evidence.label} — ${anchor.evidence.url}]` : ''
+  const serial = formatEntitySerial('A', anchor.serialNumber)
 
-  return `- ${anchor.title}: ${anchor.body}${evidence}`
+  return `- ${serial} ${anchor.title}: ${anchor.body}${evidence}`
 }
 
 function decisionSystemPrompt(
@@ -3011,7 +3119,7 @@ function decisionSystemPrompt(
 }
 
 function decisionPreview(decision: Decision): string {
-  return decision.situation.replace(/\s+/g, ' ').trim() || 'Untitled decision'
+  return decision.title?.replace(/\s+/g, ' ').trim() || decision.situation.replace(/\s+/g, ' ').trim() || 'Untitled decision'
 }
 
 function inlineMarkdown(value: string): React.ReactNode {
@@ -3277,7 +3385,7 @@ function NoteImportSelect({ notes, target, onImport }: NoteImportSelectProps) {
         title={`Import a note into ${targetLabel}`}
       >
         <option value="">{notes.length ? 'Import note' : 'No saved notes'}</option>
-        {notes.map((note) => <option value={note.id} key={note.id}>{note.title}</option>)}
+        {notes.map((note) => <option value={note.id} key={note.id}>{formatEntitySerial('N', note.serialNumber)} · {note.title}</option>)}
       </select>
     </div>
   )
@@ -3296,10 +3404,12 @@ function DecisionView({
 }: DecisionViewProps) {
   const firstDecision = decisions[0]
   const [activeDecisionId, setActiveDecisionId] = useState<string | undefined>(firstDecision?.id)
+  const [activeDecisionSerialNumber, setActiveDecisionSerialNumber] = useState<number | undefined>(firstDecision?.serialNumber)
   const [projectId, setProjectId] = useState(firstDecision?.projectId ?? '')
   const [projectImported, setProjectImported] = useState(Boolean(firstDecision?.projectId))
   const [importedNoteIds, setImportedNoteIds] = useState<string[]>(firstDecision?.noteIds ?? [])
   const [briefCollapsed, setBriefCollapsed] = useState(false)
+  const [decisionTitle, setDecisionTitle] = useState(firstDecision?.title ?? '')
   const [situation, setSituation] = useState(firstDecision?.situation ?? '')
   const [additionalContext, setAdditionalContext] = useState(firstDecision?.additionalContext ?? '')
   const [messages, setMessages] = useState<ChatMessage[]>(firstDecision?.messages ?? [])
@@ -3328,10 +3438,14 @@ function DecisionView({
     const now = new Date().toISOString()
     const existingDecision = decisions.find((decision) => decision.id === activeDecisionId)
     const id = activeDecisionId ?? createId('decision')
+    const serialNumber = existingDecision?.serialNumber ?? nextSerialNumber(decisions)
 
     setActiveDecisionId(id)
+    setActiveDecisionSerialNumber(serialNumber)
     onSaveDecision({
       id,
+      serialNumber,
+      title: decisionTitle.trim() || undefined,
       projectId: projectImported && projectId ? projectId : undefined,
       noteIds: importedNoteIds,
       situation: situation.trim(),
@@ -3367,6 +3481,7 @@ function DecisionView({
 
     const userMessage: ChatMessage = {
       id: createId('message'),
+      serialNumber: nextSerialNumber(messages),
       role: 'user',
       content: trimmedContent,
       createdAt: new Date().toISOString(),
@@ -3394,6 +3509,7 @@ function DecisionView({
       const response = await completeAIChat(settings, aiMessages, requestController.signal)
       const assistantMessage: ChatMessage = {
         id: createId('message'),
+        serialNumber: nextSerialNumber(nextMessages),
         role: 'assistant',
         content: response,
         createdAt: new Date().toISOString(),
@@ -3499,9 +3615,11 @@ function DecisionView({
     setIsThinking(false)
     setBriefCollapsed(false)
     setActiveDecisionId(undefined)
+    setActiveDecisionSerialNumber(undefined)
     setProjectId('')
     setProjectImported(false)
     setImportedNoteIds([])
+    setDecisionTitle('')
     setSituation('')
     setAdditionalContext('')
     setMessages([])
@@ -3515,9 +3633,11 @@ function DecisionView({
     setIsThinking(false)
     setBriefCollapsed(false)
     setActiveDecisionId(decision.id)
+    setActiveDecisionSerialNumber(decision.serialNumber)
     setProjectId(decision.projectId ?? '')
     setProjectImported(Boolean(decision.projectId))
     setImportedNoteIds(decision.noteIds ?? [])
+    setDecisionTitle(decision.title ?? '')
     setSituation(decision.situation)
     setAdditionalContext(decision.additionalContext)
     setMessages(decision.messages)
@@ -3529,6 +3649,7 @@ function DecisionView({
     <div className="decision-view page-enter">
       <div className="page-heading decision-heading">
         <div>
+          <p className="eyebrow">Decision room {activeDecisionId ? formatEntitySerial('D', activeDecisionSerialNumber) : 'not saved yet'}</p>
           <h1>Decision space, dear {displayName(name)}<span className="accent-dot">.</span></h1>
         </div>
         <button className="secondary-button" type="button" onClick={startNewDecision}>
@@ -3559,6 +3680,16 @@ function DecisionView({
           <p className="decision-panel-copy">You don&apos;t have to make it neat. Start where your mind is.</p>
 
           <label className="form-field decision-field">
+            <span>Room name <em>optional · editable later</em></span>
+            <input
+              value={decisionTitle}
+              onChange={(event) => setDecisionTitle(event.target.value)}
+              placeholder="e.g. Should I take the new role?"
+              maxLength={100}
+            />
+          </label>
+
+          <label className="form-field decision-field">
             <span>Bring in a project <em>optional</em></span>
             <div className="decision-project-picker">
               <div className="select-wrap">
@@ -3571,7 +3702,7 @@ function DecisionView({
                 >
                   <option value="">No project — just me</option>
                   {projects.map((project) => (
-                    <option value={project.id} key={project.id}>{project.name}</option>
+                    <option value={project.id} key={project.id}>{formatEntitySerial('P', project.serialNumber)} · {project.name}</option>
                   ))}
                 </select>
                 <ChevronDown size={15} />
@@ -3712,7 +3843,12 @@ function DecisionView({
                     onClick={() => loadDecision(decision)}
                   >
                     <span className="history-orb"><MessageCircle size={13} /></span>
-                    <span>{decisionPreview(decision)}</span>
+                    <span className="decision-history-copy">
+                      <strong><span className="record-number">{formatEntitySerial('D', decision.serialNumber)}</span>{decisionPreview(decision)}</strong>
+                      <small title={`Created ${formatTimestamp(decision.createdAt)} · Updated ${formatTimestamp(decision.updatedAt)}`}>
+                        {formatUpdatedAt(decision.updatedAt)}
+                      </small>
+                    </span>
                   </button>
                   <button
                     className="decision-delete-btn"
@@ -3791,6 +3927,10 @@ function DecisionView({
                       {copiedMessageId === message.id ? <Check size={13} /> : <Copy size={13} />}
                     </button>
                     <span className="chat-message-label">{message.role === 'assistant' ? 'Anchor' : 'You'}</span>
+                    <span className="chat-message-meta">
+                      <span>{formatEntitySerial('M', message.serialNumber)}</span>
+                      <time dateTime={message.createdAt} title={formatTimestamp(message.createdAt)}>{formatTimestamp(message.createdAt)}</time>
+                    </span>
                     {message.role === 'assistant' ? <ChatRichText content={message.content} /> : <p>{message.content}</p>}
                   </div>
                 </div>
@@ -3876,7 +4016,16 @@ function NoteEditor({ note, onSave, onDelete }: NoteEditorProps) {
           <p className="eyebrow">{note ? 'Edit note' : 'New note'}</p>
           <h2>{title.trim() || 'A place to put it down'}</h2>
         </div>
-        {note && <span className="note-editor-date">{formatUpdatedAt(note.updatedAt)}</span>}
+        {note && (
+          <EntityIdentity
+            prefix="N"
+            serialNumber={note.serialNumber}
+            id={note.id}
+            createdAt={note.createdAt}
+            updatedAt={note.updatedAt}
+            exact
+          />
+        )}
       </div>
       <label className="form-field" htmlFor="note-title">
         <span>Title <em>optional</em></span>
@@ -3984,11 +4133,12 @@ function NotesView({ notes, onSaveNote, onDeleteNote }: NotesViewProps) {
                 className={`note-list-item ${activeNoteId === note.id ? 'active' : ''}`}
                 type="button"
                 key={note.id}
+                title={`ID: ${note.id}`}
                 onClick={() => setActiveNoteId(note.id)}
               >
                 <span className="note-list-item-topline">
-                  <strong>{note.title}</strong>
-                  <small>{formatUpdatedAt(note.updatedAt)}</small>
+                  <strong><span className="record-number">{formatEntitySerial('N', note.serialNumber)}</span>{note.title}</strong>
+                  <small title={`Updated ${formatTimestamp(note.updatedAt)}`}>{formatUpdatedAt(note.updatedAt)}</small>
                 </span>
                 <span>{note.content.replace(/\s+/g, ' ').trim()}</span>
               </button>
@@ -4897,7 +5047,7 @@ interface ProjectsViewProps {
   onOpenSettings: () => void
   onOpenProject: (projectId: string) => void
   onAddProject: () => void
-  onEditProject?: (project: Project) => void
+  onEditProject: (project: Project) => void
 }
 
 function ProjectsView({
@@ -4909,6 +5059,7 @@ function ProjectsView({
   onOpenSettings,
   onOpenProject,
   onAddProject,
+  onEditProject,
 }: ProjectsViewProps) {
   return (
     <div className="projects-view page-enter">
@@ -4960,6 +5111,7 @@ function ProjectsView({
             anchorCount={getProjectAnchorCount(anchors, project.id)}
             key={project.id}
             onClick={() => onOpenProject(project.id)}
+            onEdit={() => onEditProject(project)}
           />
         ))}
         <button className="new-project-card" type="button" onClick={onAddProject}>
@@ -4978,28 +5130,48 @@ interface ProjectCardProps {
   project: Project
   anchorCount: number
   onClick: () => void
+  onEdit?: () => void
 }
 
-function ProjectCard({ project, anchorCount, onClick }: ProjectCardProps) {
+function ProjectCard({ project, anchorCount, onClick, onEdit }: ProjectCardProps) {
   return (
-    <button className={`project-card card-${project.color}`} type="button" onClick={onClick}>
+    <article className={`project-card card-${project.color}`}>
       <div className="project-card-top">
         <span className={`large-project-icon ${project.color}`}>
           <ProjectIcon icon={project.icon} size={21} />
         </span>
-        <span className="project-card-arrow">
-          <ArrowUpRight size={17} />
-        </span>
+        <div className="project-card-actions">
+          <span className="project-card-arrow" aria-hidden="true">
+            <ArrowUpRight size={17} />
+          </span>
+          {onEdit && (
+            <button className="project-card-edit" type="button" onClick={onEdit} aria-label={`Edit ${project.name}`} title="Edit project">
+              <PenLine size={14} />
+            </button>
+          )}
+        </div>
       </div>
-      <div className="project-card-copy">
-        <h2>{project.name}</h2>
-        <p>{project.description}</p>
+      <button className="project-card-open" type="button" onClick={onClick} aria-label={`Open ${formatEntitySerial('P', project.serialNumber)} ${project.name}`}>
+        <div className="project-card-copy">
+          <h2>{project.name}</h2>
+          <p>{project.description}</p>
+        </div>
+        <div className="project-card-footer">
+          <span>{anchorCount} {anchorCount === 1 ? 'anchor' : 'anchors'}</span>
+          <span>Open space</span>
+        </div>
+      </button>
+      <div className="project-card-identity">
+        <EntityIdentity
+          prefix="P"
+          serialNumber={project.serialNumber}
+          id={project.id}
+          createdAt={project.createdAt}
+          updatedAt={project.updatedAt || project.createdAt}
+          compact
+        />
       </div>
-      <div className="project-card-footer">
-        <span>{anchorCount} {anchorCount === 1 ? 'anchor' : 'anchors'}</span>
-        <span>Open space</span>
-      </div>
-    </button>
+    </article>
   )
 }
 
@@ -5063,6 +5235,16 @@ function ProjectView({
         <div>
           <span className="summary-number">{pinnedCount}</span>
           <span className="summary-label">kept close</span>
+        </div>
+        <div className="project-identity-summary">
+          <EntityIdentity
+            prefix="P"
+            serialNumber={project.serialNumber}
+            id={project.id}
+            createdAt={project.createdAt}
+            updatedAt={project.updatedAt || project.createdAt}
+            exact
+          />
         </div>
         <div className="project-actions-group">
           <button className="secondary-button" type="button" onClick={onEditProject}>
@@ -5296,7 +5478,7 @@ function AnchorComposer({
                 {projects.length === 0 && <option value="">Create a project first</option>}
                 {projects.map((project) => (
                   <option value={project.id} key={project.id}>
-                    {project.name}
+                    {formatEntitySerial('P', project.serialNumber)} · {project.name}
                   </option>
                 ))}
               </select>
@@ -5429,6 +5611,14 @@ function AnchorEditModal({
   return (
     <Modal eyebrow="Refine your context" title="Edit anchor" onClose={onClose}>
       <form className="composer-form" onSubmit={handleSubmit}>
+        <EntityIdentity
+          prefix="A"
+          serialNumber={anchor.serialNumber}
+          id={anchor.id}
+          createdAt={anchor.createdAt}
+          updatedAt={anchor.updatedAt}
+          exact
+        />
         <label className="form-field">
           <span>What do you want to remember?</span>
           <input
@@ -5493,7 +5683,7 @@ function AnchorEditModal({
                 {projects.length === 0 && <option value="">Create a project first</option>}
                 {projects.map((project) => (
                   <option value={project.id} key={project.id}>
-                    {project.name}
+                    {formatEntitySerial('P', project.serialNumber)} · {project.name}
                   </option>
                 ))}
               </select>
@@ -5694,6 +5884,14 @@ function ProjectEditModal({
   return (
     <Modal eyebrow="Refine this space" title="Edit project" onClose={onClose}>
       <form className="composer-form" onSubmit={handleSubmit}>
+        <EntityIdentity
+          prefix="P"
+          serialNumber={project.serialNumber}
+          id={project.id}
+          createdAt={project.createdAt}
+          updatedAt={project.updatedAt || project.createdAt}
+          exact
+        />
         <label className="form-field">
           <span>Project name</span>
           <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Learn the piano" maxLength={48} />
@@ -5981,6 +6179,7 @@ function DashboardView({
               <div className="philosophy-author-info">
                 <strong>{spotlightThought.author}</strong>
                 <span>{spotlightThought.school}{spotlightThought.source ? ` · ${spotlightThought.source}` : ''}</span>
+                <small className="philosophy-thought-id">{formatEntitySerial('W', thoughts.findIndex((thought) => thought.id === spotlightThought.id) + 1)}</small>
               </div>
               <button
                 className="primary-button anchor-thought-btn"
@@ -6050,7 +6249,10 @@ function DashboardView({
           {filteredThoughts.slice(0, 36).map((item) => (
             <div className="philosophy-card" key={item.id}>
               <div className="philosophy-card-header">
-                <span className="philosophy-school-tag">{item.school}</span>
+                <div className="philosophy-card-tags">
+                  <span className="philosophy-school-tag">{item.school}</span>
+                  <span className="philosophy-thought-id">{formatEntitySerial('W', thoughts.findIndex((thought) => thought.id === item.id) + 1)}</span>
+                </div>
                 <button
                   className="anchor-mini-btn"
                   type="button"

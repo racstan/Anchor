@@ -1,3 +1,4 @@
+import { normalizeAnchorState } from './anchors'
 import type { Anchor, AnchorState, ChatMessage, Decision, EvidenceSource, Note, Project } from './anchors'
 
 export interface UserProfile {
@@ -40,6 +41,7 @@ function isAnchor(value: unknown): value is Anchor {
   }
 
   return isString(value.id) &&
+    (value.serialNumber === undefined || (typeof value.serialNumber === 'number' && Number.isInteger(value.serialNumber) && value.serialNumber > 0)) &&
     isString(value.title) &&
     isString(value.body) &&
     (value.scope === 'global' || value.scope === 'project') &&
@@ -59,11 +61,13 @@ function isProject(value: unknown): value is Project {
   }
 
   return isString(value.id) &&
+    (value.serialNumber === undefined || (typeof value.serialNumber === 'number' && Number.isInteger(value.serialNumber) && value.serialNumber > 0)) &&
     isString(value.name) &&
     isString(value.description) &&
     isString(value.color) && accentColors.has(value.color) &&
     isString(value.icon) && projectIcons.has(value.icon) &&
-    isString(value.createdAt)
+    isString(value.createdAt) &&
+    (value.updatedAt === undefined || isString(value.updatedAt))
 }
 
 function isChatMessage(value: unknown): value is ChatMessage {
@@ -72,6 +76,7 @@ function isChatMessage(value: unknown): value is ChatMessage {
   }
 
   return isString(value.id) &&
+    (value.serialNumber === undefined || (typeof value.serialNumber === 'number' && Number.isInteger(value.serialNumber) && value.serialNumber > 0)) &&
     (value.role === 'user' || value.role === 'assistant') &&
     isString(value.content) &&
     isString(value.createdAt)
@@ -83,6 +88,8 @@ function isDecision(value: unknown): value is Decision {
   }
 
   return isString(value.id) &&
+    (value.serialNumber === undefined || (typeof value.serialNumber === 'number' && Number.isInteger(value.serialNumber) && value.serialNumber > 0)) &&
+    (value.title === undefined || isString(value.title)) &&
     (value.projectId === undefined || isString(value.projectId)) &&
     (value.noteIds === undefined || (Array.isArray(value.noteIds) && value.noteIds.every(isString))) &&
     isString(value.situation) &&
@@ -98,6 +105,7 @@ function isNote(value: unknown): value is Note {
   }
 
   return isString(value.id) &&
+    (value.serialNumber === undefined || (typeof value.serialNumber === 'number' && Number.isInteger(value.serialNumber) && value.serialNumber > 0)) &&
     isString(value.title) &&
     isString(value.content) &&
     isString(value.createdAt) &&
@@ -121,12 +129,12 @@ function validateState(value: unknown): AnchorState {
     throw new Error('This backup does not contain valid notes.')
   }
 
-  return {
+  return normalizeAnchorState({
     anchors: value.anchors,
     projects: value.projects,
     decisions: value.decisions ?? [],
     notes: value.notes ?? [],
-  }
+  })
 }
 
 function readProfileValue(value: unknown): UserProfile {
@@ -160,17 +168,14 @@ export function writeUserProfile(profile: UserProfile): void {
 }
 
 export function createWorkspaceExport(state: AnchorState, profile: UserProfile): WorkspaceExport {
+  const normalizedState = normalizeAnchorState(state)
+
   return {
     format: 'anchor-workspace',
     version: 1,
     exportedAt: new Date().toISOString(),
     profile: readProfileValue(profile),
-    state: {
-      anchors: state.anchors,
-      projects: state.projects,
-      decisions: state.decisions,
-      notes: state.notes,
-    },
+    state: normalizedState,
   }
 }
 
@@ -213,10 +218,10 @@ function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
 }
 
 export function mergeWorkspaceState(current: AnchorState, incoming: AnchorState): AnchorState {
-  return {
+  return normalizeAnchorState({
     anchors: mergeById(current.anchors, incoming.anchors),
     projects: mergeById(current.projects, incoming.projects),
     decisions: mergeById(current.decisions, incoming.decisions),
     notes: mergeById(current.notes, incoming.notes),
-  }
+  })
 }

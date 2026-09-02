@@ -82,8 +82,8 @@ curl -I https://anchor-chi-eight.vercel.app
   - `publish-desktop` (matrix): `windows-latest` → `msi`+`nsis`, `ubuntu-22.04` → `deb`+`AppImage`, `macos-latest` → `dmg` for both `aarch64` and `x86_64`
   - `android` (ubuntu): `tauri android build --ci --apk true --aab true` → signed universal release `apk` + `aab`. Android is distributed as a direct APK today; the in-app Tauri updater is desktop-only by design.
 - **Tooling:** `tauri-apps/tauri-action@v0`, `dtolnay/rust-toolchain@stable`, `actions/setup-node@v4`, `actions/setup-java@v4` + `android-actions/setup-android@v3`
-- **Release creation:** Tauri action creates GitHub Release `vX.Y.Z` and attaches desktop bundles; `softprops/action-gh-release` appends Android `apk/aab`. Also uploads `anchor-android-apk-aab` as workflow artifact.
-- **Version source:** `src-tauri/tauri.conf.json` (`version`) + `package.json` (`version`) + `src-tauri/Cargo.toml` — keep them in sync before tagging (currently `0.1.6`).
+- **Release creation:** Tauri action creates GitHub Release `vX.Y.Z` and attaches desktop bundles; the Android job uses `gh release upload` to append the signed `apk/aab`. It also uploads `anchor-android-apk-aab` as a workflow artifact.
+- **Version source:** `src-tauri/tauri.conf.json` (`version`) + `package.json` (`version`) + `src-tauri/Cargo.toml` — keep them in sync before tagging (currently `0.1.7`).
 - **Local test before tag:**
   ```bash
   npm run build                      # must pass
@@ -114,6 +114,7 @@ npm run build    # tsc -b && vite build → dist/
 - `src/App.tsx` — shell + views (sidebar, home, anchors, projects, decide, settings)
 - `src/App.css` — harbor design system, responsive + collapsed sidebar
 - `src/lib/anchors.ts`, `workspace.ts`, `ai.ts`, `security.ts`
+- Workspace records carry stable IDs, readable per-type serials (`A-0001`, `P-0001`, `N-0001`, `D-0001`, `M-0001`), and timestamps; `normalizeAnchorState` migrates older local/backup data.
 - `api/anchor-ai.ts` — prod relay
 - `vite-ai-proxy.ts` — dev relay logic
 - `src-tauri/` — Tauri 2 shell

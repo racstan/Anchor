@@ -1,6 +1,6 @@
 # Anchor
 
-**Version: 0.1.6**
+**Version: 0.1.7**
 
 Anchor is a calm, local-first workspace for the ideas, principles, and decisions you want to keep close. The same React frontend runs on the web and inside the Tauri 2 desktop/mobile shell.
 
@@ -47,6 +47,10 @@ These actions are opt-in: Anchor does not silently analyze or auto-send workspac
 **Settings → Workspace data** can export anchors, projects, decisions, notes, and your profile to a readable JSON file. API keys are deliberately excluded. Imports are validated and can either merge records by ID or replace the current workspace. Older state-only JSON backups are accepted too.
 
 **Notes** are a flexible place for rough thoughts, lists, drafts, and reference material. From Decision space, any recent note can be added directly to the situation or more-context field before asking Anchor to think it through.
+
+## Record identity and editing
+
+Every workspace record has a stable machine ID plus a readable serial such as `A-0001` (anchor), `P-0001` (project), `N-0001` (note), `D-0001` (decision room), and `M-0001` (chat message). Serial numbers survive edits and remain stable through local backups and sync; legacy workspaces receive them automatically on the next open. Cards expose the serial, an ID-copy control, and the last-updated time. Anchors, projects, notes, and decision rooms can be edited or renamed, and each has a deliberate delete action. Hover a timestamp for the exact created/updated time.
 
 ## Dropbox sync
 

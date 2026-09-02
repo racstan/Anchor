@@ -2,14 +2,20 @@ export type AnchorScope = 'global' | 'project'
 export type AnchorFilter = 'all' | 'global' | 'projects'
 export type AccentColor = 'coral' | 'sage' | 'sky' | 'gold' | 'plum'
 export type ProjectIcon = 'chart' | 'pen' | 'heart' | 'spark'
+export type EntitySerialPrefix = 'A' | 'P' | 'D' | 'N' | 'M' | 'W'
 
-export interface Project {
+interface SerialRecord {
+  serialNumber?: number
+}
+
+export interface Project extends SerialRecord {
   id: string
   name: string
   description: string
   color: AccentColor
   icon: ProjectIcon
   createdAt: string
+  updatedAt?: string
 }
 
 export interface EvidenceSource {
@@ -17,7 +23,7 @@ export interface EvidenceSource {
   url: string
 }
 
-export interface Anchor {
+export interface Anchor extends SerialRecord {
   id: string
   title: string
   body: string
@@ -34,15 +40,16 @@ export interface Anchor {
 
 export type ChatRole = 'user' | 'assistant'
 
-export interface ChatMessage {
+export interface ChatMessage extends SerialRecord {
   id: string
   role: ChatRole
   content: string
   createdAt: string
 }
 
-export interface Decision {
+export interface Decision extends SerialRecord {
   id: string
+  title?: string
   projectId?: string
   noteIds?: string[]
   situation: string
@@ -52,7 +59,7 @@ export interface Decision {
   updatedAt: string
 }
 
-export interface Note {
+export interface Note extends SerialRecord {
   id: string
   title: string
   content: string
@@ -76,24 +83,29 @@ export const initialState: AnchorState = {
   projects: [
     {
       id: 'evidence-informed-wellbeing',
+      serialNumber: 1,
       name: 'Evidence-informed wellbeing',
       description: 'Small practices, no miracle claims.',
       color: 'sage',
       icon: 'heart',
       createdAt: daysAgo(18),
+      updatedAt: daysAgo(18),
     },
     {
       id: 'clearer-days',
+      serialNumber: 2,
       name: 'Clearer days',
       description: 'Make helpful actions easier to repeat.',
       color: 'sky',
       icon: 'spark',
       createdAt: daysAgo(11),
+      updatedAt: daysAgo(11),
     },
   ],
   anchors: [
     {
       id: 'movement-adds-up',
+      serialNumber: 1,
       title: 'Small amounts of movement still count.',
       body: 'Work toward 150 minutes of moderate activity each week, but begin where you are. Short walks and smaller sessions can add up.',
       scope: 'global',
@@ -109,6 +121,7 @@ export const initialState: AnchorState = {
     },
     {
       id: 'protect-sleep-window',
+      serialNumber: 2,
       title: 'Protect a regular sleep window.',
       body: 'Keep a consistent sleep and wake time, dim bright light before bed, and seek clinical advice if sleep problems persist.',
       scope: 'global',
@@ -124,6 +137,7 @@ export const initialState: AnchorState = {
     },
     {
       id: 'build-meals-around-basics',
+      serialNumber: 3,
       title: 'Build meals around the basics.',
       body: 'Favor a varied pattern of vegetables, fruit, legumes, whole grains, nuts, and adequate protein. Treat supplements as something to discuss with a qualified professional.',
       scope: 'global',
@@ -139,6 +153,7 @@ export const initialState: AnchorState = {
     },
     {
       id: 'slow-breathing-pause',
+      serialNumber: 4,
       title: 'Create a pause before reacting.',
       body: 'When stress rises, try a few slow breaths, then name one next action. Relaxation techniques can support coping, but they do not replace professional care.',
       scope: 'global',
@@ -154,6 +169,7 @@ export const initialState: AnchorState = {
     },
     {
       id: 'bring-symptoms-to-care',
+      serialNumber: 5,
       title: 'Bring persistent symptoms to a clinician.',
       body: 'Note when a symptom started, what changes it, medicines or supplements you take, and your questions. Use the notes to support an assessment, not to self-diagnose.',
       scope: 'project',
@@ -170,6 +186,7 @@ export const initialState: AnchorState = {
     },
     {
       id: 'make-next-action-visible',
+      serialNumber: 6,
       title: 'Make the next action visible.',
       body: 'Write one small, observable action and when you will do it. If it keeps slipping, reduce the action again instead of judging yourself.',
       scope: 'project',
@@ -184,6 +201,51 @@ export const initialState: AnchorState = {
 }
 
 export const STORAGE_KEY = 'anchor-state-v1'
+
+export function formatEntitySerial(prefix: EntitySerialPrefix, serialNumber: number | undefined): string {
+  const safeSerial = Number.isInteger(serialNumber) && (serialNumber ?? 0) > 0 ? serialNumber : 0
+
+  return `${prefix}-${String(safeSerial).padStart(4, '0')}`
+}
+
+export function nextSerialNumber(records: SerialRecord[]): number {
+  return records.reduce((highest, record) => {
+    const serial = record.serialNumber
+    return Number.isInteger(serial) && (serial ?? 0) > highest ? serial ?? highest : highest
+  }, 0) + 1
+}
+
+function normalizeSerials<T extends SerialRecord>(records: T[]): T[] {
+  const used = new Set<number>()
+  let next = nextSerialNumber(records)
+
+  return records.map((record) => {
+    const candidate = record.serialNumber
+    const hasUsableCandidate = Number.isInteger(candidate) && (candidate ?? 0) > 0 && !used.has(candidate ?? 0)
+    const serialNumber = hasUsableCandidate ? candidate ?? next : next++
+
+    used.add(serialNumber)
+    return { ...record, serialNumber }
+  })
+}
+
+export function normalizeAnchorState(state: AnchorState): AnchorState {
+  const projects = normalizeSerials(state.projects).map((project) => ({
+    ...project,
+    updatedAt: project.updatedAt || project.createdAt,
+  }))
+  const decisions = normalizeSerials(state.decisions).map((decision) => ({
+    ...decision,
+    messages: normalizeSerials(decision.messages),
+  }))
+
+  return {
+    projects,
+    anchors: normalizeSerials(state.anchors),
+    decisions,
+    notes: normalizeSerials(state.notes),
+  }
+}
 
 export function cloneInitialState(): AnchorState {
   return JSON.parse(JSON.stringify(initialState)) as AnchorState
@@ -207,11 +269,12 @@ export function readAnchorState(): AnchorState {
       return cloneInitialState()
     }
 
-    return {
-      ...parsedState,
+    return normalizeAnchorState({
+      anchors: parsedState.anchors,
+      projects: parsedState.projects,
       decisions: Array.isArray(parsedState.decisions) ? parsedState.decisions : [],
       notes: Array.isArray(parsedState.notes) ? parsedState.notes : [],
-    }
+    })
   } catch {
     return cloneInitialState()
   }
@@ -222,7 +285,7 @@ export function writeAnchorState(state: AnchorState): void {
     return
   }
 
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeAnchorState(state)))
 }
 
 export interface TextSearchMatch {
@@ -235,6 +298,8 @@ export interface AnchorSearchMatch {
   title: TextSearchMatch | null
   body: TextSearchMatch | null
   tag: TextSearchMatch | null
+  id: TextSearchMatch | null
+  serial: TextSearchMatch | null
 }
 
 export function matchSearchText(value: string, query: string): TextSearchMatch | null {
@@ -306,16 +371,20 @@ export function matchSearchText(value: string, query: string): TextSearchMatch |
 
 export function getAnchorSearchMatch(anchor: Anchor, query: string): AnchorSearchMatch | null {
   if (!query.trim()) {
-    return { score: 0, title: null, body: null, tag: null }
+    return { score: 0, title: null, body: null, tag: null, id: null, serial: null }
   }
 
   const title = matchSearchText(anchor.title, query)
   const body = matchSearchText(anchor.body, query)
   const tag = matchSearchText(anchor.tag, query)
+  const id = matchSearchText(anchor.id, query)
+  const serial = matchSearchText(formatEntitySerial('A', anchor.serialNumber), query)
   const evidence = anchor.evidence ? matchSearchText(anchor.evidence.label, query) : null
 
   const weightedMatches = [
     { match: title, weight: 150 },
+    { match: serial, weight: 130 },
+    { match: id, weight: 120 },
     { match: tag, weight: 80 },
     { match: body, weight: 20 },
     { match: evidence, weight: 40 },
@@ -327,7 +396,7 @@ export function getAnchorSearchMatch(anchor: Anchor, query: string): AnchorSearc
 
   const score = Math.max(...weightedMatches.map((entry) => entry.match.score + entry.weight))
 
-  return { score, title, body, tag }
+  return { score, title, body, tag, id, serial }
 }
 
 export function filterAnchors(
@@ -404,4 +473,21 @@ export function formatUpdatedAt(updatedAt: string, now = Date.now()): string {
   }
 
   return `Updated ${elapsedDays} days ago`
+}
+
+export function formatTimestamp(value: string | undefined): string {
+  if (!value) {
+    return 'Time not recorded'
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Time not recorded'
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date)
 }
