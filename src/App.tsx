@@ -1416,6 +1416,8 @@ function App() {
     )
   }
 
+  const isDecisionRoute = activeView === 'decide' && !activeProjectId
+
   return (
     <div className={`anchor-app ${theme === 'dark' ? 'theme-dark' : ''}`}>
       <aside className={`sidebar ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'sidebar-open' : ''}`}>
@@ -1563,7 +1565,7 @@ function App() {
         </div>
       </aside>
 
-      <div className="app-main">
+      <div className={`app-main ${isDecisionRoute ? 'decision-app-main' : ''}`}>
         <header className="topbar">
           <button
             className="icon-button mobile-menu-button"
@@ -1712,7 +1714,7 @@ function App() {
           </div>
         </header>
 
-        <main className="page-content">{pageContent}</main>
+        <main className={`page-content ${isDecisionRoute ? 'decision-page-content' : ''}`}>{pageContent}</main>
 
         <nav className="mobile-nav" aria-label="Mobile navigation">
           <MobileNavItem icon={Home} label="Today" active={activeView === 'home' && !activeProjectId} onClick={() => navigate('home')} />
@@ -2788,6 +2790,7 @@ function DecisionView({
           <label className="form-field decision-field">
             <span>The situation</span>
             <textarea
+              className="decision-situation-input"
               value={situation}
               onChange={(event) => setSituation(event.target.value)}
               placeholder="What happened? What choice is in front of you?"
@@ -2799,6 +2802,7 @@ function DecisionView({
           <label className="form-field decision-field">
             <span>More context <em>optional</em></span>
             <textarea
+              className="decision-context-input"
               value={additionalContext}
               onChange={(event) => setAdditionalContext(event.target.value)}
               placeholder="What have you tried? What are you worried might happen?"
