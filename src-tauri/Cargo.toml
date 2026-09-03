@@ -1,6 +1,6 @@
 [package]
 name = "anchor"
-version = "0.1.11"
+version = "0.1.12"
 description = "A steady place for the context that matters."
 authors = ["Anchor"]
 license = ""
@@ -21,9 +21,12 @@ tauri-build = { version = "2.5.3" }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-tauri = { version = "2.9.5" }
-tauri-plugin-log = "2"
+tauri = { version = "2.11.3" }
+tauri-plugin-android-installer = "0.1.0"
 tauri-plugin-deep-link = "2.4.10"
+tauri-plugin-fs = "2.5.2"
+tauri-plugin-http = "2.6.0"
+tauri-plugin-log = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2.5.5"
 

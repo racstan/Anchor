@@ -6,8 +6,22 @@
     "main"
   ],
   "permissions": [
+    "android-installer:default",
     "core:default",
     "deep-link:default",
+    "fs:default",
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [{ "path": "$APPCACHE/*" }]
+    },
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://github.com/racstan/Anchor/releases/download/*" },
+        { "url": "https://release-assets.githubusercontent.com/*" },
+        { "url": "https://objects.githubusercontent.com/*" }
+      ]
+    },
     "notification:default",
     "opener:default"
   ]

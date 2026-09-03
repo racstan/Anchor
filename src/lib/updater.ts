@@ -1,9 +1,11 @@
 export type PlatformType = 'web' | 'desktop-windows' | 'desktop-macos' | 'desktop-linux' | 'android'
 
-export const CURRENT_APP_VERSION = '0.1.11'
+export const CURRENT_APP_VERSION = '0.1.12'
 export const GITHUB_REPO = 'racstan/Anchor'
 export const RELEASES_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
 export const RELEASES_WEB_URL = `https://github.com/${GITHUB_REPO}/releases/latest`
+const ANDROID_UPDATE_FILENAME = 'anchor-update.apk'
+const MAX_ANDROID_UPDATE_BYTES = 250 * 1024 * 1024
 
 export interface ReleaseAsset {
   name: string
@@ -118,6 +120,67 @@ export function findPlatformAsset(assets: ReleaseAsset[], platform: PlatformType
   return assets[0]
 }
 
+function isAllowedAndroidUpdateUrl(downloadUrl: string): boolean {
+  try {
+    const url = new URL(downloadUrl)
+    return url.protocol === 'https:' && (
+      url.hostname === 'github.com' ||
+      url.hostname === 'release-assets.githubusercontent.com' ||
+      url.hostname === 'objects.githubusercontent.com'
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Downloads an Android release into the app cache and launches Android's
+ * package installer. Android always shows a confirmation screen; silent
+ * installation is not available to ordinary apps.
+ */
+export async function downloadAndInstallAndroidUpdate(downloadUrl: string): Promise<void> {
+  if (!isNativeApp() || getAppPlatform() !== 'android') {
+    throw new Error('Android self-install is only available in the native Android app.')
+  }
+  if (!isAllowedAndroidUpdateUrl(downloadUrl)) {
+    throw new Error('The Android update URL is not a trusted Anchor release.')
+  }
+
+  const [http, path, filesystem, installer] = await Promise.all([
+    import('@tauri-apps/plugin-http'),
+    import('@tauri-apps/api/path'),
+    import('@tauri-apps/plugin-fs'),
+    import('tauri-plugin-android-installer-api'),
+  ])
+
+  if (!(await installer.canInstall())) {
+    await installer.requestInstallPermission()
+    if (!(await installer.canInstall())) {
+      throw new Error('Allow Anchor to install updates from this source, then try again.')
+    }
+  }
+
+  const response = await http.fetch(downloadUrl, {
+    method: 'GET',
+    maxRedirections: 5,
+    connectTimeout: 30_000,
+  })
+  if (!response.ok) {
+    throw new Error(`Android update download failed (HTTP ${response.status})`)
+  }
+
+  const contentLength = Number(response.headers.get('content-length'))
+  if (Number.isFinite(contentLength) && contentLength > MAX_ANDROID_UPDATE_BYTES) {
+    throw new Error('The Android update is unexpectedly large and was not downloaded.')
+  }
+
+  const cachePath = await path.appCacheDir()
+  const apkPath = await path.join(cachePath, ANDROID_UPDATE_FILENAME)
+  const apkData = response.body ?? new Uint8Array(await response.arrayBuffer())
+  await filesystem.writeFile(apkPath, apkData)
+  await installer.install(apkPath)
+}
+
 function noUpdateAvailable(platform: PlatformType, isNative: boolean): AppUpdateInfo {
   return {
     isAvailable: false,
@@ -133,9 +196,9 @@ function noUpdateAvailable(platform: PlatformType, isNative: boolean): AppUpdate
 }
 
 /**
- * Uses Tauri's signed updater on desktop. Android is intentionally excluded:
- * Android does not support this plugin, so Android users receive the signed APK
- * download from the GitHub release instead.
+ * Uses Tauri's signed updater on desktop. Android uses the public APK release
+ * asset and the Android system package installer instead, because Tauri's
+ * signed updater plugin does not support mobile platforms.
  */
 async function checkTauriUpdate(platform: PlatformType, isNative: boolean): Promise<AppUpdateInfo | undefined> {
   if (!isNative || platform === 'android') {
@@ -200,12 +263,16 @@ async function checkGithubRelease(platform: PlatformType, isNative: boolean): Pr
     htmlUrl: data.html_url || RELEASES_WEB_URL,
     platform,
     isNative,
+    installUpdate: isNative && platform === 'android' && bestAsset
+      ? () => downloadAndInstallAndroidUpdate(bestAsset.browser_download_url)
+      : undefined,
   }
 }
 
 /**
  * Checks for a signed native update first, then falls back to the public release
- * page. Web and Android always use the public GitHub release metadata.
+ * page. Android uses the public GitHub metadata so its APK can be downloaded and
+ * handed to the system installer.
  */
 export async function checkAppUpdate(): Promise<AppUpdateInfo> {
   const platform = getAppPlatform()

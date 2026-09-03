@@ -6544,9 +6544,9 @@ function UpdateModal({ updateInfo, onClose }: UpdateModalProps) {
   }
 
   const actionLabel = isInstalling
-    ? 'Installing…'
+    ? updateInfo.platform === 'android' ? 'Downloading & opening installer…' : 'Installing…'
     : updateInfo.installUpdate
-      ? 'Install and relaunch'
+      ? updateInfo.platform === 'android' ? 'Download & install' : 'Install and relaunch'
       : updateInfo.platform === 'android'
         ? 'Download APK'
         : updateInfo.platform === 'web'
@@ -6569,6 +6569,9 @@ function UpdateModal({ updateInfo, onClose }: UpdateModalProps) {
           <p className="update-asset-note">
             Target installer for your {updateInfo.platform}: <code>{updateInfo.assetName}</code>
           </p>
+        )}
+        {updateInfo.platform === 'android' && updateInfo.installUpdate && (
+          <p className="update-asset-note">Anchor will download the APK and open Android&apos;s installer. Android may ask you to allow installs from Anchor once.</p>
         )}
         {installError && <div className="update-install-error" role="alert"><CircleAlert size={14} /> <span>{installError}</span></div>}
         <div className="modal-actions modal-actions-split">

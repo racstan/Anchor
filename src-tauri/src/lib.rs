@@ -8,7 +8,10 @@ pub fn run() {
         app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
       }
 
+      app.handle().plugin(tauri_plugin_android_installer::init())?;
       app.handle().plugin(tauri_plugin_deep_link::init())?;
+      app.handle().plugin(tauri_plugin_fs::init())?;
+      app.handle().plugin(tauri_plugin_http::init())?;
       app.handle().plugin(tauri_plugin_notification::init())?;
       app.handle().plugin(tauri_plugin_opener::init())?;
 
