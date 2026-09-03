@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { Dispatch, FormEvent, SetStateAction } from 'react'
 import {
   Anchor as AnchorIcon,
   ArrowLeft,
@@ -100,6 +100,8 @@ import {
   writeUserProfile,
 } from './lib/workspace'
 import type { UserProfile, WorkspacePreferences } from './lib/workspace'
+import { listDrafts, readDraft, removeDraft, writeDraft } from './lib/drafts'
+import type { DraftKind } from './lib/drafts'
 import { hashPin, isValidPin, readSecuritySettings, verifyPin, writeSecuritySettings } from './lib/security'
 import type { SecuritySettings } from './lib/security'
 import { getDailyGreeting } from './lib/greetings'
@@ -170,6 +172,42 @@ interface AppNotification {
   isRead: boolean
 }
 
+interface AnchorComposerDraft {
+  title: string
+  body: string
+  tag: string
+  scope: AnchorScope
+  projectId: string
+  color: AccentColor
+  pinned: boolean
+  evidenceLabel: string
+  evidenceUrl: string
+}
+
+interface ProjectComposerDraft {
+  name: string
+  description: string
+  color: AccentColor
+}
+
+interface NoteDraft {
+  title: string
+  content: string
+}
+
+interface DecisionDraft {
+  activeDecisionId?: string
+  activeDecisionSerialNumber?: number
+  projectId: string
+  projectImported: boolean
+  importedNoteIds: string[]
+  title: string
+  situation: string
+  additionalContext: string
+  messages: ChatMessage[]
+  chatInput: string
+}
+
 const THEME_STORAGE_KEY = 'anchor-theme-v1'
 const SIDEBAR_STORAGE_KEY = 'anchor-sidebar-collapsed-v1'
 const WORKSPACE_PREFERENCES_UPDATED_AT_KEY = 'anchor-workspace-preferences-updated-at-v1'
@@ -204,6 +242,103 @@ function profileInitial(name: string): string {
   const trimmedName = name.trim()
 
   return trimmedName ? trimmedName.charAt(0).toUpperCase() : '?'
+}
+
+function serializeDraftValue(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function useAutosavedDraft<T>(
+  key: string,
+  kind: DraftKind,
+  initialValue: T,
+  shouldPersist: (value: T) => boolean,
+): [T, Dispatch<SetStateAction<T>>, boolean, (nextValue?: T) => void] {
+  const [initialStoredDraft] = useState(() => readDraft<T>(key, kind))
+  const [value, setValue] = useState<T>(() => initialStoredDraft?.data ?? initialValue)
+  const [hasDraft, setHasDraft] = useState(() => Boolean(initialStoredDraft))
+  const valueRef = useRef(value)
+  const shouldPersistRef = useRef(shouldPersist)
+  const suppressPersistenceRef = useRef(false)
+  const clearedSnapshotRef = useRef<string | undefined>(undefined)
+
+  useLayoutEffect(() => {
+    valueRef.current = value
+    shouldPersistRef.current = shouldPersist
+  }, [value, shouldPersist])
+
+  const persistDraft = useCallback((updateStatus: boolean) => {
+    const currentValue = valueRef.current
+    const serializedValue = serializeDraftValue(currentValue)
+
+    if (suppressPersistenceRef.current && serializedValue === clearedSnapshotRef.current) {
+      return
+    }
+
+    suppressPersistenceRef.current = false
+
+    if (shouldPersistRef.current(currentValue)) {
+      const saved = writeDraft(key, kind, currentValue)
+      if (updateStatus) {
+        setHasDraft(saved)
+      }
+      return
+    }
+
+    removeDraft(key)
+    if (updateStatus) {
+      setHasDraft(false)
+    }
+  }, [key, kind])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => persistDraft(true), 260)
+
+    return () => {
+      window.clearTimeout(timer)
+      // Flush on navigation/unmount so a very recent keystroke is not lost.
+      persistDraft(false)
+    }
+  }, [value, persistDraft])
+
+  useEffect(() => {
+    const flushDraft = () => persistDraft(false)
+    window.addEventListener('pagehide', flushDraft)
+
+    return () => window.removeEventListener('pagehide', flushDraft)
+  }, [persistDraft])
+
+  const clearDraft = useCallback((nextValue?: T) => {
+    const valueToKeepOutOfStorage = nextValue === undefined ? valueRef.current : nextValue
+    valueRef.current = valueToKeepOutOfStorage
+    suppressPersistenceRef.current = true
+    clearedSnapshotRef.current = serializeDraftValue(valueToKeepOutOfStorage)
+    removeDraft(key)
+    setHasDraft(false)
+  }, [key])
+
+  return [value, setValue, hasDraft, clearDraft]
+}
+
+interface DraftNoticeProps {
+  onDiscard: () => void
+}
+
+function DraftNotice({ onDiscard }: DraftNoticeProps) {
+  return (
+    <div className="draft-notice" role="status">
+      <span className="draft-notice-icon"><Check size={13} /></span>
+      <span className="draft-notice-copy">
+        <strong>Draft saved automatically</strong>
+        <span>Saved on this device until you save or discard it.</span>
+      </span>
+      <button className="draft-notice-discard" type="button" onClick={onDiscard}>Discard</button>
+    </div>
+  )
 }
 
 async function copyTextToClipboard(value: string): Promise<void> {
@@ -2581,6 +2716,7 @@ function App() {
 
       {isComposerOpen && (
         <AnchorComposer
+          key={`new-anchor-${activeProjectId ?? 'global'}`}
           projects={state.projects}
           defaultProjectId={activeProjectId}
           settings={aiSettings}
@@ -2591,6 +2727,7 @@ function App() {
       )}
       {editingAnchor && (
         <AnchorEditModal
+          key={editingAnchor.id}
           anchor={editingAnchor}
           projects={state.projects}
           settings={aiSettings}
@@ -2602,6 +2739,7 @@ function App() {
       )}
       {isProjectComposerOpen && (
         <ProjectComposer
+          key="new-project"
           settings={aiSettings}
           onOpenSettings={openAISettings}
           onClose={() => setIsProjectComposerOpen(false)}
@@ -2610,6 +2748,7 @@ function App() {
       )}
       {editingProject && (
         <ProjectEditModal
+          key={editingProject.id}
           project={editingProject}
           settings={aiSettings}
           onOpenSettings={openAISettings}
@@ -4253,6 +4392,38 @@ function NoteImportSelect({ notes, target, onImport }: NoteImportSelectProps) {
   )
 }
 
+function decisionDraftFromDecision(decision?: Decision): DecisionDraft {
+  return {
+    activeDecisionId: decision?.id,
+    activeDecisionSerialNumber: decision?.serialNumber,
+    projectId: decision?.projectId ?? '',
+    projectImported: Boolean(decision?.projectId),
+    importedNoteIds: decision?.noteIds ?? [],
+    title: decision?.title ?? '',
+    situation: decision?.situation ?? '',
+    additionalContext: decision?.additionalContext ?? '',
+    messages: decision?.messages ?? [],
+    chatInput: '',
+  }
+}
+
+function decisionDraftHasContent(value: DecisionDraft): boolean {
+  return Boolean(
+    value.title.trim() ||
+    value.situation.trim() ||
+    value.additionalContext.trim() ||
+    value.chatInput.trim() ||
+    value.projectId ||
+    value.projectImported ||
+    value.importedNoteIds.length ||
+    value.messages.length,
+  )
+}
+
+function decisionDraftsMatch(first: DecisionDraft, second: DecisionDraft): boolean {
+  return serializeDraftValue(first) === serializeDraftValue(second)
+}
+
 function DecisionView({
   name,
   projects,
@@ -4265,17 +4436,31 @@ function DecisionView({
   onDeleteDecision,
 }: DecisionViewProps) {
   const firstDecision = decisions[0]
-  const [activeDecisionId, setActiveDecisionId] = useState<string | undefined>(firstDecision?.id)
-  const [activeDecisionSerialNumber, setActiveDecisionSerialNumber] = useState<number | undefined>(firstDecision?.serialNumber)
-  const [projectId, setProjectId] = useState(firstDecision?.projectId ?? '')
-  const [projectImported, setProjectImported] = useState(Boolean(firstDecision?.projectId))
-  const [importedNoteIds, setImportedNoteIds] = useState<string[]>(firstDecision?.noteIds ?? [])
+  const initialDecisionDraft = decisionDraftFromDecision(firstDecision)
+  const decisionBaselineRef = useRef(initialDecisionDraft)
+  const [decisionDraft, setDecisionDraft, hasDraft, clearDraft] = useAutosavedDraft(
+    'decision:current',
+    'decision',
+    initialDecisionDraft,
+    (value) => !decisionDraftsMatch(value, decisionBaselineRef.current) && decisionDraftHasContent(value),
+  )
+  const decisionDraftRef = useRef(decisionDraft)
+  useEffect(() => {
+    decisionDraftRef.current = decisionDraft
+  }, [decisionDraft])
+  const activeDecisionId = decisionDraft.activeDecisionId
+  const activeDecisionSerialNumber = decisionDraft.activeDecisionSerialNumber
+  const projectId = decisionDraft.projectId
+  const projectImported = decisionDraft.projectImported
+  const decisionTitle = decisionDraft.title
+  const situation = decisionDraft.situation
+  const additionalContext = decisionDraft.additionalContext
+  const messages = decisionDraft.messages
+  const chatInput = decisionDraft.chatInput
+  const updateDecisionDraft = (changes: Partial<DecisionDraft>) => {
+    setDecisionDraft((current) => ({ ...current, ...changes }))
+  }
   const [briefCollapsed, setBriefCollapsed] = useState(false)
-  const [decisionTitle, setDecisionTitle] = useState(firstDecision?.title ?? '')
-  const [situation, setSituation] = useState(firstDecision?.situation ?? '')
-  const [additionalContext, setAdditionalContext] = useState(firstDecision?.additionalContext ?? '')
-  const [messages, setMessages] = useState<ChatMessage[]>(firstDecision?.messages ?? [])
-  const [chatInput, setChatInput] = useState('')
   const [copiedMessageId, setCopiedMessageId] = useState<string>()
   const [isThinking, setIsThinking] = useState(false)
   const [error, setError] = useState<string>()
@@ -4296,22 +4481,32 @@ function DecisionView({
     }
   }, [messages, isThinking])
 
-  const saveCurrentDecision = (nextMessages: ChatMessage[]) => {
+  const saveCurrentDecision = (nextMessages: ChatMessage[], changes: Partial<DecisionDraft> = {}) => {
     const now = new Date().toISOString()
-    const existingDecision = decisions.find((decision) => decision.id === activeDecisionId)
-    const id = activeDecisionId ?? createId('decision')
-    const serialNumber = existingDecision?.serialNumber ?? nextSerialNumber(decisions)
+    const currentDraft = decisionDraftRef.current
+    const existingDecision = decisions.find((decision) => decision.id === currentDraft.activeDecisionId)
+    const id = currentDraft.activeDecisionId ?? createId('decision')
+    const serialNumber = existingDecision?.serialNumber ?? currentDraft.activeDecisionSerialNumber ?? nextSerialNumber(decisions)
+    const nextDraft: DecisionDraft = {
+      ...currentDraft,
+      ...changes,
+      activeDecisionId: id,
+      activeDecisionSerialNumber: serialNumber,
+      messages: nextMessages,
+    }
 
-    setActiveDecisionId(id)
-    setActiveDecisionSerialNumber(serialNumber)
+    decisionBaselineRef.current = nextDraft
+    decisionDraftRef.current = nextDraft
+    setDecisionDraft(nextDraft)
+    clearDraft(nextDraft)
     onSaveDecision({
       id,
       serialNumber,
-      title: decisionTitle.trim() || undefined,
-      projectId: projectImported && projectId ? projectId : undefined,
-      noteIds: importedNoteIds,
-      situation: situation.trim(),
-      additionalContext: additionalContext.trim(),
+      title: nextDraft.title.trim() || undefined,
+      projectId: nextDraft.projectImported && nextDraft.projectId ? nextDraft.projectId : undefined,
+      noteIds: nextDraft.importedNoteIds,
+      situation: nextDraft.situation.trim(),
+      additionalContext: nextDraft.additionalContext.trim(),
       messages: nextMessages,
       createdAt: existingDecision?.createdAt ?? now,
       updatedAt: now,
@@ -4361,10 +4556,8 @@ function DecisionView({
     const requestController = new AbortController()
 
     requestControllerRef.current = requestController
-    setMessages(nextMessages)
-    setChatInput('')
     setError(undefined)
-    saveCurrentDecision(nextMessages)
+    saveCurrentDecision(nextMessages, { chatInput: '' })
     setIsThinking(true)
 
     try {
@@ -4378,8 +4571,7 @@ function DecisionView({
       }
       const completedMessages = [...nextMessages, assistantMessage]
 
-      setMessages(completedMessages)
-      saveCurrentDecision(completedMessages)
+      saveCurrentDecision(completedMessages, { chatInput: '' })
       void notifyAIResponse('Anchor replied', response)
     } catch (requestError) {
       if (requestError instanceof DOMException && requestError.name === 'AbortError') {
@@ -4419,13 +4611,13 @@ function DecisionView({
     requestControllerRef.current?.abort()
     requestControllerRef.current = undefined
     setIsThinking(false)
-    setMessages([])
-    setChatInput('')
+    if (activeDecisionId) {
+      saveCurrentDecision([], { chatInput: '' })
+    } else {
+      updateDecisionDraft({ messages: [], chatInput: '' })
+    }
     setCopiedMessageId(undefined)
     setError(undefined)
-    if (activeDecisionId) {
-      saveCurrentDecision([])
-    }
   }
 
   const copyMessage = async (message: ChatMessage) => {
@@ -4459,16 +4651,20 @@ function DecisionView({
 
   const importNoteInto = (note: Note, target: 'situation' | 'context') => {
     const noteBlock = `From note — ${note.title}\n${note.content.trim()}`
-    if (target === 'situation') {
-      setSituation((current) => current.includes(noteBlock)
-        ? current
-        : `${current.trim() ? `${current.trim()}\n\n` : ''}${noteBlock}`.slice(0, 1200))
-    } else {
-      setAdditionalContext((current) => current.includes(noteBlock)
-        ? current
-        : `${current.trim() ? `${current.trim()}\n\n` : ''}${noteBlock}`.slice(0, 1800))
-    }
-    setImportedNoteIds((current) => current.includes(note.id) ? current : [...current, note.id])
+    setDecisionDraft((current) => {
+      const currentText = target === 'situation' ? current.situation : current.additionalContext
+      const nextText = currentText.includes(noteBlock)
+        ? currentText
+        : `${currentText.trim() ? `${currentText.trim()}\n\n` : ''}${noteBlock}`.slice(0, target === 'situation' ? 1200 : 1800)
+
+      return {
+        ...current,
+        ...(target === 'situation' ? { situation: nextText } : { additionalContext: nextText }),
+        importedNoteIds: current.importedNoteIds.includes(note.id)
+          ? current.importedNoteIds
+          : [...current.importedNoteIds, note.id],
+      }
+    })
     setError(undefined)
   }
 
@@ -4477,16 +4673,11 @@ function DecisionView({
     requestControllerRef.current = undefined
     setIsThinking(false)
     setBriefCollapsed(false)
-    setActiveDecisionId(undefined)
-    setActiveDecisionSerialNumber(undefined)
-    setProjectId('')
-    setProjectImported(false)
-    setImportedNoteIds([])
-    setDecisionTitle('')
-    setSituation('')
-    setAdditionalContext('')
-    setMessages([])
-    setChatInput('')
+    const emptyDraft = decisionDraftFromDecision()
+    decisionBaselineRef.current = emptyDraft
+    decisionDraftRef.current = emptyDraft
+    clearDraft(emptyDraft)
+    setDecisionDraft(emptyDraft)
     setError(undefined)
   }
 
@@ -4495,16 +4686,23 @@ function DecisionView({
     requestControllerRef.current = undefined
     setIsThinking(false)
     setBriefCollapsed(false)
-    setActiveDecisionId(decision.id)
-    setActiveDecisionSerialNumber(decision.serialNumber)
-    setProjectId(decision.projectId ?? '')
-    setProjectImported(Boolean(decision.projectId))
-    setImportedNoteIds(decision.noteIds ?? [])
-    setDecisionTitle(decision.title ?? '')
-    setSituation(decision.situation)
-    setAdditionalContext(decision.additionalContext)
-    setMessages(decision.messages)
-    setChatInput('')
+    const loadedDraft = decisionDraftFromDecision(decision)
+    decisionBaselineRef.current = loadedDraft
+    decisionDraftRef.current = loadedDraft
+    clearDraft(loadedDraft)
+    setDecisionDraft(loadedDraft)
+    setError(undefined)
+  }
+
+  const discardDecisionDraft = () => {
+    const savedDecision = activeDecisionId
+      ? decisions.find((decision) => decision.id === activeDecisionId)
+      : undefined
+    const resetDraft = decisionDraftFromDecision(savedDecision)
+    decisionBaselineRef.current = resetDraft
+    decisionDraftRef.current = resetDraft
+    clearDraft(resetDraft)
+    setDecisionDraft(resetDraft)
     setError(undefined)
   }
 
@@ -4599,12 +4797,13 @@ function DecisionView({
             </button>
           </div>
           <p className="decision-panel-copy">You don&apos;t have to make it neat. Start where your mind is.</p>
+          {hasDraft && <DraftNotice onDiscard={discardDecisionDraft} />}
 
           <label className="form-field decision-field">
             <span>Room name <em>optional · editable later</em></span>
             <input
               value={decisionTitle}
-              onChange={(event) => setDecisionTitle(event.target.value)}
+              onChange={(event) => updateDecisionDraft({ title: event.target.value })}
               placeholder="e.g. Should I take the new role?"
               maxLength={100}
             />
@@ -4617,8 +4816,7 @@ function DecisionView({
                 <select
                   value={projectId}
                   onChange={(event) => {
-                    setProjectId(event.target.value)
-                    setProjectImported(false)
+                    updateDecisionDraft({ projectId: event.target.value, projectImported: false })
                   }}
                 >
                   <option value="">No project — just me</option>
@@ -4632,7 +4830,7 @@ function DecisionView({
                 className={`import-project-button ${projectImported ? 'imported' : ''}`}
                 type="button"
                 disabled={!selectedProject}
-                onClick={() => setProjectImported(true)}
+                onClick={() => updateDecisionDraft({ projectImported: true })}
               >
                 {projectImported ? <Check size={14} /> : <Plus size={14} />}
                 {projectImported ? 'Imported' : 'Import'}
@@ -4671,7 +4869,7 @@ function DecisionView({
                   type="button"
                   disabled={!situation.trim()}
                   onClick={() => {
-                    setSituation('')
+                    updateDecisionDraft({ situation: '' })
                     setError(undefined)
                   }}
                   aria-label="Clear situation"
@@ -4685,7 +4883,7 @@ function DecisionView({
               id="decision-situation"
               className="decision-situation-input"
               value={situation}
-              onChange={(event) => setSituation(event.target.value)}
+              onChange={(event) => updateDecisionDraft({ situation: event.target.value })}
               placeholder="What happened? What choice is in front of you?"
               rows={5}
               maxLength={1200}
@@ -4702,7 +4900,7 @@ function DecisionView({
                   type="button"
                   disabled={!additionalContext.trim()}
                   onClick={() => {
-                    setAdditionalContext('')
+                    updateDecisionDraft({ additionalContext: '' })
                     setError(undefined)
                   }}
                   aria-label="Clear more context"
@@ -4716,7 +4914,7 @@ function DecisionView({
               id="decision-context"
               className="decision-context-input"
               value={additionalContext}
-              onChange={(event) => setAdditionalContext(event.target.value)}
+              onChange={(event) => updateDecisionDraft({ additionalContext: event.target.value })}
               placeholder="What have you tried? What are you worried might happen?"
               rows={4}
               maxLength={1800}
@@ -4827,7 +5025,7 @@ function DecisionView({
           <form className="chat-composer" onSubmit={handleChatSubmit}>
             <textarea
               value={chatInput}
-              onChange={(event) => setChatInput(event.target.value)}
+              onChange={(event) => updateDecisionDraft({ chatInput: event.target.value })}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
                   event.preventDefault()
@@ -4860,13 +5058,30 @@ interface NoteEditorProps {
 }
 
 function NoteEditor({ note, onSave, onDelete }: NoteEditorProps) {
-  const [title, setTitle] = useState(note?.title ?? '')
-  const [content, setContent] = useState(note?.content ?? '')
+  const initialDraft: NoteDraft = {
+    title: note?.title ?? '',
+    content: note?.content ?? '',
+  }
+  const [draft, setDraft, hasDraft, clearDraft] = useAutosavedDraft(
+    note ? `note:edit:${note.id}` : 'note:new',
+    'note',
+    initialDraft,
+    (value) => note
+      ? value.title !== note.title || value.content !== note.content
+      : Boolean(value.title.trim() || value.content.trim()),
+  )
+  const updateDraft = (changes: Partial<NoteDraft>) => {
+    setDraft((current) => ({ ...current, ...changes }))
+  }
+  const discardDraft = () => {
+    clearDraft(initialDraft)
+    setDraft(initialDraft)
+  }
   const [error, setError] = useState<string>()
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const trimmedContent = content.trim()
+    const trimmedContent = draft.content.trim()
 
     if (!trimmedContent) {
       setError('Write something before saving this note.')
@@ -4876,9 +5091,10 @@ function NoteEditor({ note, onSave, onDelete }: NoteEditorProps) {
     const now = new Date().toISOString()
     const fallbackTitle = trimmedContent.split(/\r?\n/)[0]?.slice(0, 80) || 'Untitled note'
 
+    clearDraft()
     onSave({
       id: note?.id ?? createId('note'),
-      title: title.trim() || fallbackTitle,
+      title: draft.title.trim() || fallbackTitle,
       content: trimmedContent,
       createdAt: note?.createdAt ?? now,
       updatedAt: now,
@@ -4891,7 +5107,7 @@ function NoteEditor({ note, onSave, onDelete }: NoteEditorProps) {
       <div className="note-editor-heading">
         <div>
           <p className="eyebrow">{note ? 'Edit note' : 'New note'}</p>
-          <h2>{title.trim() || 'A place to put it down'}</h2>
+          <h2>{draft.title.trim() || 'A place to put it down'}</h2>
         </div>
         {note && (
           <EntityIdentity
@@ -4904,13 +5120,14 @@ function NoteEditor({ note, onSave, onDelete }: NoteEditorProps) {
           />
         )}
       </div>
+      {hasDraft && <DraftNotice onDiscard={discardDraft} />}
       <label className="form-field" htmlFor="note-title">
         <span>Title <em>optional</em></span>
         <input
           id="note-title"
-          value={title}
+          value={draft.title}
           onChange={(event) => {
-            setTitle(event.target.value)
+            updateDraft({ title: event.target.value })
             setError(undefined)
           }}
           placeholder="Give this note a name"
@@ -4921,9 +5138,9 @@ function NoteEditor({ note, onSave, onDelete }: NoteEditorProps) {
         <span>Note</span>
         <textarea
           id="note-content"
-          value={content}
+          value={draft.content}
           onChange={(event) => {
-            setContent(event.target.value)
+            updateDraft({ content: event.target.value })
             setError(undefined)
           }}
           placeholder="Write anything you want to remember…"
@@ -4931,7 +5148,7 @@ function NoteEditor({ note, onSave, onDelete }: NoteEditorProps) {
           maxLength={12000}
           autoFocus={!note}
         />
-        <small className="note-character-count">{content.length}/12000</small>
+        <small className="note-character-count">{draft.content.length}/12000</small>
       </label>
       {error && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{error}</span></div>}
       <div className="note-editor-footer">
@@ -4940,7 +5157,10 @@ function NoteEditor({ note, onSave, onDelete }: NoteEditorProps) {
             className="text-button note-delete-button"
             type="button"
             onClick={() => {
-              if (window.confirm('Delete this note? This cannot be undone.')) onDelete(note.id)
+              if (window.confirm('Delete this note? This cannot be undone.')) {
+                clearDraft()
+                onDelete(note.id)
+              }
             }}
           >
             <Trash2 size={14} /> Delete note
@@ -4961,7 +5181,21 @@ interface NotesViewProps {
 }
 
 function NotesView({ notes, onSaveNote, onDeleteNote }: NotesViewProps) {
-  const [activeNoteId, setActiveNoteId] = useState<string | undefined>(notes[0]?.id)
+  const [activeNoteId, setActiveNoteId] = useState<string | undefined>(() => {
+    const latestDraft = listDrafts<NoteDraft>('note')[0]
+
+    if (latestDraft?.key === 'note:new') {
+      return undefined
+    }
+
+    const draftNoteId = latestDraft?.key.startsWith('note:edit:')
+      ? latestDraft.key.slice('note:edit:'.length)
+      : undefined
+
+    return draftNoteId && notes.some((note) => note.id === draftNoteId)
+      ? draftNoteId
+      : notes[0]?.id
+  })
   const [query, setQuery] = useState('')
   const sortedNotes = useMemo(
     () => [...notes].sort((first, second) => second.updatedAt.localeCompare(first.updatedAt)),
@@ -5115,7 +5349,12 @@ function SettingsView({
   relativeTimeNow,
 }: SettingsViewProps) {
   const [showKey, setShowKey] = useState(false)
-  const [profileName, setProfileName] = useState(profile.name)
+  const [profileName, setProfileName, hasProfileDraft, clearProfileDraft] = useAutosavedDraft(
+    'profile:name',
+    'profile',
+    profile.name,
+    (value) => value.trim() !== profile.name.trim(),
+  )
   const [profileError, setProfileError] = useState<string>()
   const [profileSaved, setProfileSaved] = useState(false)
   const [pin, setPin] = useState('')
@@ -5153,6 +5392,7 @@ function SettingsView({
       return
     }
 
+    clearProfileDraft(name)
     onSaveProfile({ name })
     setProfileName(name)
     setProfileError(undefined)
@@ -5295,6 +5535,7 @@ function SettingsView({
             </div>
           </div>
           <form className="profile-form" onSubmit={saveProfile}>
+            {hasProfileDraft && <DraftNotice onDiscard={() => { clearProfileDraft(profile.name); setProfileName(profile.name) }} />}
             <div className="profile-preview">
               <span className="avatar">{profileInitial(profileName)}</span>
               <div><strong>{profileName.trim() || 'Your name'}</strong><span>Happy to have you here.</span></div>
@@ -6376,36 +6617,52 @@ function AnchorComposer({
   onClose,
   onSubmit,
 }: AnchorComposerProps) {
-  const [title, setTitle] = useState('')
-  const [body, setBody] = useState('')
-  const [tag, setTag] = useState('')
-  const [scope, setScope] = useState<AnchorScope>(defaultProjectId ? 'project' : 'global')
-  const [projectId, setProjectId] = useState(defaultProjectId ?? projects[0]?.id ?? '')
-  const [color, setColor] = useState<AccentColor>('coral')
-  const [pinned, setPinned] = useState(true)
-  const [evidenceLabel, setEvidenceLabel] = useState('')
-  const [evidenceUrl, setEvidenceUrl] = useState('')
+  const initialDraft: AnchorComposerDraft = {
+    title: '',
+    body: '',
+    tag: '',
+    scope: defaultProjectId ? 'project' : 'global',
+    projectId: defaultProjectId ?? projects[0]?.id ?? '',
+    color: 'coral',
+    pinned: true,
+    evidenceLabel: '',
+    evidenceUrl: '',
+  }
+  const [draft, setDraft, hasDraft, clearDraft] = useAutosavedDraft(
+    `anchor:new:${defaultProjectId ?? 'global'}`,
+    'anchor',
+    initialDraft,
+    (value) => Boolean(value.title.trim() || value.body.trim() || value.tag.trim() || value.evidenceLabel.trim() || value.evidenceUrl.trim()),
+  )
+  const updateDraft = (changes: Partial<AnchorComposerDraft>) => {
+    setDraft((current) => ({ ...current, ...changes }))
+  }
+  const discardDraft = () => {
+    clearDraft(initialDraft)
+    setDraft(initialDraft)
+  }
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (!title.trim() || (scope === 'project' && !projectId)) {
+    if (!draft.title.trim() || (draft.scope === 'project' && !draft.projectId)) {
       return
     }
 
     const evidence =
-      evidenceLabel.trim() && evidenceUrl.trim()
-        ? { label: evidenceLabel.trim(), url: evidenceUrl.trim() }
+      draft.evidenceLabel.trim() && draft.evidenceUrl.trim()
+        ? { label: draft.evidenceLabel.trim(), url: draft.evidenceUrl.trim() }
         : undefined
 
+    clearDraft()
     onSubmit({
-      title: title.trim(),
-      body: body.trim(),
-      tag: tag.trim() || (scope === 'global' ? 'Personal' : 'Project note'),
-      scope,
-      projectId: scope === 'project' ? projectId : undefined,
-      color,
-      pinned,
+      title: draft.title.trim(),
+      body: draft.body.trim(),
+      tag: draft.tag.trim() || (draft.scope === 'global' ? 'Personal' : 'Project note'),
+      scope: draft.scope,
+      projectId: draft.scope === 'project' ? draft.projectId : undefined,
+      color: draft.color,
+      pinned: draft.pinned,
       evidence,
     })
   }
@@ -6413,20 +6670,21 @@ function AnchorComposer({
   return (
     <Modal eyebrow="Make it stay" title="New anchor" onClose={onClose}>
       <form className="composer-form" onSubmit={handleSubmit}>
+        {hasDraft && <DraftNotice onDiscard={discardDraft} />}
         <label className="form-field">
           <span>What do you want to remember?</span>
           <input
             autoFocus
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
+            value={draft.title}
+            onChange={(event) => updateDraft({ title: event.target.value })}
             placeholder="e.g. Patience is part of the strategy."
           />
         </label>
         <label className="form-field">
           <span>More context <em>optional</em></span>
           <textarea
-            value={body}
-            onChange={(event) => setBody(event.target.value)}
+            value={draft.body}
+            onChange={(event) => updateDraft({ body: event.target.value })}
             placeholder="Add context if it helps you return to this later."
             rows={4}
           />
@@ -6435,13 +6693,11 @@ function AnchorComposer({
           settings={settings}
           onOpenSettings={onOpenSettings}
           label="Draft with AI"
-          disabled={!title.trim() && !body.trim()}
-          prompt={`Turn this rough thought into a useful Anchor reminder. Preserve the person’s meaning, make the title memorable, and add context only when it is useful without inventing facts. Return only JSON with exactly these keys: title, body, tag. Context is optional; do not shorten or omit meaningful details.\n\nROUGH TITLE\n${title || '(empty)'}\n\nROUGH CONTEXT\n${body || '(none — context is optional)'}\n\nCURRENT TAG\n${tag || '(empty)'}`}
+          disabled={!draft.title.trim() && !draft.body.trim()}
+          prompt={`Turn this rough thought into a useful Anchor reminder. Preserve the person’s meaning, make the title memorable, and add context only when it is useful without inventing facts. Return only JSON with exactly these keys: title, body, tag. Context is optional; do not shorten or omit meaningful details.\n\nROUGH TITLE\n${draft.title || '(empty)'}\n\nROUGH CONTEXT\n${draft.body || '(none — context is optional)'}\n\nCURRENT TAG\n${draft.tag || '(empty)'}`}
           onResult={(response) => {
-            const draft = parseAnchorDraft(response)
-            setTitle(draft.title)
-            setBody(draft.body)
-            if (draft.tag) setTag(draft.tag)
+            const aiDraft = parseAnchorDraft(response)
+            updateDraft({ title: aiDraft.title, body: aiDraft.body, ...(aiDraft.tag ? { tag: aiDraft.tag } : {}) })
           }}
         />
         <div className="form-row">
@@ -6449,16 +6705,16 @@ function AnchorComposer({
             <legend>Keep this in</legend>
             <div className="scope-toggle">
               <button
-                className={scope === 'global' ? 'selected' : ''}
+                className={draft.scope === 'global' ? 'selected' : ''}
                 type="button"
-                onClick={() => setScope('global')}
+                onClick={() => updateDraft({ scope: 'global' })}
               >
                 <Compass size={14} /> Everywhere
               </button>
               <button
-                className={scope === 'project' ? 'selected' : ''}
+                className={draft.scope === 'project' ? 'selected' : ''}
                 type="button"
-                onClick={() => setScope('project')}
+                onClick={() => updateDraft({ scope: 'project' })}
               >
                 <FolderOpen size={14} /> A project
               </button>
@@ -6468,9 +6724,9 @@ function AnchorComposer({
             <span>Project</span>
             <div className="select-wrap">
               <select
-                value={projectId}
-                disabled={scope === 'global' || projects.length === 0}
-                onChange={(event) => setProjectId(event.target.value)}
+                value={draft.projectId}
+                disabled={draft.scope === 'global' || projects.length === 0}
+                onChange={(event) => updateDraft({ projectId: event.target.value })}
               >
                 {projects.length === 0 && <option value="">Create a project first</option>}
                 {projects.map((project) => (
@@ -6486,20 +6742,20 @@ function AnchorComposer({
         <div className="form-row form-row-bottom">
           <label className="form-field">
             <span>Tag <em>optional</em></span>
-            <input value={tag} onChange={(event) => setTag(event.target.value)} placeholder="e.g. Patience" maxLength={32} />
+            <input value={draft.tag} onChange={(event) => updateDraft({ tag: event.target.value })} placeholder="e.g. Patience" maxLength={32} />
           </label>
           <fieldset className="form-field color-field">
             <legend>Tone</legend>
             <div className="color-options">
               {colorOptions.map((option) => (
                 <button
-                  className={`color-option ${option} ${color === option ? 'selected' : ''}`}
+                  className={`color-option ${option} ${draft.color === option ? 'selected' : ''}`}
                   key={option}
                   type="button"
                   aria-label={colorLabels[option]}
-                  onClick={() => setColor(option)}
+                  onClick={() => updateDraft({ color: option })}
                 >
-                  {color === option && <Check size={12} />}
+                  {draft.color === option && <Check size={12} />}
                 </button>
               ))}
             </div>
@@ -6509,8 +6765,8 @@ function AnchorComposer({
           <label className="form-field">
             <span>Evidence source <em>optional</em></span>
             <input
-              value={evidenceLabel}
-              onChange={(event) => setEvidenceLabel(event.target.value)}
+              value={draft.evidenceLabel}
+              onChange={(event) => updateDraft({ evidenceLabel: event.target.value })}
               placeholder="e.g. WHO guidance"
               maxLength={40}
             />
@@ -6518,20 +6774,20 @@ function AnchorComposer({
           <label className="form-field">
             <span>Evidence URL <em>optional</em></span>
             <input
-              value={evidenceUrl}
-              onChange={(event) => setEvidenceUrl(event.target.value)}
+              value={draft.evidenceUrl}
+              onChange={(event) => updateDraft({ evidenceUrl: event.target.value })}
               placeholder="https://..."
             />
           </label>
         </div>
         <label className="pin-toggle">
-          <input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} />
+          <input type="checkbox" checked={draft.pinned} onChange={(event) => updateDraft({ pinned: event.target.checked })} />
           <span className="fake-checkbox"><Check size={12} /></span>
           <span>Keep it in my daily rotation</span>
         </label>
         <div className="modal-actions">
           <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
-          <button className="primary-button" type="submit" disabled={!title.trim()}>
+          <button className="primary-button" type="submit" disabled={!draft.title.trim()}>
             <AnchorIcon size={16} />
             Save anchor
           </button>
@@ -6560,38 +6816,62 @@ function AnchorEditModal({
   onSave,
   onDelete,
 }: AnchorEditModalProps) {
-  const [title, setTitle] = useState(anchor.title)
-  const [body, setBody] = useState(anchor.body)
-  const [tag, setTag] = useState(anchor.tag)
-  const [scope, setScope] = useState<AnchorScope>(anchor.scope)
-  const [projectId, setProjectId] = useState(anchor.projectId ?? projects[0]?.id ?? '')
-  const [color, setColor] = useState<AccentColor>(anchor.color)
-  const [pinned, setPinned] = useState(anchor.pinned)
-  const [evidenceLabel, setEvidenceLabel] = useState(anchor.evidence?.label ?? '')
-  const [evidenceUrl, setEvidenceUrl] = useState(anchor.evidence?.url ?? '')
+  const initialDraft: AnchorComposerDraft = {
+    title: anchor.title,
+    body: anchor.body,
+    tag: anchor.tag,
+    scope: anchor.scope,
+    projectId: anchor.projectId ?? projects[0]?.id ?? '',
+    color: anchor.color,
+    pinned: anchor.pinned,
+    evidenceLabel: anchor.evidence?.label ?? '',
+    evidenceUrl: anchor.evidence?.url ?? '',
+  }
+  const [draft, setDraft, hasDraft, clearDraft] = useAutosavedDraft(
+    `anchor:edit:${anchor.id}`,
+    'anchor',
+    initialDraft,
+    (value) => value.title !== anchor.title ||
+      value.body !== anchor.body ||
+      value.tag !== anchor.tag ||
+      value.scope !== anchor.scope ||
+      (value.scope === 'project' ? value.projectId : undefined) !== anchor.projectId ||
+      value.color !== anchor.color ||
+      value.pinned !== anchor.pinned ||
+      value.evidenceLabel !== (anchor.evidence?.label ?? '') ||
+      value.evidenceUrl !== (anchor.evidence?.url ?? ''),
+  )
+  const updateDraft = (changes: Partial<AnchorComposerDraft>) => {
+    setDraft((current) => ({ ...current, ...changes }))
+  }
+  const discardDraft = () => {
+    clearDraft(initialDraft)
+    setDraft(initialDraft)
+  }
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (!title.trim() || (scope === 'project' && !projectId)) {
+    if (!draft.title.trim() || (draft.scope === 'project' && !draft.projectId)) {
       return
     }
 
     const evidence =
-      evidenceLabel.trim() && evidenceUrl.trim()
-        ? { label: evidenceLabel.trim(), url: evidenceUrl.trim() }
+      draft.evidenceLabel.trim() && draft.evidenceUrl.trim()
+        ? { label: draft.evidenceLabel.trim(), url: draft.evidenceUrl.trim() }
         : undefined
 
+    clearDraft()
     onSave({
       ...anchor,
-      title: title.trim(),
-      body: body.trim(),
-      tag: tag.trim() || (scope === 'global' ? 'Personal' : 'Project note'),
-      scope,
-      projectId: scope === 'project' ? projectId : undefined,
-      color,
-      pinned,
+      title: draft.title.trim(),
+      body: draft.body.trim(),
+      tag: draft.tag.trim() || (draft.scope === 'global' ? 'Personal' : 'Project note'),
+      scope: draft.scope,
+      projectId: draft.scope === 'project' ? draft.projectId : undefined,
+      color: draft.color,
+      pinned: draft.pinned,
       evidence,
       updatedAt: new Date().toISOString(),
     })
@@ -6602,6 +6882,7 @@ function AnchorEditModal({
       setConfirmDelete(true)
       return
     }
+    clearDraft()
     onDelete(anchor.id)
   }
 
@@ -6616,20 +6897,21 @@ function AnchorEditModal({
           updatedAt={anchor.updatedAt}
           exact
         />
+        {hasDraft && <DraftNotice onDiscard={discardDraft} />}
         <label className="form-field">
           <span>What do you want to remember?</span>
           <input
             autoFocus
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
+            value={draft.title}
+            onChange={(event) => updateDraft({ title: event.target.value })}
             placeholder="e.g. Patience is part of the strategy."
           />
         </label>
         <label className="form-field">
           <span>More context <em>optional</em></span>
           <textarea
-            value={body}
-            onChange={(event) => setBody(event.target.value)}
+            value={draft.body}
+            onChange={(event) => updateDraft({ body: event.target.value })}
             placeholder="Add context if it helps you return to this later."
             rows={4}
           />
@@ -6638,12 +6920,10 @@ function AnchorEditModal({
           settings={settings}
           onOpenSettings={onOpenSettings}
           label="Polish with AI"
-          prompt={`Polish this existing Anchor without changing its underlying meaning. Make it clear, memorable, and practical. Return only JSON with exactly these keys: title, body, tag. Preserve all meaningful details without shortening the content. Context is optional; do not invent evidence or claims.\n\nTITLE\n${title}\n\nCONTEXT\n${body || '(none — context is optional)'}\n\nTAG\n${tag}`}
+          prompt={`Polish this existing Anchor without changing its underlying meaning. Make it clear, memorable, and practical. Return only JSON with exactly these keys: title, body, tag. Preserve all meaningful details without shortening the content. Context is optional; do not invent evidence or claims.\n\nTITLE\n${draft.title}\n\nCONTEXT\n${draft.body || '(none — context is optional)'}\n\nTAG\n${draft.tag}`}
           onResult={(response) => {
-            const draft = parseAnchorDraft(response)
-            setTitle(draft.title)
-            setBody(draft.body)
-            if (draft.tag) setTag(draft.tag)
+            const aiDraft = parseAnchorDraft(response)
+            updateDraft({ title: aiDraft.title, body: aiDraft.body, ...(aiDraft.tag ? { tag: aiDraft.tag } : {}) })
           }}
         />
         <div className="form-row">
@@ -6651,16 +6931,16 @@ function AnchorEditModal({
             <legend>Keep this in</legend>
             <div className="scope-toggle">
               <button
-                className={scope === 'global' ? 'selected' : ''}
+                className={draft.scope === 'global' ? 'selected' : ''}
                 type="button"
-                onClick={() => setScope('global')}
+                onClick={() => updateDraft({ scope: 'global' })}
               >
                 <Compass size={14} /> Everywhere
               </button>
               <button
-                className={scope === 'project' ? 'selected' : ''}
+                className={draft.scope === 'project' ? 'selected' : ''}
                 type="button"
-                onClick={() => setScope('project')}
+                onClick={() => updateDraft({ scope: 'project' })}
               >
                 <FolderOpen size={14} /> A project
               </button>
@@ -6670,9 +6950,9 @@ function AnchorEditModal({
             <span>Project</span>
             <div className="select-wrap">
               <select
-                value={projectId}
-                disabled={scope === 'global' || projects.length === 0}
-                onChange={(event) => setProjectId(event.target.value)}
+                value={draft.projectId}
+                disabled={draft.scope === 'global' || projects.length === 0}
+                onChange={(event) => updateDraft({ projectId: event.target.value })}
               >
                 {projects.length === 0 && <option value="">Create a project first</option>}
                 {projects.map((project) => (
@@ -6688,20 +6968,20 @@ function AnchorEditModal({
         <div className="form-row form-row-bottom">
           <label className="form-field">
             <span>Tag <em>optional</em></span>
-            <input value={tag} onChange={(event) => setTag(event.target.value)} placeholder="e.g. Patience" maxLength={32} />
+            <input value={draft.tag} onChange={(event) => updateDraft({ tag: event.target.value })} placeholder="e.g. Patience" maxLength={32} />
           </label>
           <fieldset className="form-field color-field">
             <legend>Tone</legend>
             <div className="color-options">
               {colorOptions.map((option) => (
                 <button
-                  className={`color-option ${option} ${color === option ? 'selected' : ''}`}
+                  className={`color-option ${option} ${draft.color === option ? 'selected' : ''}`}
                   key={option}
                   type="button"
                   aria-label={colorLabels[option]}
-                  onClick={() => setColor(option)}
+                  onClick={() => updateDraft({ color: option })}
                 >
-                  {color === option && <Check size={12} />}
+                  {draft.color === option && <Check size={12} />}
                 </button>
               ))}
             </div>
@@ -6711,8 +6991,8 @@ function AnchorEditModal({
           <label className="form-field">
             <span>Evidence source <em>optional</em></span>
             <input
-              value={evidenceLabel}
-              onChange={(event) => setEvidenceLabel(event.target.value)}
+              value={draft.evidenceLabel}
+              onChange={(event) => updateDraft({ evidenceLabel: event.target.value })}
               placeholder="e.g. WHO guidance"
               maxLength={40}
             />
@@ -6720,14 +7000,14 @@ function AnchorEditModal({
           <label className="form-field">
             <span>Evidence URL <em>optional</em></span>
             <input
-              value={evidenceUrl}
-              onChange={(event) => setEvidenceUrl(event.target.value)}
+              value={draft.evidenceUrl}
+              onChange={(event) => updateDraft({ evidenceUrl: event.target.value })}
               placeholder="https://..."
             />
           </label>
         </div>
         <label className="pin-toggle">
-          <input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} />
+          <input type="checkbox" checked={draft.pinned} onChange={(event) => updateDraft({ pinned: event.target.checked })} />
           <span className="fake-checkbox"><Check size={12} /></span>
           <span>Keep it in my daily rotation</span>
         </label>
@@ -6742,7 +7022,7 @@ function AnchorEditModal({
           </button>
           <div className="modal-actions-right">
             <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
-            <button className="primary-button" type="submit" disabled={!title.trim()}>
+            <button className="primary-button" type="submit" disabled={!draft.title.trim()}>
               <Check size={16} />
               Save changes
             </button>
@@ -6761,45 +7041,61 @@ interface ProjectComposerProps {
 }
 
 function ProjectComposer({ settings, onOpenSettings, onClose, onSubmit }: ProjectComposerProps) {
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [color, setColor] = useState<AccentColor>('sky')
+  const initialDraft: ProjectComposerDraft = {
+    name: '',
+    description: '',
+    color: 'sky',
+  }
+  const [draft, setDraft, hasDraft, clearDraft] = useAutosavedDraft(
+    'project:new',
+    'project',
+    initialDraft,
+    (value) => Boolean(value.name.trim() || value.description.trim()),
+  )
+  const updateDraft = (changes: Partial<ProjectComposerDraft>) => {
+    setDraft((current) => ({ ...current, ...changes }))
+  }
+  const discardDraft = () => {
+    clearDraft(initialDraft)
+    setDraft(initialDraft)
+  }
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (!name.trim()) {
+    if (!draft.name.trim()) {
       return
     }
 
+    clearDraft()
     onSubmit({
-      name: name.trim(),
-      description: description.trim() || 'A place for the context that matters here.',
-      color,
+      name: draft.name.trim(),
+      description: draft.description.trim() || 'A place for the context that matters here.',
+      color: draft.color,
     })
   }
 
   return (
     <Modal eyebrow="Create some room" title="New project" onClose={onClose}>
       <form className="composer-form" onSubmit={handleSubmit}>
+        {hasDraft && <DraftNotice onDiscard={discardDraft} />}
         <label className="form-field">
           <span>Project name</span>
-          <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Learn the piano" maxLength={48} />
+          <input autoFocus value={draft.name} onChange={(event) => updateDraft({ name: event.target.value })} placeholder="e.g. Learn the piano" maxLength={48} />
         </label>
         <label className="form-field">
           <span>What is this space for? <em>optional</em></span>
-          <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="A short phrase to bring you back to the point." rows={3} maxLength={100} />
+          <textarea value={draft.description} onChange={(event) => updateDraft({ description: event.target.value })} placeholder="A short phrase to bring you back to the point." rows={3} maxLength={100} />
         </label>
         <AIWriterButton
           settings={settings}
           onOpenSettings={onOpenSettings}
           label="Shape with AI"
-          disabled={!name.trim() && !description.trim()}
-          prompt={`Turn this rough project idea into a clear project space. Keep it grounded in what the person wrote and avoid inventing goals. Return only JSON with exactly these keys: name and description. Keep name under 48 characters and description under 100 characters.\n\nROUGH NAME\n${name || '(empty)'}\n\nROUGH DESCRIPTION\n${description || '(empty)'}`}
+          disabled={!draft.name.trim() && !draft.description.trim()}
+          prompt={`Turn this rough project idea into a clear project space. Keep it grounded in what the person wrote and avoid inventing goals. Return only JSON with exactly these keys: name and description. Keep name under 48 characters and description under 100 characters.\n\nROUGH NAME\n${draft.name || '(empty)'}\n\nROUGH DESCRIPTION\n${draft.description || '(empty)'}`}
           onResult={(response) => {
-            const draft = parseProjectDraft(response)
-            setName(draft.name.slice(0, 48))
-            setDescription(draft.description.slice(0, 100))
+            const aiDraft = parseProjectDraft(response)
+            updateDraft({ name: aiDraft.name.slice(0, 48), description: aiDraft.description.slice(0, 100) })
           }}
         />
         <fieldset className="form-field color-field project-color-field">
@@ -6807,20 +7103,20 @@ function ProjectComposer({ settings, onOpenSettings, onClose, onSubmit }: Projec
           <div className="color-options large-color-options">
             {colorOptions.map((option) => (
               <button
-                className={`color-option ${option} ${color === option ? 'selected' : ''}`}
+                className={`color-option ${option} ${draft.color === option ? 'selected' : ''}`}
                 key={option}
                 type="button"
                 aria-label={colorLabels[option]}
-                onClick={() => setColor(option)}
+                onClick={() => updateDraft({ color: option })}
               >
-                {color === option && <Check size={13} />}
+                {draft.color === option && <Check size={13} />}
               </button>
             ))}
           </div>
         </fieldset>
         <div className="modal-actions">
           <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
-          <button className="primary-button" type="submit" disabled={!name.trim()}>
+          <button className="primary-button" type="submit" disabled={!draft.name.trim()}>
             <FolderOpen size={16} />
             Create project
           </button>
@@ -6847,23 +7143,39 @@ function ProjectEditModal({
   onSave,
   onDelete,
 }: ProjectEditModalProps) {
-  const [name, setName] = useState(project.name)
-  const [description, setDescription] = useState(project.description)
-  const [color, setColor] = useState<AccentColor>(project.color)
+  const initialDraft: ProjectComposerDraft = {
+    name: project.name,
+    description: project.description,
+    color: project.color,
+  }
+  const [draft, setDraft, hasDraft, clearDraft] = useAutosavedDraft(
+    `project:edit:${project.id}`,
+    'project',
+    initialDraft,
+    (value) => value.name !== project.name || value.description !== project.description || value.color !== project.color,
+  )
+  const updateDraft = (changes: Partial<ProjectComposerDraft>) => {
+    setDraft((current) => ({ ...current, ...changes }))
+  }
+  const discardDraft = () => {
+    clearDraft(initialDraft)
+    setDraft(initialDraft)
+  }
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (!name.trim()) {
+    if (!draft.name.trim()) {
       return
     }
 
+    clearDraft()
     onSave({
       ...project,
-      name: name.trim(),
-      description: description.trim() || 'A place for the context that matters here.',
-      color,
+      name: draft.name.trim(),
+      description: draft.description.trim() || 'A place for the context that matters here.',
+      color: draft.color,
     })
   }
 
@@ -6872,6 +7184,7 @@ function ProjectEditModal({
       setConfirmDelete(true)
       return
     }
+    clearDraft()
     onDelete(project.id)
   }
 
@@ -6886,23 +7199,23 @@ function ProjectEditModal({
           updatedAt={project.updatedAt || project.createdAt}
           exact
         />
+        {hasDraft && <DraftNotice onDiscard={discardDraft} />}
         <label className="form-field">
           <span>Project name</span>
-          <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Learn the piano" maxLength={48} />
+          <input autoFocus value={draft.name} onChange={(event) => updateDraft({ name: event.target.value })} placeholder="e.g. Learn the piano" maxLength={48} />
         </label>
         <label className="form-field">
           <span>What is this space for? <em>optional</em></span>
-          <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="A short phrase to bring you back to the point." rows={3} maxLength={100} />
+          <textarea value={draft.description} onChange={(event) => updateDraft({ description: event.target.value })} placeholder="A short phrase to bring you back to the point." rows={3} maxLength={100} />
         </label>
         <AIWriterButton
           settings={settings}
           onOpenSettings={onOpenSettings}
           label="Polish with AI"
-          prompt={`Polish this project description while preserving its purpose. Return only JSON with exactly these keys: name and description. Keep name under 48 characters and description under 100 characters. Do not invent goals or commitments.\n\nPROJECT NAME\n${name}\n\nDESCRIPTION\n${description}`}
+          prompt={`Polish this project description while preserving its purpose. Return only JSON with exactly these keys: name and description. Keep name under 48 characters and description under 100 characters. Do not invent goals or commitments.\n\nPROJECT NAME\n${draft.name}\n\nDESCRIPTION\n${draft.description}`}
           onResult={(response) => {
-            const draft = parseProjectDraft(response)
-            setName(draft.name.slice(0, 48))
-            setDescription(draft.description.slice(0, 100))
+            const aiDraft = parseProjectDraft(response)
+            updateDraft({ name: aiDraft.name.slice(0, 48), description: aiDraft.description.slice(0, 100) })
           }}
         />
         <fieldset className="form-field color-field project-color-field">
@@ -6910,13 +7223,13 @@ function ProjectEditModal({
           <div className="color-options large-color-options">
             {colorOptions.map((option) => (
               <button
-                className={`color-option ${option} ${color === option ? 'selected' : ''}`}
+                className={`color-option ${option} ${draft.color === option ? 'selected' : ''}`}
                 key={option}
                 type="button"
                 aria-label={colorLabels[option]}
-                onClick={() => setColor(option)}
+                onClick={() => updateDraft({ color: option })}
               >
-                {color === option && <Check size={13} />}
+                {draft.color === option && <Check size={13} />}
               </button>
             ))}
           </div>
@@ -6932,7 +7245,7 @@ function ProjectEditModal({
           </button>
           <div className="modal-actions-right">
             <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
-            <button className="primary-button" type="submit" disabled={!name.trim()}>
+            <button className="primary-button" type="submit" disabled={!draft.name.trim()}>
               <Check size={16} />
               Save changes
             </button>

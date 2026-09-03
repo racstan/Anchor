@@ -2723,6 +2723,66 @@ html[data-theme='dark'] {
   background: var(--surface);
 }
 
+.draft-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 11px;
+  color: var(--ink-3);
+  border: 1px solid var(--primary-border);
+  border-radius: 10px;
+  background: var(--primary-light);
+}
+
+.draft-notice-icon {
+  width: 23px;
+  height: 23px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: #ffffff;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+.draft-notice-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.draft-notice-copy strong {
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.draft-notice-copy span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.draft-notice-discard {
+  flex: 0 0 auto;
+  padding: 5px 7px;
+  color: var(--muted);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.draft-notice-discard:hover {
+  color: var(--ink-2);
+  background: var(--surface);
+}
+
 .composer-form {
   display: grid;
   gap: 16px;
