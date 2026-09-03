@@ -30,12 +30,17 @@ export interface SyncSettings {
 
 export const SYNC_SETTINGS_STORAGE_KEY = 'anchor-sync-settings-v1'
 export const DROPBOX_CALLBACK_PATH = '/dropbox/callback'
+export const DROPBOX_NATIVE_CALLBACK_SCHEME = 'anchor'
 export const DEFAULT_VAULT_NAME = 'Anchor'
 export const DROPBOX_BACKUP_FILE = 'anchor-vault.json'
 
-// Dropbox client IDs are public. The release is preconfigured for normal users;
-// self-hosted builds can override this with VITE_DROPBOX_APP_KEY.
+// Dropbox client IDs and redirect URIs are public. The release is preconfigured
+// for normal users; self-hosted builds can override these with VITE_ variables.
 const RELEASE_DROPBOX_APP_KEY = 'dsc3rxf2meqb4t8'
+export const DROPBOX_RELEASE_REDIRECT_URI = 'https://anchor-chi-eight.vercel.app/dropbox/callback'
+const CONFIGURED_DROPBOX_REDIRECT_URI = (
+  import.meta.env.VITE_DROPBOX_REDIRECT_URI || DROPBOX_RELEASE_REDIRECT_URI
+).trim()
 const LEGACY_DROPBOX_APP_KEYS = new Set(['k0k64j5r7z0u32b'])
 const LEGACY_DROPBOX_BACKUP_PATH = '/anchor-vault.json'
 export const DEFAULT_DROPBOX_APP_KEY = (
@@ -45,6 +50,8 @@ export const DEFAULT_DROPBOX_APP_KEY = (
 const DROPBOX_TOKEN_ENDPOINT = 'https://api.dropboxapi.com/oauth2/token'
 const DROPBOX_API_ENDPOINT = 'https://api.dropboxapi.com/2'
 const DROPBOX_OAUTH_STORAGE_KEY = 'anchor-dropbox-oauth-pkce-v1'
+const DROPBOX_NATIVE_CALLBACK_PATH = '/callback'
+const DROPBOX_NATIVE_STATE_PREFIX = 'anchor-native-'
 const DROPBOX_TOKEN_SKEW_MS = 60_000
 
 export const DEFAULT_SYNC_SETTINGS: SyncSettings = {
@@ -97,10 +104,54 @@ function getDropboxErrorMessage(payload: unknown, fallback: string): string {
   return fallback
 }
 
+function isNativeTauriRuntime(): boolean {
+  if (typeof window === 'undefined') return false
+  return Boolean(
+    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ ||
+    (window as unknown as { __TAURI__?: unknown }).__TAURI__ ||
+    window.location.hostname === 'tauri.localhost',
+  )
+}
+
 export function getDropboxRedirectUri(redirectUri?: string): string {
   if (redirectUri?.trim()) return redirectUri.trim()
+  // Tauri's local `*.localhost` origin is not registered with Dropbox. Native
+  // OAuth therefore always uses the release callback (or its build override).
+  if (isNativeTauriRuntime()) return CONFIGURED_DROPBOX_REDIRECT_URI
   if (typeof window === 'undefined') return DROPBOX_CALLBACK_PATH
   return `${window.location.origin}${DROPBOX_CALLBACK_PATH}`
+}
+
+export function isNativeDropboxOAuthState(state?: string | null): boolean {
+  return Boolean(state?.startsWith(DROPBOX_NATIVE_STATE_PREFIX))
+}
+
+export function isDropboxNativeCallbackUrl(callbackUrl: string | URL): boolean {
+  try {
+    const url = typeof callbackUrl === 'string' ? new URL(callbackUrl) : callbackUrl
+    return url.protocol === `${DROPBOX_NATIVE_CALLBACK_SCHEME}:`
+      && url.hostname === 'dropbox'
+      && url.pathname.replace(/\/$/, '') === DROPBOX_NATIVE_CALLBACK_PATH
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Sends a native OAuth result from the registered HTTPS callback back to the
+ * installed app. The HTTPS URI stays registered with Dropbox; the custom URI
+ * is only used for the final hand-off on the device.
+ */
+export function getDropboxNativeCallbackUrl(callbackUrl: string | URL): string {
+  const source = typeof callbackUrl === 'string' ? new URL(callbackUrl) : callbackUrl
+  const target = new URL(`${DROPBOX_NATIVE_CALLBACK_SCHEME}://dropbox${DROPBOX_NATIVE_CALLBACK_PATH}`)
+
+  for (const parameter of ['code', 'state', 'error', 'error_description', 'error_uri']) {
+    const value = source.searchParams.get(parameter)
+    if (value !== null) target.searchParams.set(parameter, value)
+  }
+
+  return target.toString()
 }
 
 export function getDropboxVaultFolder(vaultName = DEFAULT_VAULT_NAME): string {
@@ -148,7 +199,7 @@ export async function startDropboxOAuth(
 
   const verifier = randomUrlString(48)
   const challenge = base64UrlEncode(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)))
-  const state = randomUrlString(32)
+  const state = `${isNativeTauriRuntime() ? DROPBOX_NATIVE_STATE_PREFIX : ''}${randomUrlString(32)}`
   const storage = getDropboxOAuthStorage()
   storage?.setItem(DROPBOX_OAUTH_STORAGE_KEY, JSON.stringify({
     verifier,
@@ -158,6 +209,20 @@ export async function startDropboxOAuth(
   }))
 
   const authUrl = getDropboxAuthUrl(trimmedAppKey, undefined, challenge, state)
+  if (isNativeTauriRuntime()) {
+    // OAuth must happen in the system browser on mobile. The callback is
+    // bounced back through the `anchor://` deep link once Dropbox redirects
+    // to Anchor's registered HTTPS callback.
+    try {
+      const { openUrl } = await import('@tauri-apps/plugin-opener')
+      await openUrl(authUrl)
+      return
+    } catch {
+      // Keep a browser-navigation fallback for older/native builds without
+      // the opener plugin or when the OS refuses to open the browser.
+    }
+  }
+
   if (inNewTab) {
     const popup = window.open(authUrl, '_blank', 'noopener,noreferrer')
     if (!popup) window.location.href = authUrl
@@ -174,12 +239,22 @@ export interface DropboxOAuthResult {
   uid?: string
 }
 
-export async function completeDropboxOAuth(): Promise<DropboxOAuthResult | null> {
-  if (typeof window === 'undefined') return null
-  const callbackPath = window.location.pathname.replace(/\/$/, '') || '/'
-  if (callbackPath !== DROPBOX_CALLBACK_PATH) return null
+export async function completeDropboxOAuth(callbackUrl?: string | URL): Promise<DropboxOAuthResult | null> {
+  if (typeof window === 'undefined' && !callbackUrl) return null
 
-  const params = new URLSearchParams(window.location.search)
+  let callback: URL
+  try {
+    callback = callbackUrl
+      ? (typeof callbackUrl === 'string' ? new URL(callbackUrl) : callbackUrl)
+      : new URL(window.location.href)
+  } catch {
+    return null
+  }
+
+  const callbackPath = callback.pathname.replace(/\/$/, '') || '/'
+  if (!isDropboxNativeCallbackUrl(callback) && callbackPath !== DROPBOX_CALLBACK_PATH) return null
+
+  const params = callback.searchParams
   const oauthError = params.get('error')
   if (oauthError) {
     getDropboxOAuthStorage()?.removeItem(DROPBOX_OAUTH_STORAGE_KEY)
@@ -219,6 +294,8 @@ export async function completeDropboxOAuth(): Promise<DropboxOAuthResult | null>
       code,
       grant_type: 'authorization_code',
       client_id: session.appKey,
+      // Dropbox validates this against the URI used in the authorization
+      // request, not the temporary `anchor://` hand-off URI.
       redirect_uri: getDropboxRedirectUri(),
       code_verifier: session.verifier,
     }),

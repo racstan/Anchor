@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   getDropboxAuthUrl,
   getDropboxBackupPath,
+  getDropboxNativeCallbackUrl,
   getDropboxVaultFolder,
+  isDropboxNativeCallbackUrl,
+  isNativeDropboxOAuthState,
   mergeSyncState,
   normalizeSyncSettings,
   readSyncSettings,
@@ -98,6 +101,16 @@ describe('Dropbox configuration', () => {
     expect(url.searchParams.get('code_challenge_method')).toBe('S256')
     expect(url.searchParams.get('code_challenge')).toBe('challenge')
     expect(url.searchParams.get('state')).toBe('state')
+  })
+
+  it('bridges native callbacks without changing Dropbox\'s registered redirect URI', () => {
+    const callback = 'https://anchor-chi-eight.vercel.app/dropbox/callback?code=abc123&state=anchor-native-state'
+    const nativeCallback = getDropboxNativeCallbackUrl(callback)
+
+    expect(nativeCallback).toBe('anchor://dropbox/callback?code=abc123&state=anchor-native-state')
+    expect(isDropboxNativeCallbackUrl(nativeCallback)).toBe(true)
+    expect(isNativeDropboxOAuthState('anchor-native-state')).toBe(true)
+    expect(isNativeDropboxOAuthState('ordinary-state')).toBe(false)
   })
 
   it('puts the backup in a folder named after the vault', () => {

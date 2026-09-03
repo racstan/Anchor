@@ -8,7 +8,9 @@ pub fn run() {
         app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
       }
 
+      app.handle().plugin(tauri_plugin_deep_link::init())?;
       app.handle().plugin(tauri_plugin_notification::init())?;
+      app.handle().plugin(tauri_plugin_opener::init())?;
 
       if cfg!(debug_assertions) {
         app.handle().plugin(

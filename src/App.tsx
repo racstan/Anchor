@@ -115,6 +115,9 @@ import {
   DEFAULT_VAULT_NAME,
   executeWorkspaceSync,
   extractDropboxOAuthToken,
+  getDropboxNativeCallbackUrl,
+  isDropboxNativeCallbackUrl,
+  isNativeDropboxOAuthState,
   normalizeSyncSettings,
   readSyncSettings,
   revokeDropboxAccess,
@@ -431,6 +434,7 @@ function OnboardingView({ theme, onComplete, onRestoreFromDropbox, restoreStatus
   const [isRestoring, setIsRestoring] = useState(false)
   const [restoreError, setRestoreError] = useState<string>()
   const [error, setError] = useState<string>()
+  const restoreInProgress = isRestoring && restoreStatus !== 'success' && restoreStatus !== 'error'
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -467,6 +471,8 @@ function OnboardingView({ theme, onComplete, onRestoreFromDropbox, restoreStatus
     setRestoreError(undefined)
 
     try {
+      // Native OAuth stays busy until the deep-link callback updates the status;
+      // web OAuth navigates away from this page before this promise resolves.
       await onRestoreFromDropbox()
     } catch (restoreFailure) {
       setRestoreError(restoreFailure instanceof Error ? restoreFailure.message : 'Dropbox could not be opened right now.')
@@ -560,7 +566,7 @@ function OnboardingView({ theme, onComplete, onRestoreFromDropbox, restoreStatus
             </label>
           )}
           {error && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{error}</span></div>}
-          <button className="primary-button onboarding-submit" type="submit" disabled={isSubmitting || isRestoring}>
+          <button className="primary-button onboarding-submit" type="submit" disabled={isSubmitting || restoreInProgress}>
             {isSubmitting ? 'Setting up…' : 'Enter my space'} <ArrowUpRight size={16} />
           </button>
         </form>
@@ -569,8 +575,8 @@ function OnboardingView({ theme, onComplete, onRestoreFromDropbox, restoreStatus
             <strong>Already set up on another device?</strong>
             <span>Load your saved profile and workspace from Dropbox.</span>
           </div>
-          <button className="secondary-button onboarding-restore-button" type="button" onClick={() => void handleRestoreFromDropbox()} disabled={isSubmitting || isRestoring}>
-            <Cloud size={15} /> {isRestoring ? 'Opening Dropbox…' : 'Load from Dropbox'}
+          <button className="secondary-button onboarding-restore-button" type="button" onClick={() => void handleRestoreFromDropbox()} disabled={isSubmitting || restoreInProgress}>
+            <Cloud size={15} /> {restoreInProgress ? 'Opening Dropbox…' : 'Load from Dropbox'}
           </button>
           {restoreError && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{restoreError}</span></div>}
           {restoreStatus === 'syncing' && !restoreError && <div className="onboarding-restore-status"><RefreshCw className="spin" size={14} /> <span>Loading your saved Anchor workspace…</span></div>}
@@ -746,6 +752,12 @@ function App() {
     syncSettingsRef.current = syncSettings
   }, [syncSettings])
 
+  useEffect(() => {
+    if (!syncSettings.dropboxAccessToken?.trim() && !syncSettings.dropboxRefreshToken?.trim()) {
+      dropboxCallbackHandledRef.current = false
+    }
+  }, [syncSettings.dropboxAccessToken, syncSettings.dropboxRefreshToken])
+
   const showToast = (message: string) => {
     setToast(message)
   }
@@ -835,6 +847,7 @@ function App() {
 
     setSyncSettings(setupSettings)
     writeSyncSettings(setupSettings)
+    dropboxCallbackHandledRef.current = false
     await startDropboxOAuth(appKey, false)
   }
 
@@ -1057,6 +1070,27 @@ function App() {
       cleanDropboxCallbackUrl()
     }
 
+    const handleDropboxCallbackUrl = (callbackUrl?: string) => {
+      if (dropboxCallbackHandledRef.current) return
+      dropboxCallbackHandledRef.current = true
+      void completeDropboxOAuth(callbackUrl)
+        .then((result) => {
+          if (!result) return
+          return applyDropboxToken(result.accessToken, result)
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : 'authorization failed.'
+          dropboxCallbackHandledRef.current = false
+          setSyncSettings((previous) => ({
+            ...previous,
+            lastSyncStatus: 'error',
+            lastSyncMessage: `Dropbox authorization failed: ${message}`,
+          }))
+          showToast(`Dropbox connection error: ${message}`)
+        })
+        .finally(cleanDropboxCallbackUrl)
+    }
+
     const handleMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return
       if (event.data?.type !== 'ANCHOR_DROPBOX_AUTH' || typeof event.data.token !== 'string') return
@@ -1069,15 +1103,41 @@ function App() {
 
     window.addEventListener('message', handleMessage)
 
-    if (window.location.pathname.replace(/\/$/, '') === '/dropbox/callback' && !dropboxCallbackHandledRef.current) {
-      dropboxCallbackHandledRef.current = true
-      void completeDropboxOAuth()
-        .then((result) => {
-          if (!result) return
-          return applyDropboxToken(result.accessToken, result)
-        })
-        .catch((err) => showToast(`Dropbox connection error: ${err instanceof Error ? err.message : 'authorization failed.'}`))
-        .finally(cleanDropboxCallbackUrl)
+    let deepLinkUnlisten: (() => void) | undefined
+    let deepLinkSetupCancelled = false
+    const setupDropboxDeepLink = async () => {
+      if (!isNativeApp()) return
+
+      try {
+        const { getCurrent, onOpenUrl } = await import('@tauri-apps/plugin-deep-link')
+        const handleUrls = (urls: string[]) => {
+          const callbackUrl = urls.find((url) => isDropboxNativeCallbackUrl(url))
+          if (callbackUrl) handleDropboxCallbackUrl(callbackUrl)
+        }
+
+        deepLinkUnlisten = await onOpenUrl(handleUrls)
+        if (deepLinkSetupCancelled) {
+          deepLinkUnlisten()
+          return
+        }
+
+        const currentUrls = await getCurrent()
+        handleUrls(currentUrls ?? [])
+      } catch {
+        // Deep-link support is only needed by native OAuth. Web OAuth and the
+        // normal callback URL continue to work if the optional bridge is absent.
+      }
+    }
+    void setupDropboxDeepLink()
+
+    const callbackPath = window.location.pathname.replace(/\/$/, '')
+    const callbackState = new URLSearchParams(window.location.search).get('state')
+    if (callbackPath === '/dropbox/callback' && isNativeDropboxOAuthState(callbackState)) {
+      // The HTTPS callback is registered with Dropbox. Bounce native sessions
+      // back to the installed app so its local PKCE verifier remains private.
+      window.location.replace(getDropboxNativeCallbackUrl(window.location.href))
+    } else if (callbackPath === '/dropbox/callback') {
+      handleDropboxCallbackUrl()
     } else {
       // Accept a legacy implicit-flow token during the transition to PKCE.
       const token = extractDropboxOAuthToken()
@@ -1089,7 +1149,11 @@ function App() {
       }
     }
 
-    return () => window.removeEventListener('message', handleMessage)
+    return () => {
+      deepLinkSetupCancelled = true
+      deepLinkUnlisten?.()
+      window.removeEventListener('message', handleMessage)
+    }
   }, [])
 
   const anchorPhilosophyThought = (thought: PhilosophyThought) => {
@@ -4647,6 +4711,7 @@ function SettingsView({
     syncSettings.dropboxAccessToken?.trim() ||
     syncSettings.dropboxRefreshToken?.trim(),
   )
+  const dropboxOAuthInProgress = testingDropbox && syncSettings.lastSyncStatus === 'syncing'
 
   const saveProfile = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -5309,14 +5374,16 @@ function SettingsView({
                         <button
                           className="primary-button dropbox-authorize-btn"
                           type="button"
-                          disabled={testingDropbox || revokingDropbox}
+                          disabled={dropboxOAuthInProgress || revokingDropbox}
                           onClick={() => {
                             const appKey = syncDraft.dropboxAppKey?.trim() || DEFAULT_DROPBOX_APP_KEY
                             onSaveSyncSettings(normalizeSyncSettings({
                               ...syncDraft,
-                              enabled: true,
+                              enabled: false,
                               provider: 'dropbox',
                               dropboxAppKey: appKey,
+                              lastSyncStatus: 'syncing',
+                              lastSyncMessage: 'Dropbox authorization started. Finish sign-in in the Dropbox window…',
                             }))
                             setTestingDropbox(true)
                             setTestResult(undefined)
@@ -5331,7 +5398,7 @@ function SettingsView({
                           }}
                         >
                           <Cloud size={16} />
-                          {testingDropbox ? 'Opening Dropbox…' : 'Connect Dropbox'}
+                          {dropboxOAuthInProgress ? 'Opening Dropbox…' : 'Connect Dropbox'}
                         </button>
                       )}
                     </div>

@@ -58,7 +58,7 @@ The released web app is preconfigured with Anchor's public Dropbox App Key. User
 
 Desktop releases use Tauri's signed updater and can install updates from inside Anchor. Android does not support Tauri's in-app updater; Android users can download the signed APK from the GitHub release page. The workflow also produces a signed AAB that is ready for Play Store submission when distribution is configured.
 
-The Dropbox app owner must configure an **App folder** app with `account_info.read`, `files.metadata.read`, `files.content.read`, and `files.content.write`, and register the exact callback `https://anchor-chi-eight.vercel.app/dropbox/callback`. Anchor creates a folder named after the vault automatically, then stores the workspace JSON at `/Anchor/anchor-vault.json` inside the Dropbox app folder. Decisions, anchors, notes, profile data, safe AI preferences, and notification choices are included; AI provider keys are not.
+The Dropbox app owner must configure an **App folder** app with `account_info.read`, `files.metadata.read`, `files.content.read`, and `files.content.write`, and register the exact callback `https://anchor-chi-eight.vercel.app/dropbox/callback`. On native releases, Anchor opens Dropbox in the system browser and hands the result back through its `anchor://` app link; the custom URI does not need to be added to Dropbox. Anchor creates a folder named after the vault automatically, then stores the workspace JSON at `/Anchor/anchor-vault.json` inside the Dropbox app folder. Decisions, anchors, notes, profile data, safe AI preferences, and notification choices are included; AI provider keys are not.
 
 ## Notifications
 
