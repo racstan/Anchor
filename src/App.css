@@ -227,6 +227,7 @@ html[data-theme='dark'] {
 /* ---------- Base Layout ---------- */
 .anchor-app {
   position: relative;
+  overscroll-behavior-x: none;
 }
 
 /* Tauri Android may draw the WebView beneath the system status/navigation bars. */
@@ -253,6 +254,8 @@ html[data-theme='dark'] {
   border-right: 1px solid var(--sidebar-border);
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
 }
@@ -711,6 +714,7 @@ html[data-theme='dark'] {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  overflow-x: hidden;
   background: var(--canvas);
 }
 
@@ -3648,6 +3652,7 @@ fieldset.form-field {
 
 .decision-brief,
 .decision-chat,
+.decision-history-sidebar,
 .settings-card {
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
@@ -3657,6 +3662,113 @@ fieldset.form-field {
 
 .decision-brief {
   padding: 22px 20px 20px;
+}
+
+.decision-history-sidebar {
+  display: flex;
+  min-height: 640px;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 20px 14px 14px;
+}
+
+.decision-history-sidebar-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 6px;
+}
+
+.decision-history-sidebar-header .eyebrow {
+  margin-bottom: 4px;
+}
+
+.decision-history-sidebar-header h2 {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.decision-history-count {
+  min-width: 25px;
+  height: 25px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+  border: 1px solid var(--primary-border);
+  border-radius: 8px;
+  background: var(--primary-light);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.decision-new-room {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 18px 0 12px;
+  padding: 0 12px;
+  color: var(--primary);
+  border: 1px solid var(--primary-border);
+  border-radius: 10px;
+  background: var(--primary-light);
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 150ms ease;
+}
+
+.decision-new-room:hover {
+  color: var(--primary-hover);
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.decision-history-sidebar-list {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  align-content: start;
+  gap: 6px;
+  overflow-y: auto;
+  padding: 2px 1px 2px 0;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.decision-history-empty {
+  display: flex;
+  flex: 1;
+  min-height: 160px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 20px 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.decision-history-empty svg {
+  margin-bottom: 5px;
+  color: var(--primary);
+}
+
+.decision-history-empty strong {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.decision-history-empty span {
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .decision-panel-heading {
@@ -4067,25 +4179,6 @@ fieldset.form-field {
   font-size: 14px;
 }
 
-.decision-history {
-  margin-top: 22px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-}
-
-.decision-history-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
 .decision-history-item-wrap {
   display: flex;
   align-items: center;
@@ -4292,6 +4385,8 @@ fieldset.form-field {
   flex: 1;
   min-height: 420px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 22px 20px 18px;
   background: var(--surface-2);
 }
@@ -4663,13 +4758,14 @@ fieldset.form-field {
 }
 
 .decision-view .decision-layout {
-  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+  grid-template-columns: minmax(210px, 240px) minmax(320px, 380px) minmax(0, 1fr);
   gap: 18px;
   align-items: stretch;
 }
 
 .decision-view .decision-brief,
-.decision-view .decision-chat {
+.decision-view .decision-chat,
+.decision-view .decision-history-sidebar {
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-sm);
 }
@@ -4679,6 +4775,12 @@ fieldset.form-field {
   min-height: 680px;
   flex-direction: column;
   padding: 24px 22px 20px;
+  background: var(--surface);
+}
+
+.decision-view .decision-history-sidebar {
+  min-height: 680px;
+  height: 100%;
   background: var(--surface);
 }
 
@@ -4706,9 +4808,8 @@ fieldset.form-field {
   font-size: 14px;
 }
 
-.decision-view .decision-history {
-  margin-top: auto;
-  padding-top: 18px;
+.decision-view .decision-history-sidebar-list {
+  margin-top: 0;
 }
 
 .decision-view .decision-chat {
@@ -4987,9 +5088,9 @@ fieldset.form-field {
   display: none;
 }
 
-@media (min-width: 901px) {
+@media (min-width: 1201px) {
   .decision-view .decision-layout.brief-collapsed {
-    grid-template-columns: 72px minmax(0, 1fr);
+    grid-template-columns: minmax(210px, 240px) 72px minmax(0, 1fr);
   }
 
   .decision-view .decision-layout.brief-collapsed .decision-brief {
@@ -5040,8 +5141,7 @@ fieldset.form-field {
   .decision-view .decision-layout.brief-collapsed .imported-context,
   .decision-view .decision-layout.brief-collapsed .decision-connection-note,
   .decision-view .decision-layout.brief-collapsed .decision-error,
-  .decision-view .decision-layout.brief-collapsed .decision-submit,
-  .decision-view .decision-layout.brief-collapsed .decision-history {
+  .decision-view .decision-layout.brief-collapsed .decision-submit {
     display: none;
   }
 }
@@ -5298,7 +5398,7 @@ fieldset.form-field {
 
 /* Keep the decision workspace inside the viewport. The conversation is the only
    surface that should grow and scroll on desktop. */
-@media (min-width: 1061px) {
+@media (min-width: 1201px) {
   .decision-app-main {
     height: 100vh;
     min-height: 0;
@@ -5337,7 +5437,8 @@ fieldset.form-field {
   }
 
   .decision-page-content .decision-brief,
-  .decision-page-content .decision-chat {
+  .decision-page-content .decision-chat,
+  .decision-page-content .decision-history-sidebar {
     height: 100%;
     min-height: 0;
   }
@@ -5345,6 +5446,10 @@ fieldset.form-field {
   .decision-page-content .decision-brief {
     padding: 18px 18px 16px;
     overflow: hidden;
+  }
+
+  .decision-page-content .decision-history-sidebar {
+    padding: 16px 12px 12px;
   }
 
   .decision-page-content .decision-panel-copy {
@@ -5385,7 +5490,7 @@ fieldset.form-field {
   }
 }
 
-@media (min-width: 1061px) and (max-height: 820px) {
+@media (min-width: 1201px) and (max-height: 820px) {
   .decision-page-content {
     padding-top: 16px;
     padding-bottom: 14px;
@@ -5443,10 +5548,6 @@ fieldset.form-field {
   .decision-page-content .decision-submit {
     min-height: 40px;
     margin-top: 10px;
-  }
-
-  .decision-page-content .decision-history {
-    display: none;
   }
 }
 
@@ -7355,9 +7456,60 @@ fieldset.form-field {
     grid-template-columns: 1fr;
   }
 
+  .decision-view .decision-layout.brief-collapsed {
+    grid-template-columns: 1fr;
+  }
+
   .decision-view .decision-chat {
     order: -1;
     min-height: 560px;
+  }
+
+  .decision-view .decision-history-sidebar {
+    order: 1;
+    min-height: 260px;
+    max-height: 360px;
+  }
+
+  .decision-view .decision-brief {
+    order: 2;
+  }
+}
+
+@media (pointer: coarse) and (min-width: 701px) {
+  .icon-button,
+  .item-action-button,
+  .pin-button,
+  .project-card-edit,
+  .round-link {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .decision-history-item {
+    min-height: 48px;
+  }
+}
+
+@media (max-width: 1200px) and (min-width: 1061px) {
+  .decision-view .decision-layout,
+  .decision-view .decision-layout.brief-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .decision-view .decision-chat {
+    order: -1;
+    min-height: 560px;
+  }
+
+  .decision-view .decision-history-sidebar {
+    order: 1;
+    min-height: 260px;
+    max-height: 360px;
+  }
+
+  .decision-view .decision-brief {
+    order: 2;
   }
 }
 
@@ -7401,9 +7553,15 @@ fieldset.form-field {
 }
 
 @media (max-width: 700px) {
+  body {
+    overscroll-behavior-y: none;
+  }
+
   .anchor-app {
     display: block;
+    min-height: 100dvh;
     padding-bottom: 68px;
+    touch-action: pan-y;
   }
 
   .native-android.anchor-app {
@@ -7432,6 +7590,7 @@ fieldset.form-field {
     top: var(--android-safe-top);
     height: calc(100vh - var(--android-safe-top));
     height: calc(100dvh - var(--android-safe-top));
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
   }
 
   .sidebar-backdrop {
@@ -7453,8 +7612,8 @@ fieldset.form-field {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
     margin-left: auto;
     color: var(--sidebar-muted);
     border: 1px solid var(--sidebar-border);
@@ -7469,6 +7628,12 @@ fieldset.form-field {
   .app-main {
     width: 100%;
     min-height: auto;
+    touch-action: pan-y;
+    overscroll-behavior-x: none;
+  }
+
+  .sidebar {
+    touch-action: pan-y;
   }
 
   .topbar {
@@ -7483,8 +7648,14 @@ fieldset.form-field {
 
   .mobile-menu-button {
     display: inline-flex;
-    width: 38px;
-    height: 38px;
+    width: 42px;
+    height: 42px;
+  }
+
+  .topbar .icon-button,
+  .top-avatar {
+    width: 42px;
+    height: 42px;
   }
 
   .mobile-brand {
@@ -7557,8 +7728,8 @@ fieldset.form-field {
   }
 
   .top-avatar {
-    width: 34px;
-    height: 34px;
+    width: 42px;
+    height: 42px;
   }
 
   .theme-dark .top-search-wrap .top-search:focus-within,
@@ -7588,6 +7759,18 @@ fieldset.form-field {
   .page-content {
     width: 100%;
     padding: 20px 14px 24px;
+    overscroll-behavior-x: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .modal-backdrop {
+    align-items: flex-start;
+    padding: 12px;
+  }
+
+  .modal-card {
+    max-height: calc(100dvh - 24px);
+    -webkit-overflow-scrolling: touch;
   }
 
   .page-heading {
@@ -7668,6 +7851,55 @@ fieldset.form-field {
   .anchor-grid,
   .projects-grid {
     grid-template-columns: 1fr;
+  }
+
+  .primary-button,
+  .secondary-button {
+    min-height: 44px;
+  }
+
+  .item-action-button,
+  .anchor-item .pin-button,
+  .project-card-edit,
+  .round-link,
+  .greeting-shuffle-btn {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+  }
+
+  .anchor-detail-actions .pin-button {
+    width: 42px;
+    height: 42px;
+  }
+
+  .anchor-title-expand {
+    min-height: 36px;
+  }
+
+  .scope-toggle button {
+    height: 42px;
+  }
+
+  .field-clear-button {
+    min-height: 36px;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .decision-note-picker select {
+    height: 30px;
+  }
+
+  .search-result,
+  .search-quick-item,
+  .notification-item {
+    min-height: 48px;
+  }
+
+  .color-option {
+    width: 34px;
+    height: 34px;
   }
 
   .anchor-detail-card {
@@ -7773,11 +8005,12 @@ fieldset.form-field {
     bottom: 0;
     left: 0;
     z-index: 20;
-    height: 66px;
+    height: calc(66px + env(safe-area-inset-bottom));
     display: flex;
     align-items: center;
     justify-content: space-around;
     padding: 0 6px env(safe-area-inset-bottom);
+    overscroll-behavior: contain;
     border-top: 1px solid var(--line);
     background: rgba(255, 255, 255, 0.92);
     backdrop-filter: blur(16px) saturate(1.2);
@@ -7845,8 +8078,13 @@ fieldset.form-field {
   }
 
   .decision-view .decision-brief,
-  .decision-view .decision-chat {
+  .decision-view .decision-chat,
+  .decision-view .decision-history-sidebar {
     min-height: auto;
+  }
+
+  .decision-view .decision-history-sidebar {
+    max-height: 320px;
   }
 
   .decision-view .chat-messages {
@@ -7873,6 +8111,26 @@ fieldset.form-field {
 
   .decision-layout {
     gap: 14px;
+  }
+
+  .decision-history-sidebar {
+    padding: 16px 12px 12px;
+  }
+
+  .decision-new-room {
+    min-height: 44px;
+  }
+
+  .decision-history-item {
+    min-height: 50px;
+    padding: 8px 6px;
+  }
+
+  .decision-delete-btn {
+    width: 40px;
+    height: 40px;
+    margin-right: 2px;
+    opacity: 1;
   }
 
   .decision-brief,

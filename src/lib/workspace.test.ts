@@ -35,6 +35,7 @@ describe('workspace backups', () => {
         model: 'gpt-4.1-mini',
         baseUrl: 'https://api.openai.com/v1',
         accountId: 'account-123',
+        apiKey: 'do-not-export',
       },
       notifications: {
         enabled: true,
@@ -55,6 +56,23 @@ describe('workspace backups', () => {
     expect(raw).not.toContain('apiKey')
   })
 
+  it('includes the AI key in an explicitly requested cloud-sync snapshot', () => {
+    const raw = serializeWorkspaceExport(initialState, { name: 'Maya' }, {
+      updatedAt: '2026-01-02T00:00:00.000Z',
+      ai: {
+        providerId: 'openai',
+        model: 'gpt-4.1-mini',
+        baseUrl: 'https://api.openai.com/v1',
+        accountId: '',
+        apiKey: 'sync-me-carefully',
+      },
+    }, { includeAIKey: true })
+    const parsed = parseWorkspaceExport(raw)
+
+    expect(parsed.preferences.ai?.apiKey).toBe('sync-me-carefully')
+    expect(raw).toContain('sync-me-carefully')
+  })
+
   it('prefers newer preference snapshots while preserving local settings', () => {
     const current = {
       updatedAt: '2026-01-03T00:00:00.000Z',
@@ -68,6 +86,30 @@ describe('workspace backups', () => {
     }
 
     expect(mergeWorkspacePreferences(current, older)).toEqual(current)
+  })
+
+  it('does not lose a local AI key when an incoming snapshot predates key sync', () => {
+    const current = {
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      ai: {
+        providerId: 'openai',
+        model: 'gpt-4.1-mini',
+        baseUrl: 'https://api.openai.com/v1',
+        accountId: '',
+        apiKey: 'keep-local-key',
+      },
+    }
+    const incoming = {
+      updatedAt: '2026-01-02T00:00:00.000Z',
+      ai: {
+        providerId: 'openai',
+        model: 'gpt-4.1-mini',
+        baseUrl: 'https://api.openai.com/v1',
+        accountId: '',
+      },
+    }
+
+    expect(mergeWorkspacePreferences(current, incoming).ai?.apiKey).toBe('keep-local-key')
   })
 
   it('syncs the newer profile without replacing a newer local name', () => {

@@ -126,7 +126,7 @@ import {
   testDropboxConnection,
   writeSyncSettings,
 } from './lib/sync'
-import type { SyncProviderType, SyncSettings } from './lib/sync'
+import type { SyncPhase, SyncProviderType, SyncSettings } from './lib/sync'
 import {
   getNextReminderDate,
   normalizeNotificationSettings,
@@ -268,6 +268,12 @@ function readStoredTimestamp(key: string): string | undefined {
   }
 }
 
+function describeSyncPhase(phase: SyncPhase): string {
+  if (phase === 'pulling') return 'Pulling the latest vault changes…'
+  if (phase === 'merging') return 'Merging local and remote changes…'
+  return 'Pushing the merged vault…'
+}
+
 function buildWorkspacePreferences(
   settings: AISettings,
   theme: Theme,
@@ -285,6 +291,7 @@ function buildWorkspacePreferences(
       model: settings.model,
       baseUrl: settings.baseUrl,
       accountId: settings.accountId,
+      apiKey: settings.apiKey,
     },
   }
 }
@@ -720,6 +727,7 @@ function App() {
   const notificationSettingsRef = useRef(notificationSettings)
   const workspacePreferencesUpdatedAtRef = useRef(workspacePreferencesUpdatedAt)
   const syncSettingsRef = useRef(syncSettings)
+  const syncInFlightRef = useRef(false)
   const dropboxCallbackHandledRef = useRef(false)
 
   useEffect(() => {
@@ -808,7 +816,7 @@ function App() {
       setAISettings((currentSettings) => ({
         ...currentSettings,
         providerId,
-        apiKey: providerId === currentSettings.providerId ? currentSettings.apiKey : '',
+        apiKey: preferences.ai?.apiKey ?? (providerId === currentSettings.providerId ? currentSettings.apiKey : ''),
         model: preferences.ai?.model ?? currentSettings.model,
         baseUrl: preferences.ai?.baseUrl ?? currentSettings.baseUrl,
         accountId: preferences.ai?.accountId ?? currentSettings.accountId,
@@ -854,6 +862,13 @@ function App() {
   }
 
   const triggerSync = useCallback(async (isManual = false) => {
+    if (syncInFlightRef.current) {
+      if (isManual) {
+        showToast('A sync is already in progress. The latest changes will be pushed when it finishes.')
+      }
+      return
+    }
+
     const currentSync = syncSettingsRef.current
     if (!currentSync.enabled || currentSync.provider === 'none') {
       if (isManual) {
@@ -862,19 +877,77 @@ function App() {
       return
     }
 
+    syncInFlightRef.current = true
     setSyncBusy(true)
-    setSyncSettings((prev) => ({ ...prev, lastSyncStatus: 'syncing' }))
+    setSyncSettings((prev) => ({
+      ...prev,
+      lastSyncStatus: 'syncing',
+      lastSyncMessage: 'Pulling the latest vault changes…',
+    }))
 
     try {
-      const localPreferences = buildWorkspacePreferences(
+      const runSyncPipeline = (
+        syncState: AnchorState,
+        syncProfile: UserProfile,
+        syncPreferences: WorkspacePreferences,
+      ) => executeWorkspaceSync(
+        syncState,
+        syncProfile,
+        currentSync,
+        syncPreferences,
+        {
+          onPhase: (phase) => {
+            setSyncSettings((prev) => ({
+              ...prev,
+              lastSyncStatus: 'syncing',
+              lastSyncMessage: describeSyncPhase(phase),
+            }))
+          },
+        },
+      )
+
+      let syncState = stateRef.current
+      let syncProfile = profileRef.current
+      let syncPreferences = buildWorkspacePreferences(
         aiSettingsRef.current,
         themeRef.current,
         sidebarCollapsedRef.current,
         notificationSettingsRef.current,
         workspacePreferencesUpdatedAtRef.current,
       )
-      const result = await executeWorkspaceSync(stateRef.current, profileRef.current, currentSync, localPreferences)
-      if (result.success && result.mergedState) {
+      let result = await runSyncPipeline(syncState, syncProfile, syncPreferences)
+
+      // If the person edits the workspace while the network is busy, pull once
+      // more and include those edits instead of replacing them with the first
+      // snapshot. Two passes also keep a fast local edit from being stranded.
+      for (let pass = 0; pass < 2 && result.success; pass += 1) {
+        const latestState = stateRef.current
+        const latestProfile = profileRef.current
+        const latestPreferencesUpdatedAt = workspacePreferencesUpdatedAtRef.current
+        const localChangesArrived =
+          latestState !== syncState ||
+          latestProfile !== syncProfile ||
+          latestPreferencesUpdatedAt !== syncPreferences.updatedAt
+
+        if (!localChangesArrived) {
+          break
+        }
+
+        syncState = latestState
+        syncProfile = latestProfile
+        syncPreferences = buildWorkspacePreferences(
+          aiSettingsRef.current,
+          themeRef.current,
+          sidebarCollapsedRef.current,
+          notificationSettingsRef.current,
+          latestPreferencesUpdatedAt,
+        )
+        result = await runSyncPipeline(syncState, syncProfile, syncPreferences)
+      }
+
+      // Keep a successfully pulled/merged snapshot locally even if the push
+      // fails. The next sync can then retry the upload without losing context.
+      if (result.mergedState) {
         setState(result.mergedState)
         if (result.mergedProfile && result.mergedProfile.name.trim()) {
           setProfile(result.mergedProfile)
@@ -882,6 +955,9 @@ function App() {
         if (result.mergedPreferences) {
           applyWorkspacePreferences(result.mergedPreferences)
         }
+      }
+
+      if (result.success && result.mergedState) {
         setSyncSettings((prev) => ({
           ...prev,
           ...result.updatedSyncSettings,
@@ -893,6 +969,7 @@ function App() {
       } else {
         setSyncSettings((prev) => ({
           ...prev,
+          ...result.updatedSyncSettings,
           lastSyncStatus: 'error',
           lastSyncMessage: result.message,
         }))
@@ -911,6 +988,7 @@ function App() {
         showToast(`Sync error: ${msg}`)
       }
     } finally {
+      syncInFlightRef.current = false
       setSyncBusy(false)
     }
   }, [])
@@ -997,6 +1075,9 @@ function App() {
         setMobileMenuOpen(false)
       }
 
+      syncInFlightRef.current = true
+      setSyncBusy(true)
+
       try {
         const connectionMessage = await testDropboxConnection(token, vaultName)
         const connectedSettings = normalizeSyncSettings({
@@ -1019,18 +1100,32 @@ function App() {
             notificationSettingsRef.current,
             workspacePreferencesUpdatedAtRef.current,
           ),
+          {
+            onPhase: (phase) => {
+              setSyncSettings((previous) => ({
+                ...previous,
+                lastSyncStatus: 'syncing',
+                lastSyncMessage: describeSyncPhase(phase),
+              }))
+            },
+          },
         )
+
+        // Apply the pull/merge locally before checking the push result. If the
+        // network write fails, the restored workspace is still available and a
+        // later sync can retry the upload.
+        if (result.mergedState) {
+          setState(result.mergedState)
+          if (result.mergedProfile && result.mergedProfile.name.trim()) {
+            setProfile(result.mergedProfile)
+          }
+          if (result.mergedPreferences) {
+            applyWorkspacePreferences(result.mergedPreferences)
+          }
+        }
 
         if (!result.success || !result.mergedState) {
           throw new Error(result.message)
-        }
-
-        setState(result.mergedState)
-        if (result.mergedProfile && result.mergedProfile.name.trim()) {
-          setProfile(result.mergedProfile)
-        }
-        if (result.mergedPreferences) {
-          applyWorkspacePreferences(result.mergedPreferences)
         }
         setSyncSettings((previous) => ({
           ...previous,
@@ -1054,6 +1149,9 @@ function App() {
           lastSyncMessage: connectionMessage,
         }))
         showToast(connectionMessage)
+      } finally {
+        syncInFlightRef.current = false
+        setSyncBusy(false)
       }
 
       if (window.opener) {
@@ -1287,6 +1385,122 @@ function App() {
   }, [])
 
   useEffect(() => {
+    type SwipeGesture = {
+      startX: number
+      startY: number
+      committed: boolean
+    }
+
+    let gesture: SwipeGesture | undefined
+    const isMobileLayout = () => window.matchMedia?.('(max-width: 700px)').matches ?? window.innerWidth <= 700
+    const commitDistance = 24
+    const triggerDistance = 56
+
+    const handleTouchStart = (event: TouchEvent) => {
+      if (!isMobileLayout() || event.touches.length !== 1) {
+        gesture = undefined
+        return
+      }
+
+      // A rightward flick anywhere opens the drawer on touch layouts. Vertical
+      // movement is cancelled below so normal page scrolling remains intact.
+      const touch = event.touches[0]
+      gesture = {
+        startX: touch.clientX,
+        startY: touch.clientY,
+        committed: false,
+      }
+    }
+
+    const handleTouchMove = (event: TouchEvent) => {
+      if (!gesture || event.touches.length !== 1) {
+        return
+      }
+
+      const touch = event.touches[0]
+      const deltaX = touch.clientX - gesture.startX
+      const deltaY = touch.clientY - gesture.startY
+
+      if (!gesture.committed) {
+        if (Math.abs(deltaX) < 12 && Math.abs(deltaY) < 12) {
+          return
+        }
+
+        if (Math.abs(deltaY) > Math.abs(deltaX) * 1.15) {
+          gesture = undefined
+          return
+        }
+
+        const opening = !mobileMenuOpen && deltaX > 0
+        const closing = mobileMenuOpen && deltaX < 0
+        if (!opening && !closing) {
+          gesture = undefined
+          return
+        }
+
+        if (Math.abs(deltaX) < commitDistance) {
+          return
+        }
+
+        gesture.committed = true
+      }
+
+      event.preventDefault()
+    }
+
+    const finishGesture = (event: TouchEvent) => {
+      if (!gesture) {
+        return
+      }
+
+      const touch = event.changedTouches[0]
+      const deltaX = touch ? touch.clientX - gesture.startX : 0
+      if (gesture.committed && Math.abs(deltaX) >= triggerDistance) {
+        if (!mobileMenuOpen && deltaX > 0) {
+          setMobileMenuOpen(true)
+        } else if (mobileMenuOpen && deltaX < 0) {
+          setMobileMenuOpen(false)
+        }
+      }
+
+      gesture = undefined
+    }
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: true })
+    window.addEventListener('touchmove', handleTouchMove, { passive: false })
+    window.addEventListener('touchend', finishGesture, { passive: true })
+    window.addEventListener('touchcancel', finishGesture, { passive: true })
+
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart)
+      window.removeEventListener('touchmove', handleTouchMove)
+      window.removeEventListener('touchend', finishGesture)
+      window.removeEventListener('touchcancel', finishGesture)
+    }
+  }, [mobileMenuOpen])
+
+  useEffect(() => {
+    if (!mobileMenuOpen || window.innerWidth > 700) {
+      return
+    }
+
+    const previousOverflow = document.body.style.overflow
+    const handleResize = () => {
+      if (window.innerWidth > 700) {
+        setMobileMenuOpen(false)
+      }
+    }
+
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      document.body.style.overflow = previousOverflow
+    }
+  }, [mobileMenuOpen])
+
+  useEffect(() => {
     if (!searchPaletteOpen && !notificationsOpen) {
       return
     }
@@ -1378,7 +1592,12 @@ function App() {
     return () => window.clearInterval(rotationTimer)
   }, [pinnedAnchors])
 
+  const scrollToTop = () => {
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }))
+  }
+
   const navigate = (view: View, projectId?: string) => {
+    scrollToTop()
     setActiveAnchorId(undefined)
     setActiveView(view)
     setActiveProjectId(projectId)
@@ -1390,6 +1609,7 @@ function App() {
   }
 
   const changeListFilter = (filter: AnchorFilter) => {
+    scrollToTop()
     setActiveAnchorId(undefined)
     setListFilter(filter)
     setActiveView(filter === 'global' ? 'global' : 'all')
@@ -1466,7 +1686,7 @@ function App() {
 
   const saveAISettings = () => {
     writeAISettings(aiSettings)
-    showToast('Your AI connection is saved. Provider settings sync when cloud sync is enabled; the key stays on this device.')
+    showToast('Your AI connection is saved. It syncs to your other devices when cloud sync is enabled.')
     void refreshModels(aiSettings)
   }
 
@@ -1656,6 +1876,7 @@ function App() {
   }
 
   const openAnchorDetail = (anchor: Anchor) => {
+    scrollToTop()
     setActiveAnchorId(anchor.id)
     setIsComposerOpen(false)
     setEditingAnchor(undefined)
@@ -2040,7 +2261,7 @@ function App() {
 
   return (
     <div className={`anchor-app ${theme === 'dark' ? 'theme-dark' : ''} ${isAndroidNative ? 'native-android' : ''}`}>
-      <aside className={`sidebar ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'sidebar-open' : ''}`}>
+      <aside id="app-sidebar" className={`sidebar ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'sidebar-open' : ''}`}>
         <div className="brand-row">
           <button
             className="brand-mark-btn"
@@ -2198,6 +2419,8 @@ function App() {
             className="icon-button mobile-menu-button"
             type="button"
             aria-label="Open menu"
+            aria-expanded={mobileMenuOpen}
+            aria-controls="app-sidebar"
             onClick={() => setMobileMenuOpen(true)}
           >
             <Menu size={20} />
@@ -2316,7 +2539,7 @@ function App() {
                 disabled={syncBusy}
                 title={
                   syncBusy
-                    ? `Syncing with ${syncSettings.provider}…`
+                    ? syncSettings.lastSyncMessage || `Syncing with ${syncSettings.provider}…`
                     : syncSettings.lastSyncedAt
                       ? `Synced with ${syncSettings.provider} (${formatUpdatedAt(syncSettings.lastSyncedAt, relativeTimeNow)}). Click to sync now.`
                       : `Click to sync with ${syncSettings.provider}`
@@ -4299,6 +4522,64 @@ function DecisionView({
       </div>
 
       <div className={`decision-layout ${briefCollapsed ? 'brief-collapsed' : ''}`}>
+        <aside className="decision-history-sidebar" aria-label="Decision room history">
+          <div className="decision-history-sidebar-header">
+            <div>
+              <p className="eyebrow">Saved thinking</p>
+              <h2>Chat history</h2>
+            </div>
+            <span className="decision-history-count">{decisions.length}</span>
+          </div>
+          <button className="decision-new-room" type="button" onClick={startNewDecision}>
+            <Plus size={15} />
+            New decision room
+          </button>
+          {decisions.length > 0 ? (
+            <div className="decision-history-sidebar-list">
+              {decisions.map((decision) => (
+                <div
+                  className={`decision-history-item-wrap ${activeDecisionId === decision.id ? 'active' : ''}`}
+                  key={decision.id}
+                >
+                  <button
+                    className="decision-history-item"
+                    type="button"
+                    onClick={() => loadDecision(decision)}
+                  >
+                    <span className="history-orb"><MessageCircle size={13} /></span>
+                    <span className="decision-history-copy">
+                      <strong><span className="record-number">{formatEntitySerial('D', decision.serialNumber)}</span>{decisionPreview(decision)}</strong>
+                      <small title={`Created ${formatTimestamp(decision.createdAt)} · Updated ${formatTimestamp(decision.updatedAt)}`}>
+                        {formatUpdatedAt(decision.updatedAt)}
+                      </small>
+                    </span>
+                  </button>
+                  <button
+                    className="decision-delete-btn"
+                    type="button"
+                    aria-label="Remove decision room"
+                    title="Remove decision room"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      if (activeDecisionId === decision.id) {
+                        startNewDecision()
+                      }
+                      onDeleteDecision(decision.id)
+                    }}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="decision-history-empty">
+              <MessageCircle size={20} />
+              <strong>No rooms yet</strong>
+              <span>Your saved conversations will stay here.</span>
+            </div>
+          )}
+        </aside>
         <section className="decision-brief">
           <div className="decision-panel-heading">
             <span className="step-badge" aria-hidden="true"><WandSparkles size={17} /></span>
@@ -4465,50 +4746,6 @@ function DecisionView({
             {isThinking ? <RefreshCw className="spin" size={16} /> : <WandSparkles size={16} />}
             {isThinking ? 'Thinking with you…' : 'Think this through'}
           </button>
-
-          {decisions.length > 0 && (
-            <div className="decision-history">
-              <div className="decision-history-heading">
-                <span>Previous rooms</span>
-                <small>{decisions.length}</small>
-              </div>
-              {decisions.slice(0, 4).map((decision) => (
-                <div
-                  className={`decision-history-item-wrap ${activeDecisionId === decision.id ? 'active' : ''}`}
-                  key={decision.id}
-                >
-                  <button
-                    className="decision-history-item"
-                    type="button"
-                    onClick={() => loadDecision(decision)}
-                  >
-                    <span className="history-orb"><MessageCircle size={13} /></span>
-                    <span className="decision-history-copy">
-                      <strong><span className="record-number">{formatEntitySerial('D', decision.serialNumber)}</span>{decisionPreview(decision)}</strong>
-                      <small title={`Created ${formatTimestamp(decision.createdAt)} · Updated ${formatTimestamp(decision.updatedAt)}`}>
-                        {formatUpdatedAt(decision.updatedAt)}
-                      </small>
-                    </span>
-                  </button>
-                  <button
-                    className="decision-delete-btn"
-                    type="button"
-                    aria-label="Remove decision room"
-                    title="Remove decision room"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (activeDecisionId === decision.id) {
-                        startNewDecision()
-                      }
-                      onDeleteDecision(decision.id)
-                    }}
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
         </section>
 
         <section className="decision-chat">
@@ -5172,7 +5409,7 @@ function SettingsView({
             <div>
               <p className="eyebrow">04 — Decision companion</p>
               <h2>AI connection</h2>
-              <span>Provider, model, endpoint, and account settings sync when cloud sync is enabled. Your API key stays on this device.</span>
+              <span>Provider, model, endpoint, account, and API key sync when cloud sync is enabled. Only enable this with a sync vault you trust.</span>
             </div>
           </div>
 
@@ -5515,7 +5752,7 @@ function SettingsView({
               <small className="field-help">
                 {dropboxConnected
                   ? 'Locked while Dropbox is connected. Revoke Dropbox access before changing the storage provider.'
-                  : 'Your workspace, profile, appearance, and safe AI preferences sync to the same remote vault. Secrets stay on each device.'}
+                  : 'Anchor pulls the latest vault first, merges changes locally, then pushes the merged workspace. This includes the AI connection and API key so Decision space works on every device.'}
               </small>
             </div>
 

@@ -47,7 +47,7 @@ This guide is for AI coding agents (and humans) working in this repo. Keep it ti
 ### API Relay
 - **Route:** `/api/anchor-ai` → `api/anchor-ai.ts` (Vercel Serverless Function)
 - **Dev/Preview parity:** `vite-ai-proxy.ts` mounts same handler via Vite plugin `anchorAIProxy()` for `vite dev` + `vite preview`
-- **What it does:** Forwards POST `{ url, method, headers, body }` to HTTPS provider (OpenAI-compatible / Gemini / Cloudflare Workers AI). No persistence, no key storage — keys stay in browser `localStorage`.
+- **What it does:** Forwards POST `{ url, method, headers, body }` to HTTPS provider (OpenAI-compatible / Gemini / Cloudflare Workers AI). The relay has no persistence or key storage; keys normally stay in browser `localStorage`, and cloud sync copies the AI key only into the user-selected sync vault.
 - **CORS:** Relay avoids browser CORS; never expose keys in logs.
 - **Local test:**
   ```bash
@@ -55,7 +55,7 @@ This guide is for AI coding agents (and humans) working in this repo. Keep it ti
   ```
 
 ### Environment
-- **No required env vars for basic deploy.** AI credentials are user-supplied at runtime (Settings → AI connection) and stored client-side.
+- **No required env vars for basic deploy.** AI credentials are user-supplied at runtime (Settings → AI connection) and stored client-side; when cloud sync is enabled, the AI key is also written to the selected sync vault so other devices can use the connection.
 - **Local:** `.env.local` is gitignored. Do not commit secrets. If you need preview secrets, set them in Vercel Dashboard → Settings → Environment Variables (Production/Preview).
 
 ### Verify Deployment
@@ -114,7 +114,7 @@ npm run build    # tsc -b && vite build → dist/
 - `src/App.tsx` — shell + views (sidebar, home, anchors, projects, decide, settings)
 - `src/App.css` — harbor design system, responsive + collapsed sidebar
 - `src/lib/anchors.ts`, `workspace.ts`, `ai.ts`, `notifications.ts`, `security.ts`
-- Workspace records carry stable IDs, readable per-type serials (`A-0001`, `P-0001`, `N-0001`, `D-0001`, `M-0001`), and timestamps; `normalizeAnchorState` migrates older local/backup data. Sync/export also carries profile, appearance, notification schedules, and non-secret AI preferences; API keys, provider credentials, and device PINs remain local.
+- Workspace records carry stable IDs, readable per-type serials (`A-0001`, `P-0001`, `N-0001`, `D-0001`, `M-0001`), and timestamps; `normalizeAnchorState` migrates older local/backup data. Sync carries profile, appearance, notification schedules, and the AI connection including its API key; manual exports omit the AI key, while Dropbox/WebDAV credentials and device PINs remain local. Sync is serialized and always runs pull → merge → push.
 - `api/anchor-ai.ts` — prod relay
 - `vite-ai-proxy.ts` — dev relay logic
 - `src-tauri/` — Tauri 2 shell

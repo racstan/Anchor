@@ -355,6 +355,12 @@ export function extractDropboxOAuthToken(): string | null {
   return new URLSearchParams(window.location.search).get('access_token')
 }
 
+export type SyncPhase = 'pulling' | 'merging' | 'pushing'
+
+export interface SyncOptions {
+  onPhase?: (phase: SyncPhase) => void
+}
+
 export interface SyncResult {
   success: boolean
   message: string
@@ -470,7 +476,27 @@ export async function ensureDropboxFolder(accessToken: string, vaultName = DEFAU
 
 // Dropbox API v2 implementation. The backup always lives inside a folder named
 // after the Anchor vault, matching Remotely Save's App Folder layout.
-async function downloadDropboxFile(accessToken: string, path: string): Promise<string | null> {
+interface DropboxFileSnapshot {
+  content: string
+  revision?: string
+}
+
+interface DropboxVaultSnapshot extends DropboxFileSnapshot {
+  isCurrentPath: boolean
+}
+
+class SyncConflictError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SyncConflictError'
+  }
+}
+
+function isSyncConflictError(error: unknown): error is SyncConflictError {
+  return error instanceof SyncConflictError
+}
+
+async function downloadDropboxFile(accessToken: string, path: string): Promise<DropboxFileSnapshot | null> {
   const response = await fetch('https://content.dropboxapi.com/2/files/download', {
     method: 'POST',
     headers: {
@@ -484,21 +510,47 @@ async function downloadDropboxFile(accessToken: string, path: string): Promise<s
     throw new Error(`Dropbox download error (HTTP ${response.status}): ${await readDropboxError(response)}`)
   }
 
-  return response.text()
+  let revision: string | undefined
+  const metadataHeader = response.headers.get('Dropbox-API-Result')
+  if (metadataHeader) {
+    try {
+      const metadata = JSON.parse(metadataHeader) as { rev?: unknown }
+      revision = typeof metadata.rev === 'string' ? metadata.rev : undefined
+    } catch {
+      // A missing revision only disables optimistic conflict protection. The
+      // content is still usable and the sync can continue normally.
+    }
+  }
+
+  return {
+    content: await response.text(),
+    revision,
+  }
+}
+
+async function downloadDropboxVaultSnapshot(
+  accessToken: string,
+  vaultName: string,
+  _customPath?: string,
+): Promise<DropboxVaultSnapshot | null> {
+  const path = getDropboxBackupPath(vaultName)
+  const currentSnapshot = await downloadDropboxFile(accessToken, path)
+  if (currentSnapshot !== null || path === LEGACY_DROPBOX_BACKUP_PATH) {
+    return currentSnapshot ? { ...currentSnapshot, isCurrentPath: true } : null
+  }
+
+  // Preserve backups created by Anchor 0.1.3 and earlier while moving them into
+  // the new vault-named folder. The next sync writes the migrated copy there.
+  const legacySnapshot = await downloadDropboxFile(accessToken, LEGACY_DROPBOX_BACKUP_PATH)
+  return legacySnapshot ? { ...legacySnapshot, isCurrentPath: false, revision: undefined } : null
 }
 
 export async function downloadDropboxVault(
   accessToken: string,
   vaultName: string,
-  _customPath?: string,
+  customPath?: string,
 ): Promise<string | null> {
-  const path = getDropboxBackupPath(vaultName)
-  const content = await downloadDropboxFile(accessToken, path)
-  if (content !== null || path === LEGACY_DROPBOX_BACKUP_PATH) return content
-
-  // Preserve backups created by Anchor 0.1.3 and earlier while moving them into
-  // the new vault-named folder. The next sync writes the migrated copy there.
-  return downloadDropboxFile(accessToken, LEGACY_DROPBOX_BACKUP_PATH)
+  return (await downloadDropboxVaultSnapshot(accessToken, vaultName, customPath))?.content ?? null
 }
 
 export async function uploadDropboxVault(
@@ -506,6 +558,7 @@ export async function uploadDropboxVault(
   vaultName: string,
   content: string,
   _customPath?: string,
+  expectedRevision?: string | null,
 ): Promise<void> {
   const path = getDropboxBackupPath(vaultName)
 
@@ -515,10 +568,14 @@ export async function uploadDropboxVault(
       Authorization: `Bearer ${accessToken.trim()}`,
       'Dropbox-API-Arg': JSON.stringify({
         path,
-        mode: 'overwrite',
+        mode: expectedRevision === null
+          ? 'add'
+          : expectedRevision
+            ? { '.tag': 'update', update: { rev: expectedRevision } }
+            : 'overwrite',
         autorename: false,
         mute: true,
-        strict_conflict: false,
+        strict_conflict: expectedRevision !== undefined,
       }),
       'Content-Type': 'application/octet-stream',
     },
@@ -526,7 +583,11 @@ export async function uploadDropboxVault(
   })
 
   if (!response.ok) {
-    throw new Error(`Dropbox upload error (HTTP ${response.status}): ${await readDropboxError(response)}`)
+    const errorMessage = await readDropboxError(response)
+    if (response.status === 409) {
+      throw new SyncConflictError('The Dropbox vault changed while syncing. Anchor will pull it again before retrying.')
+    }
+    throw new Error(`Dropbox upload error (HTTP ${response.status}): ${errorMessage}`)
   }
 }
 
@@ -581,7 +642,12 @@ export function normalizeSyncSettings(settings: SyncSettings): SyncSettings {
 }
 
 // WebDAV implementation
-export async function downloadWebDAVVault(settings: SyncSettings): Promise<string | null> {
+interface WebDAVVaultSnapshot {
+  content: string
+  etag?: string
+}
+
+async function downloadWebDAVVaultSnapshot(settings: SyncSettings): Promise<WebDAVVaultSnapshot | null> {
   if (!settings.webdavUrl) throw new Error('WebDAV URL is required.')
 
   const path = normalizeWebDAVPath(settings.vaultName, '')
@@ -602,16 +668,29 @@ export async function downloadWebDAVVault(settings: SyncSettings): Promise<strin
     throw new Error(`WebDAV download failed (HTTP ${response.status})`)
   }
 
-  return response.text()
+  return {
+    content: await response.text(),
+    etag: response.headers.get('ETag') ?? undefined,
+  }
 }
 
-export async function uploadWebDAVVault(settings: SyncSettings, content: string): Promise<void> {
+export async function downloadWebDAVVault(settings: SyncSettings): Promise<string | null> {
+  return (await downloadWebDAVVaultSnapshot(settings))?.content ?? null
+}
+
+export async function uploadWebDAVVault(
+  settings: SyncSettings,
+  content: string,
+  expectedEtag?: string | null,
+): Promise<void> {
   if (!settings.webdavUrl) throw new Error('WebDAV URL is required.')
 
   const path = normalizeWebDAVPath(settings.vaultName, '')
   const fullUrl = settings.webdavUrl.replace(/\/+$/, '') + path
   const headers: HeadersInit = {
     'Content-Type': 'application/json; charset=utf-8',
+    ...(expectedEtag ? { 'If-Match': expectedEtag } : {}),
+    ...(expectedEtag === null ? { 'If-None-Match': '*' } : {}),
   }
 
   if (settings.webdavUsername && settings.webdavPassword) {
@@ -625,6 +704,9 @@ export async function uploadWebDAVVault(settings: SyncSettings, content: string)
   })
 
   if (!response.ok) {
+    if (response.status === 409 || response.status === 412) {
+      throw new SyncConflictError('The WebDAV vault changed while syncing. Anchor will pull it again before retrying.')
+    }
     throw new Error(`WebDAV upload failed (HTTP ${response.status})`)
   }
 }
@@ -685,6 +767,7 @@ export async function executeWorkspaceSync(
   localProfile: UserProfile,
   settings: SyncSettings,
   localPreferences: WorkspacePreferences = {},
+  options: SyncOptions = {},
 ): Promise<SyncResult> {
   const timestamp = new Date().toISOString()
 
@@ -696,11 +779,14 @@ export async function executeWorkspaceSync(
     }
   }
 
+  let mergedState: AnchorState | undefined
+  let mergedProfile: UserProfile | undefined
+  let mergedPreferences: WorkspacePreferences | undefined
+  let updatedSyncSettings: Partial<SyncSettings> | undefined
+
   try {
     const effectiveSettings = normalizeSyncSettings(settings)
-    let remotePayload: string | null = null
     let dropboxAccessToken: string | undefined
-    let updatedSyncSettings: Partial<SyncSettings> | undefined
 
     if (effectiveSettings.provider === 'dropbox') {
       const usableToken = await getUsableDropboxToken(effectiveSettings)
@@ -709,40 +795,79 @@ export async function executeWorkspaceSync(
       // The folder setup is explicit, idempotent, and happens before every
       // transfer so a new device never needs manual Dropbox folder work.
       await ensureDropboxFolder(dropboxAccessToken, effectiveSettings.vaultName)
-      remotePayload = await downloadDropboxVault(
-        dropboxAccessToken,
-        effectiveSettings.vaultName,
-        effectiveSettings.dropboxPath,
-      )
-    } else if (effectiveSettings.provider === 'webdav') {
-      remotePayload = await downloadWebDAVVault(effectiveSettings)
-    }
-
-    let mergedState = localState
-    let mergedProfile = localProfile
-    let mergedPreferences = localPreferences
-
-    if (remotePayload) {
-      const parsedRemote = parseWorkspaceExport(remotePayload)
-      mergedState = mergeSyncState(localState, parsedRemote.state)
-      mergedProfile = mergeWorkspaceProfile(localProfile, parsedRemote.profile)
-      mergedPreferences = mergeWorkspacePreferences(localPreferences, parsedRemote.preferences)
-    }
-
-    const uploadContent = serializeWorkspaceExport(mergedState, mergedProfile, mergedPreferences)
-
-    if (effectiveSettings.provider === 'dropbox' && dropboxAccessToken) {
-      await uploadDropboxVault(
-        dropboxAccessToken,
-        effectiveSettings.vaultName,
-        uploadContent,
-        effectiveSettings.dropboxPath,
-      )
-    } else if (effectiveSettings.provider === 'webdav') {
-      await uploadWebDAVVault(effectiveSettings, uploadContent)
     }
 
     const providerLabel = effectiveSettings.provider === 'dropbox' ? 'Dropbox' : 'WebDAV'
+    let conflictRetry = 0
+
+    while (true) {
+      let remotePayload: string | null = null
+      let expectedDropboxRevision: string | null | undefined
+      let expectedWebDAVTag: string | null | undefined
+
+      // Every pass is deliberately ordered: pull the current remote snapshot,
+      // merge it with the local snapshot, then push the merged result.
+      options.onPhase?.('pulling')
+
+      if (effectiveSettings.provider === 'dropbox' && dropboxAccessToken) {
+        const snapshot = await downloadDropboxVaultSnapshot(
+          dropboxAccessToken,
+          effectiveSettings.vaultName,
+          effectiveSettings.dropboxPath,
+        )
+        remotePayload = snapshot?.content ?? null
+        expectedDropboxRevision = snapshot
+          ? snapshot.isCurrentPath ? snapshot.revision : null
+          : null
+      } else if (effectiveSettings.provider === 'webdav') {
+        const snapshot = await downloadWebDAVVaultSnapshot(effectiveSettings)
+        remotePayload = snapshot?.content ?? null
+        expectedWebDAVTag = snapshot?.etag ?? (snapshot ? undefined : null)
+      }
+
+      options.onPhase?.('merging')
+
+      mergedState = localState
+      mergedProfile = localProfile
+      mergedPreferences = localPreferences
+
+      if (remotePayload !== null) {
+        const parsedRemote = parseWorkspaceExport(remotePayload)
+        mergedState = mergeSyncState(localState, parsedRemote.state)
+        mergedProfile = mergeWorkspaceProfile(localProfile, parsedRemote.profile)
+        mergedPreferences = mergeWorkspacePreferences(localPreferences, parsedRemote.preferences)
+      }
+
+      options.onPhase?.('pushing')
+      const uploadContent = serializeWorkspaceExport(
+        mergedState ?? localState,
+        mergedProfile ?? localProfile,
+        mergedPreferences ?? localPreferences,
+        { includeAIKey: true },
+      )
+
+      try {
+        if (effectiveSettings.provider === 'dropbox' && dropboxAccessToken) {
+          await uploadDropboxVault(
+            dropboxAccessToken,
+            effectiveSettings.vaultName,
+            uploadContent,
+            effectiveSettings.dropboxPath,
+            expectedDropboxRevision,
+          )
+        } else if (effectiveSettings.provider === 'webdav') {
+          await uploadWebDAVVault(effectiveSettings, uploadContent, expectedWebDAVTag)
+        }
+      } catch (error) {
+        if (isSyncConflictError(error) && conflictRetry < 2) {
+          conflictRetry += 1
+          continue
+        }
+        throw error
+      }
+
+      break
+    }
 
     return {
       success: true,
@@ -758,6 +883,10 @@ export async function executeWorkspaceSync(
     return {
       success: false,
       message: errorMsg,
+      ...(mergedState ? { mergedState } : {}),
+      ...(mergedProfile ? { mergedProfile } : {}),
+      ...(mergedPreferences ? { mergedPreferences } : {}),
+      ...(updatedSyncSettings ? { updatedSyncSettings } : {}),
       timestamp,
     }
   }
