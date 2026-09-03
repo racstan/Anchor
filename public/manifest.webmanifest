@@ -2,7 +2,7 @@
   "name": "Anchor — your steady place",
   "short_name": "Anchor",
   "description": "Keep the thoughts and context you want to remember close.",
-  "start_url": "/",
+  "start_url": "/today",
   "display": "standalone",
   "background_color": "#f6f7fb",
   "theme_color": "#0b1426",

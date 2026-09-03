@@ -26,9 +26,10 @@ html {
   background: var(--canvas, #f6f7f9);
 }
 
-html[data-theme='dark'] {
+html[data-theme='dark'],
+html[data-theme='dusk'] {
   color-scheme: dark;
-  scrollbar-color: #334155 transparent;
+  scrollbar-color: #475569 transparent;
 }
 
 body {
@@ -80,8 +81,9 @@ select:focus-visible {
   background: transparent;
 }
 
-[data-theme='dark'] ::-webkit-scrollbar-thumb {
-  background: #334155;
+[data-theme='dark'] ::-webkit-scrollbar-thumb,
+[data-theme='dusk'] ::-webkit-scrollbar-thumb {
+  background: #475569;
 }
 
 #root {

@@ -21,7 +21,7 @@ export interface WorkspaceAISettings {
 // Dropbox/WebDAV credentials and device PIN remain device-only.
 export interface WorkspacePreferences {
   updatedAt?: string
-  theme?: 'light' | 'dark'
+  theme?: 'light' | 'dusk' | 'dark'
   sidebarCollapsed?: boolean
   ai?: WorkspaceAISettings
   notifications?: NotificationSettings
@@ -216,7 +216,7 @@ function readWorkspacePreferencesValue(
   if (value.updatedAt !== undefined && isString(value.updatedAt)) {
     preferences.updatedAt = value.updatedAt
   }
-  if (value.theme === 'light' || value.theme === 'dark') {
+  if (value.theme === 'light' || value.theme === 'dusk' || value.theme === 'dark') {
     preferences.theme = value.theme
   }
   if (typeof value.sidebarCollapsed === 'boolean') {

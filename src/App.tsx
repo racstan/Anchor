@@ -5,10 +5,12 @@ import {
   ArrowLeft,
   ArrowUpRight,
   Bell,
+  BookOpenText,
   Bot,
   Brain,
   Check,
   CheckCheck,
+  ChartNoAxesCombined,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -20,9 +22,11 @@ import {
   Compass,
   Copy,
   ExternalLink,
+  FolderKanban,
   FolderOpen,
-  Heart,
-  Home,
+  GitFork,
+  Globe,
+  HeartHandshake,
   Image as ImageIcon,
   KeyRound,
   Layers3,
@@ -31,11 +35,13 @@ import {
   Menu,
   MessageCircle,
   Moon,
+  MoonStar,
   MoreHorizontal,
   Music2,
   NotebookPen,
   PanelLeftClose,
   PanelLeftOpen,
+  Palette,
   Paperclip,
   PenLine,
   Pin,
@@ -47,15 +53,18 @@ import {
   Send,
   Settings2,
   ShieldCheck,
+  Sparkle,
   Sparkles,
   SlidersHorizontal,
+  SquarePen,
   Sun,
+  Sunrise,
   Trash2,
-  TrendingUp,
   Upload,
   UserRound,
   Video as VideoIcon,
   WandSparkles,
+  Waypoints,
   X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -175,8 +184,113 @@ type AnchorFormData = Pick<Anchor, 'title' | 'body' | 'scope' | 'tag' | 'color' 
 }
 
 type ProjectFormData = Pick<Project, 'name' | 'description' | 'color'>
-type Theme = 'light' | 'dark'
+type Theme = 'light' | 'dusk' | 'dark'
 type ImportMode = 'replace' | 'merge'
+
+interface AppRoute {
+  view: View
+  projectId?: string
+  anchorId?: string
+  filter?: AnchorFilter
+}
+
+function decodeRouteSegment(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function readAppRoute(pathname = typeof window === 'undefined' ? '/' : window.location.pathname): AppRoute {
+  const segments = pathname.split('/').filter(Boolean).map(decodeRouteSegment)
+  const [first, second, third, fourth] = segments
+
+  if (first === 'today' && second === 'anchors' && third) {
+    return { view: 'home', anchorId: third }
+  }
+  if (first === 'wisdom') {
+    return { view: 'dashboard' }
+  }
+  if (first === 'global') {
+    return second === 'anchors' && third
+      ? { view: 'global', anchorId: third }
+      : { view: 'global' }
+  }
+  if (first === 'anchors') {
+    if (second === 'projects' && third) return { view: 'all', filter: 'projects', anchorId: third }
+    if (second === 'projects') return { view: 'all', filter: 'projects' }
+    return { view: 'all', anchorId: second }
+  }
+  if (first === 'projects') {
+    if (second && third === 'anchors' && fourth) {
+      return { view: 'projects', projectId: second, anchorId: fourth }
+    }
+    return { view: 'projects', projectId: second }
+  }
+  if (first === 'notes') {
+    return { view: 'notes' }
+  }
+  if (first === 'decisions' || first === 'decide') {
+    return { view: 'decide' }
+  }
+  if (first === 'settings') {
+    return { view: 'settings' }
+  }
+
+  return { view: 'home' }
+}
+
+function appRoutePath(route: AppRoute): string {
+  const projectId = route.projectId ? encodeURIComponent(route.projectId) : ''
+  const anchorId = route.anchorId ? encodeURIComponent(route.anchorId) : ''
+
+  if (route.anchorId) {
+    if (route.view === 'home') return `/today/anchors/${anchorId}`
+    if (route.view === 'global') return `/global/anchors/${anchorId}`
+    if (route.view === 'projects' && projectId) return `/projects/${projectId}/anchors/${anchorId}`
+    if (route.view === 'all' && route.filter === 'projects') return `/anchors/projects/${anchorId}`
+    return `/anchors/${anchorId}`
+  }
+
+  if (route.view === 'home') return '/today'
+  if (route.view === 'dashboard') return '/wisdom'
+  if (route.view === 'global') return '/global'
+  if (route.view === 'projects') return projectId ? `/projects/${projectId}` : '/projects'
+  if (route.view === 'notes') return '/notes'
+  if (route.view === 'all' && route.filter === 'projects') return '/anchors/projects'
+  if (route.view === 'decide') return '/decisions'
+  if (route.view === 'settings') return '/settings'
+  return '/anchors'
+}
+
+function themeClassNames(theme: Theme): string {
+  if (theme === 'light') return 'theme-light'
+  return theme === 'dusk' ? 'theme-dusk theme-dark' : 'theme-dark'
+}
+
+function nextTheme(theme: Theme): Theme {
+  if (theme === 'light') return 'dusk'
+  if (theme === 'dusk') return 'dark'
+  return 'light'
+}
+
+function themeLabel(theme: Theme): string {
+  if (theme === 'light') return 'Dusk'
+  if (theme === 'dusk') return 'Dark'
+  return 'Light'
+}
+
+function viewLabel(view: View): string {
+  if (view === 'home') return 'Today'
+  if (view === 'dashboard') return 'Wisdom & philosophy'
+  if (view === 'all') return 'All anchors'
+  if (view === 'global') return 'Global context'
+  if (view === 'projects') return 'Projects'
+  if (view === 'notes') return 'Notes'
+  if (view === 'decide') return 'Decision space'
+  return 'Settings'
+}
 
 interface AppNotification {
   id: string
@@ -457,7 +571,7 @@ function readStoredTheme(): Theme {
   try {
     const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
 
-    if (storedTheme === 'light' || storedTheme === 'dark') {
+    if (storedTheme === 'light' || storedTheme === 'dusk' || storedTheme === 'dark') {
       return storedTheme
     }
   } catch {
@@ -472,7 +586,11 @@ function isToday(value: string | undefined): boolean {
 }
 
 function todayKey(): string {
-  return new Date().toISOString().slice(0, 10)
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+
+  return `${now.getFullYear()}-${month}-${day}`
 }
 
 function readSpotlightId(): string | undefined {
@@ -508,13 +626,13 @@ function pickRandomAnchorId(anchors: Anchor[], currentId?: string): string | und
 }
 
 function getInitialSpotlightId(): string | undefined {
+  const pinnedAnchors = readAnchorState().anchors.filter((anchor) => anchor.pinned && !isToday(anchor.lastSeenAt))
   const savedId = readSpotlightId()
 
-  if (savedId) {
+  if (savedId && pinnedAnchors.some((anchor) => anchor.id === savedId)) {
     return savedId
   }
 
-  const pinnedAnchors = readAnchorState().anchors.filter((anchor) => anchor.pinned)
   const randomId = pickRandomAnchorId(pinnedAnchors)
 
   if (randomId) {
@@ -644,7 +762,7 @@ function OnboardingView({ theme, onComplete, onRestoreFromDropbox, restoreStatus
   const isAndroidNative = isNativeApp() && getAppPlatform() === 'android'
 
   return (
-    <div className={`onboarding-shell ${theme === 'dark' ? 'theme-dark' : ''} ${isAndroidNative ? 'native-android' : ''}`}>
+    <div className={`onboarding-shell ${themeClassNames(theme)} ${isAndroidNative ? 'native-android' : ''}`}>
       <main className="onboarding-card">
         <div className="onboarding-brand">
           <span className="brand-mark" aria-hidden="true"><AnchorIcon size={19} strokeWidth={2.5} /></span>
@@ -789,7 +907,7 @@ function PinLockView({ theme, name, onUnlock, onReset }: PinLockViewProps) {
   const isAndroidNative = isNativeApp() && getAppPlatform() === 'android'
 
   return (
-    <div className={`pin-lock-shell onboarding-shell ${theme === 'dark' ? 'theme-dark' : ''} ${isAndroidNative ? 'native-android' : ''}`}>
+    <div className={`pin-lock-shell onboarding-shell ${themeClassNames(theme)} ${isAndroidNative ? 'native-android' : ''}`}>
       <main className="onboarding-card pin-lock-card">
         <div className="onboarding-brand">
           <span className="brand-mark" aria-hidden="true"><AnchorIcon size={19} strokeWidth={2.5} /></span>
@@ -829,6 +947,7 @@ function PinLockView({ theme, name, onUnlock, onReset }: PinLockViewProps) {
 }
 
 function App() {
+  const [initialRoute] = useState<AppRoute>(() => readAppRoute())
   const [state, setState] = useState<AnchorState>(() => readAnchorState())
   const [profile, setProfile] = useState<UserProfile>(() => readUserProfile())
   const [security, setSecurity] = useState<SecuritySettings>(() => readSecuritySettings())
@@ -837,10 +956,10 @@ function App() {
   const [availableModels, setAvailableModels] = useState<AIModel[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
   const [modelsError, setModelsError] = useState<string>()
-  const [activeView, setActiveView] = useState<View>('home')
-  const [activeProjectId, setActiveProjectId] = useState<string>()
-  const [activeAnchorId, setActiveAnchorId] = useState<string>()
-  const [listFilter, setListFilter] = useState<AnchorFilter>('all')
+  const [activeView, setActiveView] = useState<View>(() => initialRoute.view)
+  const [activeProjectId, setActiveProjectId] = useState<string | undefined>(() => initialRoute.projectId)
+  const [activeAnchorId, setActiveAnchorId] = useState<string | undefined>(() => initialRoute.anchorId)
+  const [listFilter, setListFilter] = useState<AnchorFilter>(() => initialRoute.filter ?? (initialRoute.view === 'global' ? 'global' : 'all'))
   const [query, setQuery] = useState('')
   const [spotlightAnchorId, setSpotlightAnchorId] = useState<string | undefined>(() => getInitialSpotlightId())
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
@@ -1219,6 +1338,8 @@ function App() {
       writeSyncSettings(authorizedSettings)
       const restoringBeforeSetup = !profileRef.current.name.trim()
       if (!restoringBeforeSetup) {
+        window.history.replaceState(null, document.title, appRoutePath({ view: 'settings' }))
+        setActiveAnchorId(undefined)
         setActiveView('settings')
         setActiveProjectId(undefined)
         setListFilter('all')
@@ -1483,11 +1604,10 @@ function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    document.documentElement.style.colorScheme = theme
+    document.documentElement.style.colorScheme = theme === 'light' ? 'light' : 'dark'
     document.body.dataset.theme = theme
-    const themeColor = theme === 'dark' ? '#080e1e' : '#f6f7fb'
-    const meta = document.querySelector('meta[name="theme-color"]')
-    if (meta) meta.setAttribute('content', themeColor)
+    const themeColor = theme === 'dark' ? '#090b11' : theme === 'dusk' ? '#15131c' : '#f6f7fb'
+    document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute('content', themeColor))
 
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme)
@@ -1505,37 +1625,6 @@ function App() {
 
     return () => window.clearTimeout(timeout)
   }, [toast])
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault()
-        setActiveView('all')
-        setActiveAnchorId(undefined)
-        setActiveProjectId(undefined)
-        setListFilter('all')
-        setNotificationsOpen(false)
-        setSearchPaletteOpen(true)
-        window.requestAnimationFrame(() => topSearchRef.current?.focus())
-      }
-
-      if (event.key === 'Escape') {
-        setSearchPaletteOpen(false)
-        setNotificationsOpen(false)
-        setMobileMenuOpen(false)
-        setActiveAnchorId(undefined)
-        setIsComposerOpen(false)
-        setIsProjectComposerOpen(false)
-        setEditingAnchor(undefined)
-        setEditingProject(undefined)
-        setIsUpdateModalOpen(false)
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
 
   useEffect(() => {
     type SwipeGesture = {
@@ -1679,8 +1768,13 @@ function App() {
     () => state.anchors.filter((anchor) => anchor.pinned),
     [state.anchors],
   )
-  const spotlight = pinnedAnchors.find((anchor) => anchor.id === spotlightAnchorId) ?? pinnedAnchors[0]
-  const spotlightPosition = Math.max(pinnedAnchors.findIndex((anchor) => anchor.id === spotlight?.id), 0)
+  const currentDayLabel = new Date(relativeTimeNow).toDateString()
+  const pendingPinnedAnchors = useMemo(
+    () => pinnedAnchors.filter((anchor) => !anchor.lastSeenAt || new Date(anchor.lastSeenAt).toDateString() !== currentDayLabel),
+    [currentDayLabel, pinnedAnchors],
+  )
+  const spotlight = pendingPinnedAnchors.find((anchor) => anchor.id === spotlightAnchorId) ?? pendingPinnedAnchors[0]
+  const spotlightPosition = Math.max(pendingPinnedAnchors.findIndex((anchor) => anchor.id === spotlight?.id), 0)
   const activeProject = getProject(state.projects, activeProjectId)
   const activeAnchor = state.anchors.find((anchor) => anchor.id === activeAnchorId)
   const notifications = useMemo(
@@ -1688,6 +1782,15 @@ function App() {
     [readNotificationIds, state.anchors, state.projects],
   )
   const unreadNotifications = notifications.filter((notification) => !notification.isRead)
+
+  useEffect(() => {
+    const context = activeAnchor
+      ? `${formatEntitySerial('A', activeAnchor.serialNumber)} · ${activeAnchor.title}`
+      : activeProject
+        ? activeProject.name
+        : viewLabel(activeView)
+    document.title = `${context} — Anchor`
+  }, [activeAnchor, activeProject, activeView])
 
   useEffect(() => {
     const content = buildReminderNotificationContent(state.anchors, notificationSettings)
@@ -1726,13 +1829,13 @@ function App() {
   }, [notificationSettings, state.anchors])
 
   useEffect(() => {
-    if (pinnedAnchors.length < 2) {
+    if (pendingPinnedAnchors.length < 2) {
       return
     }
 
     const rotationTimer = window.setInterval(() => {
       setSpotlightAnchorId((currentId) => {
-        const nextAnchorId = pickRandomAnchorId(pinnedAnchors, currentId)
+        const nextAnchorId = pickRandomAnchorId(pendingPinnedAnchors, currentId)
 
         if (nextAnchorId) {
           writeSpotlightId(nextAnchorId)
@@ -1743,35 +1846,106 @@ function App() {
     }, 90_000)
 
     return () => window.clearInterval(rotationTimer)
-  }, [pinnedAnchors])
+  }, [pendingPinnedAnchors])
 
   const scrollToTop = () => {
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }))
   }
 
-  const navigate = (view: View, projectId?: string) => {
+  const applyRoute = (route: AppRoute) => {
     scrollToTop()
-    setActiveAnchorId(undefined)
-    setActiveView(view)
-    setActiveProjectId(projectId)
-    setListFilter(view === 'global' ? 'global' : 'all')
+    setActiveAnchorId(route.anchorId)
+    setActiveView(route.view)
+    setActiveProjectId(route.projectId)
+    setListFilter(route.filter ?? (route.view === 'global' ? 'global' : 'all'))
     setQuery('')
     setSearchPaletteOpen(false)
     setNotificationsOpen(false)
     setMobileMenuOpen(false)
+    setIsComposerOpen(false)
+    setIsProjectComposerOpen(false)
+    setEditingAnchor(undefined)
+    setEditingProject(undefined)
+    setAIReflectionAnchor(undefined)
+  }
+
+  useEffect(() => {
+    const handlePopState = () => applyRoute(readAppRoute())
+    window.addEventListener('popstate', handlePopState)
+
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
+    if (profile.name.trim() && window.location.pathname === '/') {
+      window.history.replaceState(null, document.title, appRoutePath({ view: 'home' }))
+    }
+  }, [profile.name])
+
+  const commitRoute = (route: AppRoute, replace = false) => {
+    const nextPath = appRoutePath(route)
+
+    if (window.location.pathname !== nextPath) {
+      if (replace) {
+        window.history.replaceState(null, document.title, nextPath)
+      } else {
+        window.history.pushState(null, document.title, nextPath)
+      }
+    }
+
+    applyRoute(route)
+  }
+
+  const navigate = (view: View, projectId?: string, replace = false, filter?: AnchorFilter) => {
+    commitRoute({ view, projectId, filter }, replace)
   }
 
   const changeListFilter = (filter: AnchorFilter) => {
-    scrollToTop()
-    setActiveAnchorId(undefined)
-    setListFilter(filter)
-    setActiveView(filter === 'global' ? 'global' : 'all')
-    setActiveProjectId(undefined)
-    setQuery('')
-    setSearchPaletteOpen(false)
+    if (filter === 'global') {
+      navigate('global')
+      return
+    }
+
+    navigate('all', undefined, false, filter === 'projects' ? 'projects' : undefined)
   }
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        navigate('all')
+        setNotificationsOpen(false)
+        setSearchPaletteOpen(true)
+        window.requestAnimationFrame(() => topSearchRef.current?.focus())
+      }
+
+      if (event.key === 'Escape') {
+        setSearchPaletteOpen(false)
+        setNotificationsOpen(false)
+        setMobileMenuOpen(false)
+        const currentRoute = readAppRoute()
+        if (currentRoute.anchorId) {
+          const parentRoute: AppRoute = { ...currentRoute, anchorId: undefined }
+          window.history.replaceState(null, document.title, appRoutePath(parentRoute))
+          applyRoute(parentRoute)
+        }
+        setIsComposerOpen(false)
+        setIsProjectComposerOpen(false)
+        setEditingAnchor(undefined)
+        setEditingProject(undefined)
+        setIsUpdateModalOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
   const openAnchorComposer = (projectId?: string) => {
+    if (activeAnchorId) {
+      closeAnchorDetail()
+    }
     setActiveAnchorId(undefined)
     setActiveProjectId(projectId)
     setIsComposerOpen(true)
@@ -1889,25 +2063,41 @@ function App() {
     const timestamp = new Date().toISOString()
     setState((currentState) => ({
       ...currentState,
-      anchors: currentState.anchors.map((anchor) =>
-        anchor.id === anchorId ? { ...anchor, pinned: !anchor.pinned, updatedAt: timestamp } : anchor,
-      ),
+      anchors: currentState.anchors.map((anchor) => {
+        if (anchor.id !== anchorId) return anchor
+
+        const pinned = !anchor.pinned
+        return {
+          ...anchor,
+          pinned,
+          updatedAt: timestamp,
+          ...(pinned ? { lastSeenAt: undefined } : {}),
+        }
+      }),
     }))
   }
 
   const markAsRemembered = (anchorId: string) => {
+    const nextAnchorId = pickRandomAnchorId(
+      pendingPinnedAnchors.filter((anchor) => anchor.id !== anchorId),
+    )
+
     setState((currentState) => ({
       ...currentState,
       anchors: currentState.anchors.map((anchor) =>
         anchor.id === anchorId ? { ...anchor, lastSeenAt: new Date().toISOString() } : anchor,
       ),
     }))
+    setSpotlightAnchorId(nextAnchorId)
+    if (nextAnchorId) {
+      writeSpotlightId(nextAnchorId)
+    }
     setReadNotificationIds((currentIds) => {
       const notificationId = `anchor-reminder:${anchorId}`
 
       return currentIds.includes(notificationId) ? currentIds : [...currentIds, notificationId]
     })
-    showToast('Saved as remembered for today.')
+    showToast(nextAnchorId ? 'Remembered for today. Here is another anchor.' : 'You have reached the end of today’s anchors.')
   }
 
   const addAnchor = (formData: AnchorFormData) => {
@@ -1925,13 +2115,15 @@ function App() {
       anchors: [newAnchor, ...currentState.anchors],
     }))
     setIsComposerOpen(false)
-    setActiveView(formData.scope === 'global' ? 'global' : 'projects')
-    setActiveProjectId(formData.projectId)
+    navigate(formData.scope === 'global' ? 'global' : 'projects', formData.projectId)
     showToast('Your new anchor is close now.')
   }
 
   const updateAnchor = (updated: Anchor) => {
     const existingAnchor = state.anchors.find((anchor) => anchor.id === updated.id)
+    const nextAnchor = existingAnchor && !existingAnchor.pinned && updated.pinned
+      ? { ...updated, lastSeenAt: undefined }
+      : updated
     const updatedAttachmentIds = new Set(updated.attachments?.map((attachment) => attachment.id) ?? [])
     removeLocalAnchorAttachments(
       existingAnchor?.attachments?.filter((attachment) => !updatedAttachmentIds.has(attachment.id)) ?? [],
@@ -1939,7 +2131,7 @@ function App() {
     setState((currentState) => ({
       ...currentState,
       anchors: currentState.anchors.map((anchor) =>
-        anchor.id === updated.id ? { ...updated, updatedAt: new Date().toISOString() } : anchor,
+        anchor.id === updated.id ? { ...nextAnchor, updatedAt: new Date().toISOString() } : anchor,
       ),
     }))
     setEditingAnchor(undefined)
@@ -1956,10 +2148,12 @@ function App() {
       anchors: currentState.anchors.filter((anchor) => anchor.id !== anchorId),
     }))
     setEditingAnchor(undefined)
-    setActiveAnchorId(undefined)
+    if (activeAnchorId === anchorId) {
+      closeAnchorDetail()
+    }
     setSpotlightAnchorId((currentId) =>
       currentId === anchorId
-        ? pickRandomAnchorId(state.anchors.filter((a) => a.id !== anchorId && a.pinned))
+        ? pickRandomAnchorId(pendingPinnedAnchors.filter((anchor) => anchor.id !== anchorId))
         : currentId,
     )
     showToast('Anchor removed.')
@@ -2018,8 +2212,7 @@ function App() {
     }))
     setEditingProject(undefined)
     if (activeProjectId === projectId) {
-      setActiveProjectId(undefined)
-      setActiveView('projects')
+      navigate('projects', undefined, true)
     }
     showToast(deleteAnchors
       ? 'Project and its anchors were removed.'
@@ -2046,14 +2239,24 @@ function App() {
     showToast('Your reminders are clear for now.')
   }
 
-  const openAnchorDetail = (anchor: Anchor) => {
-    scrollToTop()
-    setActiveAnchorId(anchor.id)
-    setIsComposerOpen(false)
-    setEditingAnchor(undefined)
-    setSearchPaletteOpen(false)
-    setNotificationsOpen(false)
-    setMobileMenuOpen(false)
+  const openAnchorDetail = (anchor: Anchor, parentView?: View, parentProjectId?: string) => {
+    const fallbackView: View = anchor.scope === 'project' && anchor.projectId ? 'projects' : 'all'
+    const nextView = parentView === 'home' || parentView === 'all' || parentView === 'global' || parentView === 'projects'
+      ? parentView
+      : fallbackView
+    const nextProjectId = nextView === 'projects' ? parentProjectId ?? anchor.projectId : undefined
+    const nextFilter = nextView === 'all' && listFilter === 'projects' ? 'projects' : undefined
+
+    commitRoute({ view: nextView, projectId: nextProjectId, anchorId: anchor.id, filter: nextFilter })
+  }
+
+  const closeAnchorDetail = () => {
+    if (activeView === 'all') {
+      navigate('all', undefined, true, listFilter === 'projects' ? 'projects' : undefined)
+      return
+    }
+
+    navigate(activeView, activeView === 'projects' ? activeProjectId : undefined, true)
   }
 
   const openNotification = (notification: AppNotification) => {
@@ -2065,26 +2268,19 @@ function App() {
       return
     }
 
-    if (anchor.scope === 'project' && anchor.projectId) {
-      navigate('projects', anchor.projectId)
-    } else {
-      navigate('global')
-    }
-
-    openAnchorDetail(anchor)
+    openAnchorDetail(
+      anchor,
+      anchor.scope === 'project' && anchor.projectId ? 'projects' : 'global',
+      anchor.projectId,
+    )
   }
 
   const openSearchResult = (anchor: Anchor) => {
-    setQuery('')
-    setSearchPaletteOpen(false)
-
-    if (anchor.scope === 'project' && anchor.projectId) {
-      navigate('projects', anchor.projectId)
-    } else {
-      navigate('global')
-    }
-
-    openAnchorDetail(anchor)
+    openAnchorDetail(
+      anchor,
+      anchor.scope === 'project' && anchor.projectId ? 'projects' : 'global',
+      anchor.projectId,
+    )
   }
 
   const openSettings = () => {
@@ -2251,7 +2447,7 @@ function App() {
         anchor={activeAnchor}
         projects={state.projects}
         backLabel={anchorBackLabel}
-        onBack={() => setActiveAnchorId(undefined)}
+        onBack={closeAnchorDetail}
         onEdit={() => setEditingAnchor(activeAnchor)}
         onTogglePinned={togglePinned}
         onAskAI={setAIReflectionAnchor}
@@ -2266,7 +2462,7 @@ function App() {
         notes={state.notes}
         settings={aiSettings}
         onOpenSettings={openAISettings}
-        onBack={() => navigate('projects')}
+        onBack={() => navigate('projects', undefined, true)}
         onAddAnchor={() => openAnchorComposer(activeProject.id)}
         onEditAnchor={setEditingAnchor}
         onOpenAnchor={openAnchorDetail}
@@ -2282,11 +2478,12 @@ function App() {
         anchors={state.anchors}
         projects={state.projects}
         spotlight={spotlight}
-        pinnedCount={pinnedAnchors.length}
+        pinnedCount={pendingPinnedAnchors.length}
+        totalPinnedCount={pinnedAnchors.length}
         spotlightIndex={spotlightPosition}
         onNextSpotlight={() => {
           setSpotlightAnchorId((currentId) => {
-            const nextAnchorId = pickRandomAnchorId(pinnedAnchors, currentId)
+            const nextAnchorId = pickRandomAnchorId(pendingPinnedAnchors, currentId)
 
             if (nextAnchorId) {
               writeSpotlightId(nextAnchorId)
@@ -2433,7 +2630,7 @@ function App() {
   const isAndroidNative = isNativeApp() && getAppPlatform() === 'android'
 
   return (
-    <div className={`anchor-app ${theme === 'dark' ? 'theme-dark' : ''} ${isAndroidNative ? 'native-android' : ''}`}>
+    <div className={`anchor-app ${themeClassNames(theme)} ${isAndroidNative ? 'native-android' : ''}`}>
       <aside id="app-sidebar" className={`sidebar ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${mobileMenuOpen ? 'sidebar-open' : ''}`}>
         <div className="brand-row">
           <button
@@ -2480,33 +2677,33 @@ function App() {
         <div className="sidebar-label">Your space</div>
         <nav className="primary-nav" aria-label="Primary navigation">
           <NavItem
-            icon={Home}
+            icon={Sunrise}
             label="Today"
             active={activeView === 'home' && !activeProjectId}
             onClick={() => navigate('home')}
           />
           <NavItem
-            icon={Compass}
+            icon={BookOpenText}
             label="Wisdom & Thoughts"
             active={activeView === 'dashboard' && !activeProjectId}
             onClick={() => navigate('dashboard')}
           />
           <NavItem
-            icon={Layers3}
+            icon={Waypoints}
             label="All anchors"
             active={activeView === 'all' && !activeProjectId}
             onClick={() => navigate('all')}
             count={state.anchors.length}
           />
           <NavItem
-            icon={Pin}
+            icon={Globe}
             label="Global context"
             active={activeView === 'global' && !activeProjectId}
             onClick={() => navigate('global')}
             count={state.anchors.filter((anchor) => anchor.scope === 'global').length}
           />
           <NavItem
-            icon={WandSparkles}
+            icon={GitFork}
             label="Decision space"
             active={activeView === 'decide' && !activeProjectId}
             onClick={() => navigate('decide')}
@@ -2519,7 +2716,7 @@ function App() {
             count={state.notes.length}
           />
           <NavItem
-            icon={FolderOpen}
+            icon={FolderKanban}
             label="Projects"
             active={activeView === 'projects' && !activeProjectId}
             onClick={() => navigate('projects')}
@@ -2604,28 +2801,32 @@ function App() {
             </span>
             <strong>anchor</strong>
           </button>
-          <div className="breadcrumb" aria-label="Current location">
-            <span>Workspace</span>
+          <nav className={`breadcrumb ${activeAnchor ? 'breadcrumb-detail' : ''}`} aria-label="Current location">
+            <button className="breadcrumb-link" type="button" onClick={() => navigate('home')}>Workspace</button>
             <ChevronRight size={14} />
-            <strong title={activeAnchor?.title}>
-              {activeAnchor?.title ?? activeProject?.name ??
-                (activeView === 'home'
-                  ? 'Today'
-                  : activeView === 'dashboard'
-                    ? 'Wisdom & Philosophy'
-                    : activeView === 'all'
-                      ? 'All anchors'
-                      : activeView === 'global'
-                        ? 'Global context'
-                        : activeView === 'decide'
-                          ? 'Decision space'
-                          : activeView === 'notes'
-                            ? 'Notes'
-                            : activeView === 'settings'
-                              ? 'Settings'
-                              : 'Projects')}
-            </strong>
-          </div>
+            {activeAnchor ? (
+              <>
+                <button className="breadcrumb-link breadcrumb-parent-link" type="button" onClick={closeAnchorDetail}>
+                  {activeProject?.name ?? viewLabel(activeView)}
+                </button>
+                <ChevronRight size={14} />
+                <strong className="breadcrumb-current" title={activeAnchor.title} aria-label={`Anchor: ${activeAnchor.title}`}>
+                  <span className="breadcrumb-record">{formatEntitySerial('A', activeAnchor.serialNumber)}</span>
+                  <span className="breadcrumb-current-title">Anchor detail</span>
+                </strong>
+              </>
+            ) : activeProject ? (
+              <>
+                <button className="breadcrumb-link breadcrumb-parent-link" type="button" onClick={() => navigate('projects', undefined, true)}>
+                  Projects
+                </button>
+                <ChevronRight size={14} />
+                <strong>{activeProject.name}</strong>
+              </>
+            ) : (
+              <strong>{viewLabel(activeView)}</strong>
+            )}
+          </nav>
           <div className="topbar-actions">
             <div className="top-search-wrap" ref={searchWrapRef}>
               <label
@@ -2725,13 +2926,13 @@ function App() {
               </button>
             )}
             <button
-              className="icon-button theme-toggle"
+              className={`icon-button theme-toggle theme-toggle-${theme}`}
               type="button"
-              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-              onClick={() => changeTheme((currentTheme) => (currentTheme === 'dark' ? 'light' : 'dark'))}
+              aria-label={`Switch to ${themeLabel(theme)} theme`}
+              title={`Switch to ${themeLabel(theme)} theme`}
+              onClick={() => changeTheme((currentTheme) => nextTheme(currentTheme))}
             >
-              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+              {theme === 'dark' ? <Sun size={18} /> : theme === 'dusk' ? <Moon size={18} /> : <MoonStar size={18} />}
             </button>
             <button className="top-avatar" type="button" aria-label="Open account settings" onClick={openSettings}>
               {profileInitial(profile.name)}
@@ -2742,12 +2943,12 @@ function App() {
         <main className={`page-content ${isDecisionRoute ? 'decision-page-content' : ''}`}>{pageContent}</main>
 
         <nav className="mobile-nav" aria-label="Mobile navigation">
-          <MobileNavItem icon={Home} label="Today" active={activeView === 'home' && !activeProjectId} onClick={() => navigate('home')} />
-          <MobileNavItem icon={Compass} label="Wisdom" active={activeView === 'dashboard'} onClick={() => navigate('dashboard')} />
+          <MobileNavItem icon={Sunrise} label="Today" active={activeView === 'home' && !activeProjectId} onClick={() => navigate('home')} />
+          <MobileNavItem icon={BookOpenText} label="Wisdom" active={activeView === 'dashboard'} onClick={() => navigate('dashboard')} />
           <button className="mobile-add" type="button" aria-label="Add anchor" onClick={() => openAnchorComposer()}>
             <Plus size={21} />
           </button>
-          <MobileNavItem icon={Layers3} label="Anchors" active={(activeView === 'all' || activeView === 'global') && !activeProjectId} onClick={() => navigate('all')} />
+          <MobileNavItem icon={Waypoints} label="Anchors" active={(activeView === 'all' || activeView === 'global') && !activeProjectId} onClick={() => navigate('all')} />
           <MobileNavItem icon={Settings2} label="More" active={activeView === 'settings'} onClick={openSettings} />
         </nav>
       </div>
@@ -2871,7 +3072,7 @@ interface ProjectIconProps {
 
 function ProjectIcon({ icon, size = 18 }: ProjectIconProps) {
   const Icon =
-    icon === 'chart' ? TrendingUp : icon === 'pen' ? PenLine : icon === 'heart' ? Heart : Sparkles
+    icon === 'chart' ? ChartNoAxesCombined : icon === 'pen' ? SquarePen : icon === 'heart' ? HeartHandshake : Sparkle
 
   return <Icon size={size} />
 }
@@ -3114,6 +3315,7 @@ interface HomeViewProps {
   projects: Project[]
   spotlight?: Anchor
   pinnedCount: number
+  totalPinnedCount: number
   spotlightIndex: number
   onNextSpotlight: () => void
   onRemember: (anchorId: string) => void
@@ -3134,6 +3336,7 @@ function HomeView({
   projects,
   spotlight,
   pinnedCount,
+  totalPinnedCount,
   spotlightIndex,
   onNextSpotlight,
   onRemember,
@@ -3202,8 +3405,9 @@ function HomeView({
             <div className="spotlight-content">
               <div className="spotlight-header">
                 <span className="eyebrow light-eyebrow">
-                  <Sparkles size={13} /> Anchor for now
+                  <Sparkles size={13} /> Today&apos;s focus
                 </span>
+                {spotlight && <span className="spotlight-remaining">{pinnedCount} left today</span>}
               </div>
               {spotlight ? (
                 <>
@@ -3236,9 +3440,10 @@ function HomeView({
                         className="remember-button"
                         type="button"
                         onClick={() => onRemember(spotlight.id)}
+                        title="Mark this anchor as remembered for today and show the next one"
                       >
                         <Check size={15} />
-                        I&apos;ve got it
+                        Done for today
                       </button>
                       <button className="next-anchor spotlight-open-anchor" type="button" onClick={() => onOpenAnchor(spotlight)}>
                         <span>Open anchor</span>
@@ -3251,15 +3456,28 @@ function HomeView({
                     </div>
                   </div>
                 </>
+              ) : totalPinnedCount > 0 ? (
+                <div className="spotlight-complete">
+                  <span className="spotlight-complete-icon"><CheckCheck size={24} /></span>
+                  <strong>You&apos;re clear for today.</strong>
+                  <span>You&apos;ve remembered every pinned anchor. New reminders return tomorrow.</span>
+                  <button className="next-anchor" type="button" onClick={onOpenAll}>
+                    Browse all anchors <ArrowUpRight size={15} />
+                  </button>
+                </div>
+              ) : anchors.length > 0 ? (
+                <EmptyState title="Pin an anchor to give Today a focus." actionLabel="Browse anchors" onAction={onOpenAll} />
               ) : (
                 <EmptyState title="Your first anchor is waiting." actionLabel="Add an anchor" onAction={onAddAnchor} />
               )}
             </div>
-            <div className="spotlight-pagination" aria-label={`${spotlightIndex + 1} of ${pinnedCount} pinned anchors`}>
-              {Array.from({ length: dotCount }).map((_, index) => (
-                <span className={index === spotlightIndex % Math.max(dotCount, 1) ? 'active' : ''} key={index} />
-              ))}
-            </div>
+            {spotlight && pinnedCount > 0 && (
+              <div className="spotlight-pagination" aria-label={`${spotlightIndex + 1} of ${pinnedCount} anchors left today`}>
+                {Array.from({ length: dotCount }).map((_, index) => (
+                  <span className={index === spotlightIndex % Math.max(dotCount, 1) ? 'active' : ''} key={index} />
+                ))}
+              </div>
+            )}
           </section>
 
           <div className="section-heading">
@@ -6172,16 +6390,19 @@ function SettingsView({
 
         <section className="settings-card appearance-card">
           <div className="settings-card-heading compact">
-            <span className="settings-card-icon appearance"><Sun size={18} /></span>
+            <span className="settings-card-icon appearance"><Palette size={18} /></span>
             <div>
               <p className="eyebrow">02 — The atmosphere</p>
               <h2>Appearance</h2>
             </div>
           </div>
-          <p className="settings-card-copy">A little light or a little night. Both are welcome here.</p>
+          <p className="settings-card-copy">Choose a clear day, a violet dusk, or a proper dark harbor night.</p>
           <div className="theme-choice" role="group" aria-label="Choose appearance">
             <button className={theme === 'light' ? 'selected' : ''} type="button" onClick={() => onThemeChange('light')}>
               <Sun size={15} /> Light
+            </button>
+            <button className={theme === 'dusk' ? 'selected' : ''} type="button" onClick={() => onThemeChange('dusk')}>
+              <MoonStar size={15} /> Dusk
             </button>
             <button className={theme === 'dark' ? 'selected' : ''} type="button" onClick={() => onThemeChange('dark')}>
               <Moon size={15} /> Dark

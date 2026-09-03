@@ -3,6 +3,22 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
-    { "source": "/dropbox/callback", "destination": "/" }
+    { "source": "/dropbox/callback", "destination": "/" },
+    { "source": "/today", "destination": "/" },
+    { "source": "/today/anchors/:anchorId", "destination": "/" },
+    { "source": "/wisdom", "destination": "/" },
+    { "source": "/anchors", "destination": "/" },
+    { "source": "/anchors/projects", "destination": "/" },
+    { "source": "/anchors/projects/:anchorId", "destination": "/" },
+    { "source": "/anchors/:anchorId", "destination": "/" },
+    { "source": "/global", "destination": "/" },
+    { "source": "/global/anchors/:anchorId", "destination": "/" },
+    { "source": "/projects", "destination": "/" },
+    { "source": "/projects/:projectId", "destination": "/" },
+    { "source": "/projects/:projectId/anchors/:anchorId", "destination": "/" },
+    { "source": "/notes", "destination": "/" },
+    { "source": "/decisions", "destination": "/" },
+    { "source": "/decide", "destination": "/" },
+    { "source": "/settings", "destination": "/" }
   ]
 }

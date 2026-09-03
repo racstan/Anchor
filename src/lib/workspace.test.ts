@@ -28,7 +28,7 @@ describe('workspace backups', () => {
   it('round-trips safe preferences without exporting AI secrets', () => {
     const raw = serializeWorkspaceExport(initialState, { name: 'Maya' }, {
       updatedAt: '2026-01-02T00:00:00.000Z',
-      theme: 'dark',
+      theme: 'dusk',
       sidebarCollapsed: true,
       ai: {
         providerId: 'openai',
@@ -49,7 +49,7 @@ describe('workspace backups', () => {
     })
     const parsed = parseWorkspaceExport(raw)
 
-    expect(parsed.preferences.theme).toBe('dark')
+    expect(parsed.preferences.theme).toBe('dusk')
     expect(parsed.preferences.sidebarCollapsed).toBe(true)
     expect(parsed.preferences.ai?.model).toBe('gpt-4.1-mini')
     expect(parsed.preferences.notifications?.time).toBe('09:30')
