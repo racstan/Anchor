@@ -1480,9 +1480,13 @@ html[data-theme='dark'] {
 
 .anchor-item {
   position: relative;
+  display: flex;
+  height: 236px;
   min-width: 0;
+  flex-direction: column;
   overflow: hidden;
   padding: 18px 18px 16px;
+  cursor: pointer;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface);
@@ -1497,6 +1501,16 @@ html[data-theme='dark'] {
   border-color: var(--line-strong);
   box-shadow: var(--shadow-md);
   transform: translateY(-2px);
+}
+
+.anchor-item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.anchor-item.title-expanded {
+  height: auto;
+  min-height: 236px;
 }
 
 .anchor-item::before {
@@ -1622,29 +1636,57 @@ html[data-theme='dark'] {
   background: var(--item-pale);
 }
 
+.anchor-title-block {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
 .anchor-item h3 {
+  min-height: 64px;
+  max-height: 64px;
   margin: 14px 0 6px;
+  overflow: hidden;
   color: var(--ink);
   font-family: var(--font-display);
   font-size: 16.5px;
   font-weight: 600;
   letter-spacing: -0.025em;
   line-height: 1.3;
+  overflow-wrap: anywhere;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
-.anchor-item p {
-  display: -webkit-box;
-  overflow: hidden;
-  margin: 0;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.6;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+.anchor-title-block.expanded {
+  flex: 0 0 auto;
+}
+
+.anchor-title-block.expanded h3 {
+  display: block;
+  max-height: none;
+  overflow: visible;
+}
+
+.anchor-title-expand {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  margin: 0 0 4px;
+  padding: 3px 0;
+  color: var(--primary);
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.anchor-title-expand:hover {
+  color: var(--primary-hover);
+  text-decoration: underline;
 }
 
 .evidence-link {
@@ -1677,7 +1719,7 @@ html[data-theme='dark'] {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: auto;
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
@@ -1705,6 +1747,166 @@ html[data-theme='dark'] {
   font-size: 11px;
   font-weight: 400;
   white-space: nowrap;
+}
+
+/* Anchor detail page */
+.anchor-detail-view {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.anchor-detail-card {
+  position: relative;
+  overflow: hidden;
+  padding: 24px 28px 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.anchor-detail-card::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 4px;
+  content: '';
+  background: var(--item-accent);
+}
+
+.anchor-detail-top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.anchor-detail-top .anchor-context {
+  max-width: 60%;
+}
+
+.anchor-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.anchor-detail-actions .pin-button {
+  width: 38px;
+  height: 38px;
+  border-color: var(--line);
+  background: var(--surface-2);
+}
+
+.anchor-detail-actions .pin-button:hover,
+.anchor-detail-actions .pin-button.pinned {
+  background: var(--item-pale);
+  border-color: transparent;
+}
+
+.anchor-detail-edit {
+  min-height: 38px;
+}
+
+.anchor-detail-heading {
+  padding: 58px 0 42px;
+}
+
+.anchor-detail-heading .eyebrow {
+  color: var(--item-accent);
+}
+
+.anchor-detail-heading h1 {
+  max-width: 800px;
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: clamp(32px, 5vw, 56px);
+  font-weight: 700;
+  letter-spacing: -0.055em;
+  line-height: 1.06;
+  overflow-wrap: anywhere;
+}
+
+.anchor-detail-context {
+  padding-top: 25px;
+  border-top: 1px solid var(--line);
+}
+
+.anchor-detail-context .eyebrow {
+  margin-bottom: 13px;
+}
+
+.anchor-detail-copy {
+  max-width: 760px;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 17px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.anchor-detail-no-context {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: 560px;
+  padding: 13px 15px;
+  color: var(--muted);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.anchor-detail-no-context svg {
+  flex: 0 0 auto;
+  color: var(--item-accent);
+}
+
+.anchor-detail-evidence {
+  margin-top: 24px;
+}
+
+.anchor-detail-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 30px;
+  padding-top: 17px;
+  border-top: 1px solid var(--line);
+}
+
+.anchor-detail-tags {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.anchor-detail-scope {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.anchor-detail-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 0 4px;
+}
+
+.anchor-detail-toolbar > span {
+  color: var(--muted-2);
+  font-size: 11px;
 }
 
 /* Quiet card */
@@ -7466,6 +7668,46 @@ fieldset.form-field {
   .anchor-grid,
   .projects-grid {
     grid-template-columns: 1fr;
+  }
+
+  .anchor-detail-card {
+    padding: 20px 18px 18px;
+  }
+
+  .anchor-detail-top {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .anchor-detail-top .anchor-context {
+    max-width: 100%;
+  }
+
+  .anchor-detail-actions {
+    margin-left: auto;
+  }
+
+  .anchor-detail-heading {
+    padding: 46px 0 32px;
+  }
+
+  .anchor-detail-heading h1 {
+    font-size: clamp(30px, 9vw, 42px);
+  }
+
+  .anchor-detail-copy {
+    font-size: 15px;
+    line-height: 1.65;
+  }
+
+  .anchor-detail-footer,
+  .anchor-detail-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .anchor-detail-toolbar .secondary-button {
+    width: 100%;
   }
 
   .list-toolbar {
