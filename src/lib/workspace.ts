@@ -1,5 +1,5 @@
 import { normalizeAnchorState } from './anchors'
-import type { Anchor, AnchorState, ChatMessage, Decision, EvidenceSource, Note, Project } from './anchors'
+import type { Anchor, AnchorAttachment, AnchorState, ChatMessage, Decision, EvidenceSource, Note, Project } from './anchors'
 import type { NotificationSettings } from './notifications'
 
 export interface UserProfile {
@@ -62,6 +62,30 @@ function isEvidenceSource(value: unknown): value is EvidenceSource {
   return isString(value.label) && isString(value.url) && /^https?:\/\//i.test(value.url)
 }
 
+function isAnchorAttachment(value: unknown): value is AnchorAttachment {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  if (
+    !isString(value.id) ||
+    !isString(value.name) ||
+    !isString(value.url) ||
+    (value.mimeType !== undefined && !isString(value.mimeType)) ||
+    (value.size !== undefined && (typeof value.size !== 'number' || !Number.isFinite(value.size) || value.size < 0))
+  ) {
+    return false
+  }
+
+  if (value.source === 'link') {
+    return value.kind === 'link' && /^https?:\/\//i.test(value.url)
+  }
+
+  return value.source === 'file' &&
+    (value.kind === 'image' || value.kind === 'video' || value.kind === 'audio') &&
+    value.url === `attachment:${value.id}`
+}
+
 function isAnchor(value: unknown): value is Anchor {
   if (!isRecord(value)) {
     return false
@@ -79,7 +103,8 @@ function isAnchor(value: unknown): value is Anchor {
     isString(value.updatedAt) &&
     (value.projectId === undefined || isString(value.projectId)) &&
     (value.lastSeenAt === undefined || isString(value.lastSeenAt)) &&
-    (value.evidence === undefined || isEvidenceSource(value.evidence))
+    (value.evidence === undefined || isEvidenceSource(value.evidence)) &&
+    (value.attachments === undefined || (Array.isArray(value.attachments) && value.attachments.every(isAnchorAttachment)))
 }
 
 function isProject(value: unknown): value is Project {
@@ -119,6 +144,7 @@ function isDecision(value: unknown): value is Decision {
     (value.title === undefined || isString(value.title)) &&
     (value.projectId === undefined || isString(value.projectId)) &&
     (value.noteIds === undefined || (Array.isArray(value.noteIds) && value.noteIds.every(isString))) &&
+    (value.anchorIds === undefined || (Array.isArray(value.anchorIds) && value.anchorIds.every(isString))) &&
     isString(value.situation) &&
     isString(value.additionalContext) &&
     Array.isArray(value.messages) && value.messages.every(isChatMessage) &&

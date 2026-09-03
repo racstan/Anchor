@@ -19,19 +19,24 @@ import {
   Command,
   Compass,
   Copy,
+  ExternalLink,
   FolderOpen,
   Heart,
   Home,
+  Image as ImageIcon,
   KeyRound,
   Layers3,
   Lightbulb,
+  Link2,
   Menu,
   MessageCircle,
   Moon,
   MoreHorizontal,
+  Music2,
   NotebookPen,
   PanelLeftClose,
   PanelLeftOpen,
+  Paperclip,
   PenLine,
   Pin,
   Plus,
@@ -49,6 +54,7 @@ import {
   TrendingUp,
   Upload,
   UserRound,
+  Video as VideoIcon,
   WandSparkles,
   X,
 } from 'lucide-react'
@@ -66,6 +72,12 @@ import {
   readAnchorState,
   writeAnchorState,
 } from './lib/anchors'
+import {
+  clearAnchorAttachmentFiles,
+  readAnchorAttachmentFile,
+  removeAnchorAttachmentFile,
+  saveAnchorAttachmentFile,
+} from './lib/attachments'
 import type {
   AccentColor,
   Anchor,
@@ -76,6 +88,7 @@ import type {
   EntitySerialPrefix,
   Decision,
   EvidenceSource,
+  AnchorAttachment,
   Note,
   Project,
 } from './lib/anchors'
@@ -152,10 +165,13 @@ import type { PhilosophyCategory, PhilosophyThought } from './lib/philosophy'
 import './App.css'
 
 type View = 'home' | 'dashboard' | 'all' | 'global' | 'projects' | 'notes' | 'decide' | 'settings'
+type AnchorContentFilter = 'all' | 'pinned' | 'unPinned' | 'withEvidence' | 'withAttachment' | 'recent'
+type AnchorSort = 'updatedDesc' | 'updatedAsc' | 'createdDesc' | 'titleAsc' | 'titleDesc'
 
 type AnchorFormData = Pick<Anchor, 'title' | 'body' | 'scope' | 'tag' | 'color' | 'pinned'> & {
   projectId?: string
   evidence?: EvidenceSource
+  attachments: AnchorAttachment[]
 }
 
 type ProjectFormData = Pick<Project, 'name' | 'description' | 'color'>
@@ -182,6 +198,7 @@ interface AnchorComposerDraft {
   pinned: boolean
   evidenceLabel: string
   evidenceUrl: string
+  attachments: AnchorAttachment[]
 }
 
 interface ProjectComposerDraft {
@@ -201,6 +218,7 @@ interface DecisionDraft {
   projectId: string
   projectImported: boolean
   importedNoteIds: string[]
+  importedAnchorIds: string[]
   title: string
   situation: string
   additionalContext: string
@@ -1913,6 +1931,11 @@ function App() {
   }
 
   const updateAnchor = (updated: Anchor) => {
+    const existingAnchor = state.anchors.find((anchor) => anchor.id === updated.id)
+    const updatedAttachmentIds = new Set(updated.attachments?.map((attachment) => attachment.id) ?? [])
+    removeLocalAnchorAttachments(
+      existingAnchor?.attachments?.filter((attachment) => !updatedAttachmentIds.has(attachment.id)) ?? [],
+    )
     setState((currentState) => ({
       ...currentState,
       anchors: currentState.anchors.map((anchor) =>
@@ -1924,6 +1947,10 @@ function App() {
   }
 
   const deleteAnchor = (anchorId: string) => {
+    const deletedAnchor = state.anchors.find((anchor) => anchor.id === anchorId)
+    if (deletedAnchor?.attachments) {
+      removeLocalAnchorAttachments(deletedAnchor.attachments)
+    }
     setState((currentState) => ({
       ...currentState,
       anchors: currentState.anchors.filter((anchor) => anchor.id !== anchorId),
@@ -1972,22 +1999,31 @@ function App() {
     showToast('Project updated.')
   }
 
-  const deleteProject = (projectId: string) => {
+  const deleteProject = (projectId: string, deleteAnchors: boolean) => {
+    if (deleteAnchors) {
+      removeLocalAnchorAttachments(
+        state.anchors.filter((anchor) => anchor.projectId === projectId).flatMap((anchor) => anchor.attachments ?? []),
+      )
+    }
     setState((currentState) => ({
       ...currentState,
       projects: currentState.projects.filter((project) => project.id !== projectId),
-      anchors: currentState.anchors.map((anchor) =>
-        anchor.projectId === projectId
-          ? { ...anchor, scope: 'global', projectId: undefined, updatedAt: new Date().toISOString() }
-          : anchor,
-      ),
+      anchors: deleteAnchors
+        ? currentState.anchors.filter((anchor) => anchor.projectId !== projectId)
+        : currentState.anchors.map((anchor) =>
+          anchor.projectId === projectId
+            ? { ...anchor, scope: 'global', projectId: undefined, updatedAt: new Date().toISOString() }
+            : anchor,
+        ),
     }))
     setEditingProject(undefined)
     if (activeProjectId === projectId) {
       setActiveProjectId(undefined)
       setActiveView('projects')
     }
-    showToast('Project removed. Its anchors are now in Global context.')
+    showToast(deleteAnchors
+      ? 'Project and its anchors were removed.'
+      : 'Project removed. Its anchors are now in Global context.')
   }
 
   const deleteDecision = (decisionId: string) => {
@@ -2112,7 +2148,7 @@ function App() {
     Object.keys(window.localStorage)
       .filter((key) => key.startsWith('anchor-'))
       .forEach((key) => window.localStorage.removeItem(key))
-    window.location.reload()
+    void clearAnchorAttachmentFiles().finally(() => window.location.reload())
   }
 
   const exportWorkspace = () => {
@@ -2291,6 +2327,8 @@ function App() {
     pageContent = (
       <NotesView
         notes={state.notes}
+        settings={aiSettings}
+        onOpenSettings={openAISettings}
         onSaveNote={saveNote}
         onDeleteNote={deleteNote}
       />
@@ -3333,7 +3371,34 @@ function AnchorsView({
   onOpenSettings,
   onAskAnchor,
 }: AnchorsViewProps) {
-  const filteredAnchors = filterAnchors(anchors, filter, undefined, query)
+  const [contentFilter, setContentFilter] = useState<AnchorContentFilter>('all')
+  const [projectFilter, setProjectFilter] = useState('')
+  const [sort, setSort] = useState<AnchorSort>('updatedDesc')
+  const [filterNow] = useState(() => Date.now())
+  const filteredAnchors = useMemo(() => {
+    const recentCutoff = filterNow - 30 * 24 * 60 * 60 * 1000
+    const filtered = filterAnchors(anchors, filter, projectFilter || undefined, query).filter((anchor) => {
+      if (contentFilter === 'pinned') return anchor.pinned
+      if (contentFilter === 'unPinned') return !anchor.pinned
+      if (contentFilter === 'withEvidence') return Boolean(anchor.evidence)
+      if (contentFilter === 'withAttachment') return Boolean(anchor.attachments?.length)
+      if (contentFilter === 'recent') return new Date(anchor.updatedAt).getTime() >= recentCutoff
+      return true
+    })
+
+    return [...filtered].sort((first, second) => {
+      if (sort === 'titleAsc' || sort === 'titleDesc') {
+        const comparison = first.title.localeCompare(second.title, undefined, { sensitivity: 'base' })
+        return sort === 'titleAsc' ? comparison : -comparison
+      }
+
+      const firstTime = new Date(sort === 'createdDesc' ? first.createdAt : first.updatedAt).getTime()
+      const secondTime = new Date(sort === 'createdDesc' ? second.createdAt : second.updatedAt).getTime()
+      const timeComparison = (Number.isNaN(firstTime) ? 0 : firstTime) - (Number.isNaN(secondTime) ? 0 : secondTime)
+      return sort === 'updatedAsc' ? timeComparison : -timeComparison
+    })
+  }, [anchors, contentFilter, filter, filterNow, projectFilter, query, sort])
+  const hasAdvancedFilters = contentFilter !== 'all' || Boolean(projectFilter) || sort !== 'updatedDesc'
   const heading =
     filter === 'global' ? 'Global context' : filter === 'projects' ? 'Project anchors' : 'All anchors'
   const description =
@@ -3396,7 +3461,60 @@ function AnchorsView({
             aria-label="Filter anchors"
           />
         </label>
+        <div className="anchor-filter-controls">
+          <label className="anchor-filter-select">
+            <span>Show</span>
+            <div className="select-wrap">
+              <select value={contentFilter} onChange={(event) => setContentFilter(event.target.value as AnchorContentFilter)} aria-label="Filter anchor content">
+                <option value="all">Everything</option>
+                <option value="pinned">Pinned only</option>
+                <option value="unPinned">Not pinned</option>
+                <option value="withEvidence">With evidence</option>
+                <option value="withAttachment">With attachments</option>
+                <option value="recent">Updated in 30 days</option>
+              </select>
+              <ChevronDown size={14} />
+            </div>
+          </label>
+          <label className="anchor-filter-select">
+            <span>Project</span>
+            <div className="select-wrap">
+              <select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)} aria-label="Filter by project">
+                <option value="">Any project</option>
+                {projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
+              </select>
+              <ChevronDown size={14} />
+            </div>
+          </label>
+          <label className="anchor-filter-select">
+            <span>Sort</span>
+            <div className="select-wrap">
+              <select value={sort} onChange={(event) => setSort(event.target.value as AnchorSort)} aria-label="Sort anchors">
+                <option value="updatedDesc">Recently updated</option>
+                <option value="updatedAsc">Oldest updated</option>
+                <option value="createdDesc">Recently added</option>
+                <option value="titleAsc">Title A–Z</option>
+                <option value="titleDesc">Title Z–A</option>
+              </select>
+              <ChevronDown size={14} />
+            </div>
+          </label>
+          {hasAdvancedFilters && (
+            <button
+              className="clear-anchor-filters"
+              type="button"
+              onClick={() => {
+                setContentFilter('all')
+                setProjectFilter('')
+                setSort('updatedDesc')
+              }}
+            >
+              <X size={13} /> Reset
+            </button>
+          )}
+        </div>
       </div>
+      <p className="anchor-filter-summary">Showing {filteredAnchors.length} of {filterAnchors(anchors, filter, projectFilter || undefined, '').length} anchors</p>
 
       <AIInsightCard
         className="anchors-ai-card"
@@ -3547,6 +3665,11 @@ function AnchorListItem({ anchor, projects, query, onOpen, onTogglePinned, onEdi
       </div>
       <div className="anchor-item-footer">
         <span className="anchor-tag"><HighlightedText value={anchor.tag} query={query} /></span>
+        {anchor.attachments && anchor.attachments.length > 0 && (
+          <span className="anchor-attachment-count" title={`${anchor.attachments.length} attachment${anchor.attachments.length === 1 ? '' : 's'}`}>
+            <Paperclip size={12} /> {anchor.attachments.length}
+          </span>
+        )}
         <EntityIdentity
           prefix="A"
           serialNumber={anchor.serialNumber}
@@ -3640,6 +3763,13 @@ function AnchorDetailView({
           </a>
         )}
 
+        {anchor.attachments && anchor.attachments.length > 0 && (
+          <section className="anchor-detail-attachments">
+            <p className="eyebrow"><Paperclip size={13} /> Attachments</p>
+            <AnchorAttachmentList attachments={anchor.attachments} />
+          </section>
+        )}
+
         <div className="anchor-detail-footer">
           <div className="anchor-detail-tags">
             <span className="anchor-tag">{anchor.tag}</span>
@@ -3664,6 +3794,270 @@ function AnchorDetailView({
         </button>
         <span>{formatUpdatedAt(anchor.updatedAt)}</span>
       </div>
+    </div>
+  )
+}
+
+function AttachmentTypeIcon({ kind, size }: { kind: AnchorAttachment['kind']; size: number }) {
+  if (kind === 'image') return <ImageIcon size={size} />
+  if (kind === 'video') return <VideoIcon size={size} />
+  if (kind === 'audio') return <Music2 size={size} />
+  return <Link2 size={size} />
+}
+
+function attachmentKindLabel(kind: AnchorAttachment['kind']): string {
+  if (kind === 'image') return 'Image'
+  if (kind === 'video') return 'Video'
+  if (kind === 'audio') return 'Audio'
+  return 'Link'
+}
+
+function formatAttachmentSize(size?: number): string {
+  if (!size || !Number.isFinite(size) || size < 0) return ''
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`
+}
+
+function removeLocalAnchorAttachments(attachments: AnchorAttachment[]): void {
+  attachments
+    .filter((attachment) => attachment.source === 'file')
+    .forEach((attachment) => {
+      void removeAnchorAttachmentFile(attachment.id).catch(() => undefined)
+    })
+}
+
+interface AnchorAttachmentListProps {
+  attachments: AnchorAttachment[]
+  compact?: boolean
+  onRemove?: (attachment: AnchorAttachment) => void
+}
+
+function AnchorAttachmentList({ attachments, compact = false, onRemove }: AnchorAttachmentListProps) {
+  return (
+    <div className={`anchor-attachments ${compact ? 'compact' : ''}`}>
+      {attachments.map((attachment) => (
+        <AnchorAttachmentItem
+          attachment={attachment}
+          compact={compact}
+          key={`${attachment.id}-${attachment.source}-${attachment.url}`}
+          onRemove={onRemove}
+        />
+      ))}
+    </div>
+  )
+}
+
+interface AnchorAttachmentItemProps {
+  attachment: AnchorAttachment
+  compact?: boolean
+  onRemove?: (attachment: AnchorAttachment) => void
+}
+
+function AnchorAttachmentItem({ attachment, compact = false, onRemove }: AnchorAttachmentItemProps) {
+  const [resolvedUrl, setResolvedUrl] = useState(attachment.source === 'link' ? attachment.url : '')
+  const [loadError, setLoadError] = useState(false)
+  const sizeLabel = formatAttachmentSize(attachment.size)
+
+  useEffect(() => {
+    if (compact || attachment.source === 'link') {
+      return undefined
+    }
+
+    let cancelled = false
+    let objectUrl: string | undefined
+
+    void readAnchorAttachmentFile(attachment.id)
+      .then((file) => {
+        if (cancelled) return
+        if (!file) {
+          setLoadError(true)
+          return
+        }
+        objectUrl = URL.createObjectURL(file)
+        setResolvedUrl(objectUrl)
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError(true)
+      })
+
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [attachment.id, attachment.source, attachment.url, compact])
+
+  const metadata = [attachmentKindLabel(attachment.kind), sizeLabel].filter(Boolean).join(' · ')
+
+  return (
+    <article className={`anchor-attachment ${compact ? 'compact' : ''}`}>
+      <div className="anchor-attachment-heading">
+        <span className={`anchor-attachment-icon ${attachment.kind}`}><AttachmentTypeIcon kind={attachment.kind} size={15} /></span>
+        <div className="anchor-attachment-copy">
+          {attachment.source === 'link' ? (
+            <a href={attachment.url} target="_blank" rel="noreferrer" title={attachment.url}>{attachment.name}</a>
+          ) : (
+            <strong title={attachment.name}>{attachment.name}</strong>
+          )}
+          <small>{metadata}</small>
+        </div>
+        {attachment.source === 'link' && <ExternalLink className="anchor-attachment-external" size={14} />}
+        {onRemove && (
+          <button
+            className="anchor-attachment-remove"
+            type="button"
+            onClick={() => onRemove(attachment)}
+            aria-label={`Remove ${attachment.name}`}
+            title="Remove attachment"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+      {!compact && attachment.source === 'file' && !loadError && resolvedUrl && attachment.kind === 'image' && (
+        <img className="anchor-attachment-image" src={resolvedUrl} alt={attachment.name} onError={() => setLoadError(true)} />
+      )}
+      {!compact && attachment.source === 'file' && !loadError && resolvedUrl && attachment.kind === 'video' && (
+        <video className="anchor-attachment-video" controls preload="metadata" src={resolvedUrl} onError={() => setLoadError(true)} />
+      )}
+      {!compact && attachment.source === 'file' && !loadError && resolvedUrl && attachment.kind === 'audio' && (
+        <audio className="anchor-attachment-audio" controls preload="metadata" src={resolvedUrl} onError={() => setLoadError(true)} />
+      )}
+      {!compact && attachment.source === 'file' && !resolvedUrl && (
+        <span className="anchor-attachment-status">{loadError ? 'File unavailable on this device.' : 'Loading attachment…'}</span>
+      )}
+      {!compact && attachment.source === 'file' && resolvedUrl && loadError && (
+        <span className="anchor-attachment-status">This file could not be previewed.</span>
+      )}
+    </article>
+  )
+}
+
+interface AnchorAttachmentEditorProps {
+  attachments: AnchorAttachment[]
+  originalAttachmentIds?: string[]
+  onChange: (attachments: AnchorAttachment[]) => void
+}
+
+function AnchorAttachmentEditor({ attachments, originalAttachmentIds = [], onChange }: AnchorAttachmentEditorProps) {
+  const originalAttachmentIdSet = useMemo(() => new Set(originalAttachmentIds), [originalAttachmentIds])
+  const [linkName, setLinkName] = useState('')
+  const [linkUrl, setLinkUrl] = useState('')
+  const [isAddingFiles, setIsAddingFiles] = useState(false)
+  const [error, setError] = useState<string>()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const removeAttachment = (attachment: AnchorAttachment) => {
+    onChange(attachments.filter((item) => item.id !== attachment.id))
+    if (attachment.source === 'file' && !originalAttachmentIdSet.has(attachment.id)) {
+      void removeAnchorAttachmentFile(attachment.id)
+    }
+  }
+
+  const addFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? [])
+    event.currentTarget.value = ''
+    if (!files.length) return
+
+    setIsAddingFiles(true)
+    setError(undefined)
+    const added: AnchorAttachment[] = []
+
+    try {
+      for (const file of files) {
+        const kind = file.type.startsWith('image/')
+          ? 'image'
+          : file.type.startsWith('video/')
+            ? 'video'
+            : file.type.startsWith('audio/')
+              ? 'audio'
+              : undefined
+
+        if (!kind) {
+          continue
+        }
+
+        const id = createId('attachment')
+        await saveAnchorAttachmentFile(id, file)
+        added.push({
+          id,
+          kind,
+          source: 'file',
+          name: file.name,
+          url: `attachment:${id}`,
+          mimeType: file.type || undefined,
+          size: file.size,
+        })
+      }
+
+      if (!added.length) {
+        throw new Error('Choose an image, video, or audio file.')
+      }
+      onChange([...attachments, ...added])
+    } catch (attachmentError) {
+      await Promise.all(added.map((attachment) => removeAnchorAttachmentFile(attachment.id).catch(() => undefined)))
+      setError(attachmentError instanceof Error ? attachmentError.message : 'The attachment could not be saved on this device.')
+    } finally {
+      setIsAddingFiles(false)
+    }
+  }
+
+  const addLink = () => {
+    const trimmedUrl = linkUrl.trim()
+    if (!trimmedUrl) return
+
+    try {
+      const parsedUrl = new URL(trimmedUrl)
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        throw new Error('Use an http or https link.')
+      }
+
+      onChange([
+        ...attachments,
+        {
+          id: createId('attachment'),
+          kind: 'link',
+          source: 'link',
+          name: linkName.trim() || parsedUrl.hostname,
+          url: parsedUrl.toString(),
+        },
+      ])
+      setLinkName('')
+      setLinkUrl('')
+      setError(undefined)
+    } catch (linkError) {
+      setError(linkError instanceof Error ? linkError.message : 'Enter a valid http or https link.')
+    }
+  }
+
+  return (
+    <div className="attachment-editor">
+      <div className="attachment-editor-heading">
+        <div>
+          <span className="attachment-editor-label"><Paperclip size={14} /> Attachments <em>optional</em></span>
+          <small>Keep a useful picture, video, audio clip, or link with this anchor.</small>
+        </div>
+        <label className={`attachment-file-button ${isAddingFiles ? 'busy' : ''}`}>
+          <Upload size={14} /> {isAddingFiles ? 'Adding…' : 'Add file'}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*,audio/*"
+            multiple
+            disabled={isAddingFiles}
+            onChange={(event) => void addFiles(event)}
+          />
+        </label>
+      </div>
+      <div className="attachment-link-row">
+        <input value={linkName} onChange={(event) => setLinkName(event.target.value)} placeholder="Link name (optional)" aria-label="Attachment link name" />
+        <input value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="https://…" type="url" aria-label="Attachment URL" onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addLink() } }} />
+        <button className="secondary-button" type="button" onClick={addLink} disabled={!linkUrl.trim()}><Link2 size={14} /> Add link</button>
+      </div>
+      {attachments.length > 0 && <AnchorAttachmentList attachments={attachments} compact onRemove={removeAttachment} />}
+      {error && <div className="attachment-editor-error" role="alert"><CircleAlert size={13} /> <span>{error}</span></div>}
+      <small className="attachment-editor-note">Files stay in this device&apos;s local storage. Links open from their original address.</small>
     </div>
   )
 }
@@ -3697,8 +4091,27 @@ function parseProjectDraft(response: string): { name: string; description: strin
   return { name, description }
 }
 
+function parseNoteDraft(response: string): { title: string; content: string } {
+  const draft = parseAIObject(response)
+  const title = aiDraftString(draft.title)
+  const content = aiDraftString(draft.content)
+
+  if (!content) {
+    throw new Error('Note drafts need some content. Try again with a little more detail.')
+  }
+
+  return { title, content }
+}
+
 function limitAIContext(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength)}\n…more context omitted for focus.` : value
+}
+
+function buildNotesAIContext(notes: Note[]): string {
+  return limitAIContext(
+    notes.map((note) => `- ${formatEntitySerial('N', note.serialNumber)} ${note.title}: ${note.content.replace(/\s+/g, ' ').trim()}`).join('\n') || '- No notes yet.',
+    12000,
+  )
 }
 
 function buildWorkspaceAIContext(
@@ -4098,10 +4511,13 @@ interface DecisionViewProps {
 
 function anchorPromptLine(anchor: Anchor): string {
   const evidence = anchor.evidence ? ` [Evidence reference: ${anchor.evidence.label} — ${anchor.evidence.url}]` : ''
+  const attachments = anchor.attachments?.length
+    ? ` [Attachments: ${anchor.attachments.map((attachment) => `${attachment.name}${attachment.source === 'link' ? ` — ${attachment.url}` : ''}`).join('; ')}]`
+    : ''
   const serial = formatEntitySerial('A', anchor.serialNumber)
   const body = anchor.body.trim()
 
-  return `- ${serial} ${anchor.title}${body ? `: ${body}` : ''}${evidence}`
+  return `- ${serial} ${anchor.title}${body ? `: ${body}` : ''}${evidence}${attachments}`
 }
 
 function decisionSystemPrompt(
@@ -4392,6 +4808,116 @@ function NoteImportSelect({ notes, target, onImport }: NoteImportSelectProps) {
   )
 }
 
+interface AnchorImportPickerProps {
+  anchors: Anchor[]
+  selectedIds: string[]
+  onChange: (ids: string[]) => void
+}
+
+function AnchorImportPicker({ anchors, selectedIds, onChange }: AnchorImportPickerProps) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const pickerRef = useRef<HTMLDivElement>(null)
+  const visibleAnchors = useMemo(
+    () => filterAnchors(anchors, 'all', undefined, searchTerm).slice(0, 40),
+    [anchors, searchTerm],
+  )
+  const selectedAnchors = useMemo(
+    () => selectedIds.map((id) => anchors.find((anchor) => anchor.id === id)).filter((anchor): anchor is Anchor => Boolean(anchor)),
+    [anchors, selectedIds],
+  )
+
+  useEffect(() => {
+    if (!isOpen) return undefined
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [isOpen])
+
+  const toggleAnchor = (anchorId: string) => {
+    onChange(selectedIds.includes(anchorId)
+      ? selectedIds.filter((id) => id !== anchorId)
+      : [...selectedIds, anchorId])
+  }
+
+  const selectVisible = () => {
+    const nextIds = Array.from(new Set([...selectedIds, ...visibleAnchors.map((anchor) => anchor.id)]))
+    onChange(nextIds)
+  }
+
+  const clearSelection = () => onChange([])
+
+  return (
+    <div className="anchor-import-picker" ref={pickerRef}>
+      <button
+        className={`anchor-import-trigger ${selectedAnchors.length ? 'selected' : ''}`}
+        type="button"
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        onClick={() => setIsOpen((open) => !open)}
+      >
+        <Layers3 size={14} />
+        <span>{selectedAnchors.length ? `${selectedAnchors.length} anchor${selectedAnchors.length === 1 ? '' : 's'} imported` : 'Import anchors'}</span>
+        <ChevronDown size={14} />
+      </button>
+      {isOpen && (
+        <div className="anchor-import-menu" role="dialog" aria-label="Import anchors into this decision">
+          <div className="anchor-import-search">
+            <Search size={14} />
+            <input
+              autoFocus
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Escape') setIsOpen(false) }}
+              placeholder="Search title, context, tag, or ID"
+              aria-label="Search anchors to import"
+            />
+          </div>
+          <div className="anchor-import-menu-actions">
+            <span>{selectedAnchors.length} selected · {visibleAnchors.length} shown</span>
+            <button type="button" onClick={selectVisible} disabled={!visibleAnchors.length}>Select shown</button>
+            <button type="button" onClick={clearSelection} disabled={!selectedIds.length}>Clear</button>
+          </div>
+          <div className="anchor-import-options" role="listbox" aria-multiselectable="true">
+            {visibleAnchors.length > 0 ? visibleAnchors.map((anchor) => {
+              const selected = selectedIds.includes(anchor.id)
+              return (
+                <button
+                  className={`anchor-import-option ${selected ? 'selected' : ''}`}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  key={anchor.id}
+                  onClick={() => toggleAnchor(anchor.id)}
+                >
+                  <span className="anchor-import-check">{selected && <Check size={12} />}</span>
+                  <span className={`context-dot ${anchor.color}`} />
+                  <span className="anchor-import-option-copy">
+                    <strong><span className="record-number">{formatEntitySerial('A', anchor.serialNumber)}</span>{anchor.title}</strong>
+                    <small>{anchor.scope === 'global' ? 'Global context' : 'Project context'} · {anchor.tag}</small>
+                  </span>
+                </button>
+              )
+            }) : (
+              <div className="anchor-import-empty"><SearchX size={16} /><span>No matching anchors.</span></div>
+            )}
+          </div>
+          <div className="anchor-import-footer">
+            <span>{selectedAnchors.length ? 'These anchors will guide the conversation.' : 'Choose one or several anchors to bring into the room.'}</span>
+            <button type="button" onClick={() => setIsOpen(false)}>Done</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function decisionDraftFromDecision(decision?: Decision): DecisionDraft {
   return {
     activeDecisionId: decision?.id,
@@ -4399,6 +4925,7 @@ function decisionDraftFromDecision(decision?: Decision): DecisionDraft {
     projectId: decision?.projectId ?? '',
     projectImported: Boolean(decision?.projectId),
     importedNoteIds: decision?.noteIds ?? [],
+    importedAnchorIds: decision?.anchorIds ?? [],
     title: decision?.title ?? '',
     situation: decision?.situation ?? '',
     additionalContext: decision?.additionalContext ?? '',
@@ -4416,6 +4943,7 @@ function decisionDraftHasContent(value: DecisionDraft): boolean {
     value.projectId ||
     value.projectImported ||
     value.importedNoteIds.length ||
+    value.importedAnchorIds.length ||
     value.messages.length,
   )
 }
@@ -4461,6 +4989,7 @@ function DecisionView({
     setDecisionDraft((current) => ({ ...current, ...changes }))
   }
   const [briefCollapsed, setBriefCollapsed] = useState(false)
+  const [historyCollapsed, setHistoryCollapsed] = useState(true)
   const [copiedMessageId, setCopiedMessageId] = useState<string>()
   const [isThinking, setIsThinking] = useState(false)
   const [error, setError] = useState<string>()
@@ -4470,6 +4999,9 @@ function DecisionView({
   const projectAnchors = projectImported && selectedProject
     ? anchors.filter((anchor) => anchor.projectId === selectedProject.id)
     : []
+  const importedAnchors = decisionDraft.importedAnchorIds
+    .map((anchorId) => anchors.find((anchor) => anchor.id === anchorId))
+    .filter((anchor): anchor is Anchor => Boolean(anchor))
   const globalAnchors = anchors.filter((anchor) => anchor.scope === 'global' && anchor.pinned).slice(0, 6)
   const provider = AI_PROVIDERS.find((item) => item.id === settings.providerId)
   const connectionReady = Boolean(settings.apiKey.trim() && settings.model.trim() && (!provider?.requiresAccountId || settings.accountId.trim()))
@@ -4505,6 +5037,7 @@ function DecisionView({
       title: nextDraft.title.trim() || undefined,
       projectId: nextDraft.projectImported && nextDraft.projectId ? nextDraft.projectId : undefined,
       noteIds: nextDraft.importedNoteIds,
+      anchorIds: nextDraft.importedAnchorIds,
       situation: nextDraft.situation.trim(),
       additionalContext: nextDraft.additionalContext.trim(),
       messages: nextMessages,
@@ -4520,8 +5053,11 @@ function DecisionView({
     const globalContextText = globalAnchors.length
       ? `\n\nGLOBAL ANCHORS\n${globalAnchors.map(anchorPromptLine).join('\n')}`
       : ''
+    const importedAnchorsText = importedAnchors.length
+      ? `\n\nIMPORTED ANCHORS\n${importedAnchors.map(anchorPromptLine).join('\n')}`
+      : ''
 
-    return `I want to think this through carefully.\n\nSITUATION\n${situation.trim()}\n\nMORE CONTEXT\n${additionalContext.trim() || 'No additional context yet.'}${importedContext}${globalContextText}`
+    return `I want to think this through carefully.\n\nSITUATION\n${situation.trim()}\n\nMORE CONTEXT\n${additionalContext.trim() || 'No additional context yet.'}${importedContext}${globalContextText}${importedAnchorsText}`
   }
 
   const sendToAI = async (content: string) => {
@@ -4719,7 +5255,7 @@ function DecisionView({
         </button>
       </div>
 
-      <div className={`decision-layout ${briefCollapsed ? 'brief-collapsed' : ''}`}>
+      <div className={`decision-layout ${briefCollapsed ? 'brief-collapsed' : ''} ${historyCollapsed ? 'history-collapsed' : ''}`}>
         <aside className="decision-history-sidebar" aria-label="Decision room history">
           <div className="decision-history-sidebar-header">
             <div>
@@ -4727,6 +5263,16 @@ function DecisionView({
               <h2>Chat history</h2>
             </div>
             <span className="decision-history-count">{decisions.length}</span>
+            <button
+              className="history-collapse-toggle"
+              type="button"
+              aria-label={historyCollapsed ? 'Expand saved thinking sidebar' : 'Collapse saved thinking sidebar'}
+              title={historyCollapsed ? 'Expand saved thinking sidebar' : 'Collapse saved thinking sidebar'}
+              aria-expanded={!historyCollapsed}
+              onClick={() => setHistoryCollapsed((collapsed) => !collapsed)}
+            >
+              {historyCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            </button>
           </div>
           <button className="decision-new-room" type="button" onClick={startNewDecision}>
             <Plus size={15} />
@@ -4837,6 +5383,27 @@ function DecisionView({
               </button>
             </div>
           </label>
+
+          <div className="form-field decision-field">
+            <div className="form-field-label-row">
+              <span>Bring in anchors <em>optional · choose one or more</em></span>
+            </div>
+            <AnchorImportPicker
+              anchors={anchors}
+              selectedIds={decisionDraft.importedAnchorIds}
+              onChange={(anchorIds) => updateDecisionDraft({ importedAnchorIds: anchorIds })}
+            />
+            {importedAnchors.length > 0 && (
+              <div className="decision-imported-anchors">
+                {importedAnchors.map((anchor) => (
+                  <span key={anchor.id}>
+                    <span className={`context-dot ${anchor.color}`} />
+                    <strong>{formatEntitySerial('A', anchor.serialNumber)}</strong> {anchor.title}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
 
           {projectImported && selectedProject && (
             <div className="imported-context">
@@ -5053,11 +5620,13 @@ function DecisionView({
 
 interface NoteEditorProps {
   note?: Note
+  settings: AISettings
+  onOpenSettings: () => void
   onSave: (note: Note) => void
   onDelete: (noteId: string) => void
 }
 
-function NoteEditor({ note, onSave, onDelete }: NoteEditorProps) {
+function NoteEditor({ note, settings, onOpenSettings, onSave, onDelete }: NoteEditorProps) {
   const initialDraft: NoteDraft = {
     title: note?.title ?? '',
     content: note?.content ?? '',
@@ -5150,6 +5719,17 @@ function NoteEditor({ note, onSave, onDelete }: NoteEditorProps) {
         />
         <small className="note-character-count">{draft.content.length}/12000</small>
       </label>
+      <AIWriterButton
+        settings={settings}
+        onOpenSettings={onOpenSettings}
+        label="Shape with AI"
+        disabled={!draft.title.trim() && !draft.content.trim()}
+        prompt={`Shape this note into clear, useful writing while preserving everything meaningful. Return only JSON with exactly these keys: title and content. Do not invent facts or remove important details.\n\nTITLE\n${draft.title || '(empty)'}\n\nNOTE\n${draft.content}`}
+        onResult={(response) => {
+          const aiDraft = parseNoteDraft(response)
+          updateDraft({ title: aiDraft.title, content: aiDraft.content })
+        }}
+      />
       {error && <div className="settings-error" role="alert"><CircleAlert size={14} /> <span>{error}</span></div>}
       <div className="note-editor-footer">
         {note ? (
@@ -5176,11 +5756,14 @@ function NoteEditor({ note, onSave, onDelete }: NoteEditorProps) {
 
 interface NotesViewProps {
   notes: Note[]
+  settings: AISettings
+  onOpenSettings: () => void
   onSaveNote: (note: Note) => void
   onDeleteNote: (noteId: string) => void
 }
 
-function NotesView({ notes, onSaveNote, onDeleteNote }: NotesViewProps) {
+function NotesView({ notes, settings, onOpenSettings, onSaveNote, onDeleteNote }: NotesViewProps) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [activeNoteId, setActiveNoteId] = useState<string | undefined>(() => {
     const latestDraft = listDrafts<NoteDraft>('note')[0]
 
@@ -5220,14 +5803,38 @@ function NotesView({ notes, onSaveNote, onDeleteNote }: NotesViewProps) {
         </button>
       </div>
 
-      <div className="notes-layout">
+      <AIInsightCard
+        className="notes-ai-card"
+        eyebrow="Your notes, understood"
+        title="Find the thread in what you wrote"
+        description="Ask Anchor to summarize your notes, spot themes, or turn loose material into a practical next step."
+        context={buildNotesAIContext(notes)}
+        prompts={[
+          { label: 'Summarize my notes', prompt: 'Summarize the most important points in these notes without losing useful nuance.' },
+          { label: 'Find a pattern', prompt: 'What themes, questions, or tensions repeat across these notes?' },
+          { label: 'Make them actionable', prompt: 'Turn these notes into three small, practical next steps.' },
+        ]}
+        settings={settings}
+        onOpenSettings={onOpenSettings}
+      />
+
+      <div className={`notes-layout ${sidebarCollapsed ? 'notes-sidebar-collapsed' : ''}`}>
         <aside className="notes-list-card">
           <div className="notes-list-heading">
             <div>
               <strong>Your notes</strong>
               <span>{notes.length} {notes.length === 1 ? 'note' : 'notes'}</span>
             </div>
-            <NotebookPen size={17} />
+            <button
+              className="notes-sidebar-toggle"
+              type="button"
+              aria-label={sidebarCollapsed ? 'Expand notes sidebar' : 'Collapse notes sidebar'}
+              title={sidebarCollapsed ? 'Expand notes sidebar' : 'Collapse notes sidebar'}
+              aria-expanded={!sidebarCollapsed}
+              onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            </button>
           </div>
           <label className="notes-search">
             <Search size={15} />
@@ -5266,6 +5873,8 @@ function NotesView({ notes, onSaveNote, onDeleteNote }: NotesViewProps) {
           <NoteEditor
             key={activeNoteId ?? 'new-note'}
             note={activeNote}
+            settings={settings}
+            onOpenSettings={onOpenSettings}
             onSave={(note) => {
               onSaveNote(note)
               setActiveNoteId(note.id)
@@ -6627,17 +7236,19 @@ function AnchorComposer({
     pinned: true,
     evidenceLabel: '',
     evidenceUrl: '',
+    attachments: [],
   }
   const [draft, setDraft, hasDraft, clearDraft] = useAutosavedDraft(
     `anchor:new:${defaultProjectId ?? 'global'}`,
     'anchor',
     initialDraft,
-    (value) => Boolean(value.title.trim() || value.body.trim() || value.tag.trim() || value.evidenceLabel.trim() || value.evidenceUrl.trim()),
+    (value) => Boolean(value.title.trim() || value.body.trim() || value.tag.trim() || value.evidenceLabel.trim() || value.evidenceUrl.trim() || value.attachments.length),
   )
   const updateDraft = (changes: Partial<AnchorComposerDraft>) => {
     setDraft((current) => ({ ...current, ...changes }))
   }
   const discardDraft = () => {
+    removeLocalAnchorAttachments(draft.attachments)
     clearDraft(initialDraft)
     setDraft(initialDraft)
   }
@@ -6664,6 +7275,7 @@ function AnchorComposer({
       color: draft.color,
       pinned: draft.pinned,
       evidence,
+      attachments: draft.attachments,
     })
   }
 
@@ -6689,6 +7301,10 @@ function AnchorComposer({
             rows={4}
           />
         </label>
+        <AnchorAttachmentEditor
+          attachments={draft.attachments}
+          onChange={(attachments) => updateDraft({ attachments })}
+        />
         <AIWriterButton
           settings={settings}
           onOpenSettings={onOpenSettings}
@@ -6826,6 +7442,7 @@ function AnchorEditModal({
     pinned: anchor.pinned,
     evidenceLabel: anchor.evidence?.label ?? '',
     evidenceUrl: anchor.evidence?.url ?? '',
+    attachments: anchor.attachments ?? [],
   }
   const [draft, setDraft, hasDraft, clearDraft] = useAutosavedDraft(
     `anchor:edit:${anchor.id}`,
@@ -6839,12 +7456,15 @@ function AnchorEditModal({
       value.color !== anchor.color ||
       value.pinned !== anchor.pinned ||
       value.evidenceLabel !== (anchor.evidence?.label ?? '') ||
-      value.evidenceUrl !== (anchor.evidence?.url ?? ''),
+      value.evidenceUrl !== (anchor.evidence?.url ?? '') ||
+      serializeDraftValue(value.attachments) !== serializeDraftValue(anchor.attachments ?? []),
   )
   const updateDraft = (changes: Partial<AnchorComposerDraft>) => {
     setDraft((current) => ({ ...current, ...changes }))
   }
   const discardDraft = () => {
+    const originalAttachmentIds = new Set(anchor.attachments?.map((attachment) => attachment.id) ?? [])
+    removeLocalAnchorAttachments(draft.attachments.filter((attachment) => !originalAttachmentIds.has(attachment.id)))
     clearDraft(initialDraft)
     setDraft(initialDraft)
   }
@@ -6873,6 +7493,7 @@ function AnchorEditModal({
       color: draft.color,
       pinned: draft.pinned,
       evidence,
+      attachments: draft.attachments,
       updatedAt: new Date().toISOString(),
     })
   }
@@ -6882,6 +7503,8 @@ function AnchorEditModal({
       setConfirmDelete(true)
       return
     }
+    const originalAttachmentIds = new Set(anchor.attachments?.map((attachment) => attachment.id) ?? [])
+    removeLocalAnchorAttachments(draft.attachments.filter((attachment) => !originalAttachmentIds.has(attachment.id)))
     clearDraft()
     onDelete(anchor.id)
   }
@@ -6916,6 +7539,11 @@ function AnchorEditModal({
             rows={4}
           />
         </label>
+        <AnchorAttachmentEditor
+          attachments={draft.attachments}
+          originalAttachmentIds={anchor.attachments?.map((attachment) => attachment.id)}
+          onChange={(attachments) => updateDraft({ attachments })}
+        />
         <AIWriterButton
           settings={settings}
           onOpenSettings={onOpenSettings}
@@ -7081,21 +7709,21 @@ function ProjectComposer({ settings, onOpenSettings, onClose, onSubmit }: Projec
         {hasDraft && <DraftNotice onDiscard={discardDraft} />}
         <label className="form-field">
           <span>Project name</span>
-          <input autoFocus value={draft.name} onChange={(event) => updateDraft({ name: event.target.value })} placeholder="e.g. Learn the piano" maxLength={48} />
+          <input autoFocus value={draft.name} onChange={(event) => updateDraft({ name: event.target.value })} placeholder="e.g. Learn the piano" />
         </label>
         <label className="form-field">
           <span>What is this space for? <em>optional</em></span>
-          <textarea value={draft.description} onChange={(event) => updateDraft({ description: event.target.value })} placeholder="A short phrase to bring you back to the point." rows={3} maxLength={100} />
+          <textarea value={draft.description} onChange={(event) => updateDraft({ description: event.target.value })} placeholder="A short phrase to bring you back to the point." rows={3} />
         </label>
         <AIWriterButton
           settings={settings}
           onOpenSettings={onOpenSettings}
           label="Shape with AI"
           disabled={!draft.name.trim() && !draft.description.trim()}
-          prompt={`Turn this rough project idea into a clear project space. Keep it grounded in what the person wrote and avoid inventing goals. Return only JSON with exactly these keys: name and description. Keep name under 48 characters and description under 100 characters.\n\nROUGH NAME\n${draft.name || '(empty)'}\n\nROUGH DESCRIPTION\n${draft.description || '(empty)'}`}
+          prompt={`Turn this rough project idea into a clear project space. Keep it grounded in what the person wrote and avoid inventing goals. Return only JSON with exactly these keys: name and description. Do not shorten meaningful details.\n\nROUGH NAME\n${draft.name || '(empty)'}\n\nROUGH DESCRIPTION\n${draft.description || '(empty)'}`}
           onResult={(response) => {
             const aiDraft = parseProjectDraft(response)
-            updateDraft({ name: aiDraft.name.slice(0, 48), description: aiDraft.description.slice(0, 100) })
+            updateDraft({ name: aiDraft.name, description: aiDraft.description })
           }}
         />
         <fieldset className="form-field color-field project-color-field">
@@ -7132,7 +7760,7 @@ interface ProjectEditModalProps {
   onOpenSettings: () => void
   onClose: () => void
   onSave: (project: Project) => void
-  onDelete: (projectId: string) => void
+  onDelete: (projectId: string, deleteAnchors: boolean) => void
 }
 
 function ProjectEditModal({
@@ -7161,7 +7789,7 @@ function ProjectEditModal({
     clearDraft(initialDraft)
     setDraft(initialDraft)
   }
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [showDeleteChoices, setShowDeleteChoices] = useState(false)
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -7179,13 +7807,9 @@ function ProjectEditModal({
     })
   }
 
-  const handleDelete = () => {
-    if (!confirmDelete) {
-      setConfirmDelete(true)
-      return
-    }
+  const handleDelete = (deleteAnchors: boolean) => {
     clearDraft()
-    onDelete(project.id)
+    onDelete(project.id, deleteAnchors)
   }
 
   return (
@@ -7202,20 +7826,20 @@ function ProjectEditModal({
         {hasDraft && <DraftNotice onDiscard={discardDraft} />}
         <label className="form-field">
           <span>Project name</span>
-          <input autoFocus value={draft.name} onChange={(event) => updateDraft({ name: event.target.value })} placeholder="e.g. Learn the piano" maxLength={48} />
+          <input autoFocus value={draft.name} onChange={(event) => updateDraft({ name: event.target.value })} placeholder="e.g. Learn the piano" />
         </label>
         <label className="form-field">
           <span>What is this space for? <em>optional</em></span>
-          <textarea value={draft.description} onChange={(event) => updateDraft({ description: event.target.value })} placeholder="A short phrase to bring you back to the point." rows={3} maxLength={100} />
+          <textarea value={draft.description} onChange={(event) => updateDraft({ description: event.target.value })} placeholder="A short phrase to bring you back to the point." rows={3} />
         </label>
         <AIWriterButton
           settings={settings}
           onOpenSettings={onOpenSettings}
           label="Polish with AI"
-          prompt={`Polish this project description while preserving its purpose. Return only JSON with exactly these keys: name and description. Keep name under 48 characters and description under 100 characters. Do not invent goals or commitments.\n\nPROJECT NAME\n${draft.name}\n\nDESCRIPTION\n${draft.description}`}
+          prompt={`Polish this project description while preserving its purpose. Return only JSON with exactly these keys: name and description. Do not shorten meaningful details or invent goals or commitments.\n\nPROJECT NAME\n${draft.name}\n\nDESCRIPTION\n${draft.description}`}
           onResult={(response) => {
             const aiDraft = parseProjectDraft(response)
-            updateDraft({ name: aiDraft.name.slice(0, 48), description: aiDraft.description.slice(0, 100) })
+            updateDraft({ name: aiDraft.name, description: aiDraft.description })
           }}
         />
         <fieldset className="form-field color-field project-color-field">
@@ -7235,14 +7859,26 @@ function ProjectEditModal({
           </div>
         </fieldset>
         <div className="modal-actions modal-actions-split">
-          <button
-            className={`text-button delete-button ${confirmDelete ? 'delete-confirm' : ''}`}
-            type="button"
-            onClick={handleDelete}
-          >
-            <Trash2 size={15} />
-            {confirmDelete ? 'Confirm delete (anchors become global)' : 'Delete space'}
-          </button>
+          {showDeleteChoices ? (
+            <div className="project-delete-choice">
+              <strong>What should happen to its anchors?</strong>
+              <div className="project-delete-choice-actions">
+                <button className="secondary-button" type="button" onClick={() => handleDelete(false)}>
+                  Keep them global
+                </button>
+                <button className="text-button delete-button delete-confirm" type="button" onClick={() => handleDelete(true)}>
+                  <Trash2 size={14} /> Delete them too
+                </button>
+                <button className="text-button project-delete-cancel" type="button" onClick={() => setShowDeleteChoices(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button className="text-button delete-button" type="button" onClick={() => setShowDeleteChoices(true)}>
+              <Trash2 size={15} /> Delete space
+            </button>
+          )}
           <div className="modal-actions-right">
             <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
             <button className="primary-button" type="submit" disabled={!draft.name.trim()}>

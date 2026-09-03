@@ -23,6 +23,19 @@ export interface EvidenceSource {
   url: string
 }
 
+export type AnchorAttachmentKind = 'image' | 'video' | 'audio' | 'link'
+export type AnchorAttachmentSource = 'file' | 'link'
+
+export interface AnchorAttachment {
+  id: string
+  kind: AnchorAttachmentKind
+  source: AnchorAttachmentSource
+  name: string
+  url: string
+  mimeType?: string
+  size?: number
+}
+
 export interface Anchor extends SerialRecord {
   id: string
   title: string
@@ -36,6 +49,7 @@ export interface Anchor extends SerialRecord {
   updatedAt: string
   lastSeenAt?: string
   evidence?: EvidenceSource
+  attachments?: AnchorAttachment[]
 }
 
 export type ChatRole = 'user' | 'assistant'
@@ -52,6 +66,7 @@ export interface Decision extends SerialRecord {
   title?: string
   projectId?: string
   noteIds?: string[]
+  anchorIds?: string[]
   situation: string
   additionalContext: string
   messages: ChatMessage[]
@@ -298,6 +313,7 @@ export interface AnchorSearchMatch {
   title: TextSearchMatch | null
   body: TextSearchMatch | null
   tag: TextSearchMatch | null
+  attachments: TextSearchMatch | null
   id: TextSearchMatch | null
   serial: TextSearchMatch | null
 }
@@ -371,12 +387,14 @@ export function matchSearchText(value: string, query: string): TextSearchMatch |
 
 export function getAnchorSearchMatch(anchor: Anchor, query: string): AnchorSearchMatch | null {
   if (!query.trim()) {
-    return { score: 0, title: null, body: null, tag: null, id: null, serial: null }
+    return { score: 0, title: null, body: null, tag: null, attachments: null, id: null, serial: null }
   }
 
   const title = matchSearchText(anchor.title, query)
   const body = matchSearchText(anchor.body, query)
   const tag = matchSearchText(anchor.tag, query)
+  const attachmentText = anchor.attachments?.map((attachment) => `${attachment.name} ${attachment.url}`).join(' ') ?? ''
+  const attachments = matchSearchText(attachmentText, query)
   const id = matchSearchText(anchor.id, query)
   const serial = matchSearchText(formatEntitySerial('A', anchor.serialNumber), query)
   const evidence = anchor.evidence ? matchSearchText(anchor.evidence.label, query) : null
@@ -387,6 +405,7 @@ export function getAnchorSearchMatch(anchor: Anchor, query: string): AnchorSearc
     { match: id, weight: 120 },
     { match: tag, weight: 80 },
     { match: body, weight: 20 },
+    { match: attachments, weight: 35 },
     { match: evidence, weight: 40 },
   ].filter((entry): entry is { match: TextSearchMatch; weight: number } => entry.match !== null)
 
@@ -396,7 +415,7 @@ export function getAnchorSearchMatch(anchor: Anchor, query: string): AnchorSearc
 
   const score = Math.max(...weightedMatches.map((entry) => entry.match.score + entry.weight))
 
-  return { score, title, body, tag, id, serial }
+  return { score, title, body, tag, attachments, id, serial }
 }
 
 export function filterAnchors(
