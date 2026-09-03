@@ -11,6 +11,7 @@ import {
   CheckCheck,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   CircleAlert,
   CirclePlus,
   Cloud,
@@ -678,6 +679,7 @@ function App() {
   const [modelsError, setModelsError] = useState<string>()
   const [activeView, setActiveView] = useState<View>('home')
   const [activeProjectId, setActiveProjectId] = useState<string>()
+  const [activeAnchorId, setActiveAnchorId] = useState<string>()
   const [listFilter, setListFilter] = useState<AnchorFilter>('all')
   const [query, setQuery] = useState('')
   const [spotlightAnchorId, setSpotlightAnchorId] = useState<string | undefined>(() => getInitialSpotlightId())
@@ -1258,6 +1260,7 @@ function App() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         setActiveView('all')
+        setActiveAnchorId(undefined)
         setActiveProjectId(undefined)
         setListFilter('all')
         setNotificationsOpen(false)
@@ -1269,6 +1272,7 @@ function App() {
         setSearchPaletteOpen(false)
         setNotificationsOpen(false)
         setMobileMenuOpen(false)
+        setActiveAnchorId(undefined)
         setIsComposerOpen(false)
         setIsProjectComposerOpen(false)
         setEditingAnchor(undefined)
@@ -1311,6 +1315,7 @@ function App() {
   const spotlight = pinnedAnchors.find((anchor) => anchor.id === spotlightAnchorId) ?? pinnedAnchors[0]
   const spotlightPosition = Math.max(pinnedAnchors.findIndex((anchor) => anchor.id === spotlight?.id), 0)
   const activeProject = getProject(state.projects, activeProjectId)
+  const activeAnchor = state.anchors.find((anchor) => anchor.id === activeAnchorId)
   const notifications = useMemo(
     () => buildNotifications(state.anchors, state.projects, readNotificationIds),
     [readNotificationIds, state.anchors, state.projects],
@@ -1374,6 +1379,7 @@ function App() {
   }, [pinnedAnchors])
 
   const navigate = (view: View, projectId?: string) => {
+    setActiveAnchorId(undefined)
     setActiveView(view)
     setActiveProjectId(projectId)
     setListFilter(view === 'global' ? 'global' : 'all')
@@ -1384,6 +1390,7 @@ function App() {
   }
 
   const changeListFilter = (filter: AnchorFilter) => {
+    setActiveAnchorId(undefined)
     setListFilter(filter)
     setActiveView(filter === 'global' ? 'global' : 'all')
     setActiveProjectId(undefined)
@@ -1392,6 +1399,7 @@ function App() {
   }
 
   const openAnchorComposer = (projectId?: string) => {
+    setActiveAnchorId(undefined)
     setActiveProjectId(projectId)
     setIsComposerOpen(true)
     setSearchPaletteOpen(false)
@@ -1566,6 +1574,7 @@ function App() {
       anchors: currentState.anchors.filter((anchor) => anchor.id !== anchorId),
     }))
     setEditingAnchor(undefined)
+    setActiveAnchorId(undefined)
     setSpotlightAnchorId((currentId) =>
       currentId === anchorId
         ? pickRandomAnchorId(state.anchors.filter((a) => a.id !== anchorId && a.pinned))
@@ -1646,6 +1655,15 @@ function App() {
     showToast('Your reminders are clear for now.')
   }
 
+  const openAnchorDetail = (anchor: Anchor) => {
+    setActiveAnchorId(anchor.id)
+    setIsComposerOpen(false)
+    setEditingAnchor(undefined)
+    setSearchPaletteOpen(false)
+    setNotificationsOpen(false)
+    setMobileMenuOpen(false)
+  }
+
   const openNotification = (notification: AppNotification) => {
     markNotificationRead(notification.id)
     setNotificationsOpen(false)
@@ -1657,10 +1675,11 @@ function App() {
 
     if (anchor.scope === 'project' && anchor.projectId) {
       navigate('projects', anchor.projectId)
-      return
+    } else {
+      navigate('global')
     }
 
-    navigate('global')
+    openAnchorDetail(anchor)
   }
 
   const openSearchResult = (anchor: Anchor) => {
@@ -1669,10 +1688,11 @@ function App() {
 
     if (anchor.scope === 'project' && anchor.projectId) {
       navigate('projects', anchor.projectId)
-      return
+    } else {
+      navigate('global')
     }
 
-    navigate('global')
+    openAnchorDetail(anchor)
   }
 
   const openSettings = () => {
@@ -1831,7 +1851,21 @@ function App() {
 
   let pageContent: React.ReactNode
 
-  if (activeProjectId && activeProject) {
+  if (activeAnchorId && activeAnchor) {
+    const anchorBackLabel = activeProject ? `Back to ${activeProject.name}` : activeView === 'home' ? 'Back to Today' : 'Back to anchors'
+
+    pageContent = (
+      <AnchorDetailView
+        anchor={activeAnchor}
+        projects={state.projects}
+        backLabel={anchorBackLabel}
+        onBack={() => setActiveAnchorId(undefined)}
+        onEdit={() => setEditingAnchor(activeAnchor)}
+        onTogglePinned={togglePinned}
+        onAskAI={setAIReflectionAnchor}
+      />
+    )
+  } else if (activeProjectId && activeProject) {
     pageContent = (
       <ProjectView
         project={activeProject}
@@ -1843,6 +1877,7 @@ function App() {
         onBack={() => navigate('projects')}
         onAddAnchor={() => openAnchorComposer(activeProject.id)}
         onEditAnchor={setEditingAnchor}
+        onOpenAnchor={openAnchorDetail}
         onEditProject={() => setEditingProject(activeProject)}
         onTogglePinned={togglePinned}
         onAskAnchor={setAIReflectionAnchor}
@@ -1871,6 +1906,7 @@ function App() {
         onRemember={markAsRemembered}
         onTogglePinned={togglePinned}
         onEditAnchor={setEditingAnchor}
+        onOpenAnchor={openAnchorDetail}
         onAddAnchor={() => openAnchorComposer()}
         onOpenAll={() => navigate('all')}
         onOpenProject={(projectId) => navigate('projects', projectId)}
@@ -1991,6 +2027,7 @@ function App() {
         onFilterChange={changeListFilter}
         onAddAnchor={() => openAnchorComposer()}
         onEditAnchor={setEditingAnchor}
+        onOpenAnchor={openAnchorDetail}
         onTogglePinned={togglePinned}
         onAskAnchor={setAIReflectionAnchor}
       />
@@ -2174,8 +2211,8 @@ function App() {
           <div className="breadcrumb" aria-label="Current location">
             <span>Workspace</span>
             <ChevronRight size={14} />
-            <strong>
-              {activeProject?.name ??
+            <strong title={activeAnchor?.title}>
+              {activeAnchor?.title ?? activeProject?.name ??
                 (activeView === 'home'
                   ? 'Today'
                   : activeView === 'dashboard'
@@ -2475,7 +2512,10 @@ function EntityIdentity({ prefix, serialNumber, id, createdAt, updatedAt, compac
       <button
         className={`entity-id-copy ${copied ? 'copied' : ''}`}
         type="button"
-        onClick={() => void copyId()}
+        onClick={(event) => {
+          event.stopPropagation()
+          void copyId()
+        }}
         aria-label={copied ? 'ID copied' : `Copy ${formatEntitySerial(prefix, serialNumber)} ID`}
         title={copied ? 'ID copied' : `Copy ID: ${id}`}
       >
@@ -2679,6 +2719,7 @@ interface HomeViewProps {
   onRemember: (anchorId: string) => void
   onTogglePinned: (anchorId: string) => void
   onEditAnchor: (anchor: Anchor) => void
+  onOpenAnchor: (anchor: Anchor) => void
   onAddAnchor: () => void
   onOpenAll: () => void
   onOpenProject: (projectId: string) => void
@@ -2698,6 +2739,7 @@ function HomeView({
   onRemember,
   onTogglePinned,
   onEditAnchor,
+  onOpenAnchor,
   onAddAnchor,
   onOpenAll,
   onOpenProject,
@@ -2798,6 +2840,10 @@ function HomeView({
                         <Check size={15} />
                         I&apos;ve got it
                       </button>
+                      <button className="next-anchor spotlight-open-anchor" type="button" onClick={() => onOpenAnchor(spotlight)}>
+                        <span>Open anchor</span>
+                        <ChevronRight size={15} />
+                      </button>
                       <button className="next-anchor" type="button" onClick={onNextSpotlight}>
                         <span>Another one</span>
                         <ArrowUpRight size={15} />
@@ -2833,6 +2879,7 @@ function HomeView({
                 key={anchor.id}
                 onTogglePinned={onTogglePinned}
                 onEdit={onEditAnchor}
+                onOpen={onOpenAnchor}
                 onAskAI={onAskAnchor}
               />
             ))}
@@ -2902,6 +2949,7 @@ interface AnchorsViewProps {
   onFilterChange: (filter: AnchorFilter) => void
   onAddAnchor: () => void
   onEditAnchor: (anchor: Anchor) => void
+  onOpenAnchor: (anchor: Anchor) => void
   onTogglePinned: (anchorId: string) => void
   settings: AISettings
   onOpenSettings: () => void
@@ -2917,6 +2965,7 @@ function AnchorsView({
   onFilterChange,
   onAddAnchor,
   onEditAnchor,
+  onOpenAnchor,
   onTogglePinned,
   settings,
   onOpenSettings,
@@ -3012,6 +3061,7 @@ function AnchorsView({
               key={anchor.id}
               onTogglePinned={onTogglePinned}
               onEdit={onEditAnchor}
+              onOpen={onOpenAnchor}
               onAskAI={onAskAnchor}
             />
           ))}
@@ -3037,16 +3087,37 @@ interface AnchorListItemProps {
   anchor: Anchor
   projects: Project[]
   query?: string
+  onOpen: (anchor: Anchor) => void
   onTogglePinned: (anchorId: string) => void
   onEdit?: (anchor: Anchor) => void
   onAskAI?: (anchor: Anchor) => void
 }
 
-function AnchorListItem({ anchor, projects, query, onTogglePinned, onEdit, onAskAI }: AnchorListItemProps) {
+function AnchorListItem({ anchor, projects, query, onOpen, onTogglePinned, onEdit, onAskAI }: AnchorListItemProps) {
+  const [titleExpanded, setTitleExpanded] = useState(false)
   const project = getProject(projects, anchor.projectId)
+  const canExpandTitle = anchor.title.length > 72
+
+  const handleCardKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.target !== event.currentTarget) {
+      return
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      onOpen(anchor)
+    }
+  }
 
   return (
-    <article className={`anchor-item accent-${anchor.color}`}>
+    <article
+      className={`anchor-item accent-${anchor.color} ${titleExpanded ? 'title-expanded' : ''}`}
+      role="link"
+      tabIndex={0}
+      aria-label={`Open anchor: ${anchor.title}`}
+      onClick={() => onOpen(anchor)}
+      onKeyDown={handleCardKeyDown}
+    >
       <div className="anchor-item-header">
         <div className="anchor-context">
           <span className={`context-dot ${anchor.color}`} />
@@ -3059,7 +3130,10 @@ function AnchorListItem({ anchor, projects, query, onTogglePinned, onEdit, onAsk
               type="button"
               aria-label="Edit anchor"
               title="Edit anchor"
-              onClick={() => onEdit(anchor)}
+              onClick={(event) => {
+                event.stopPropagation()
+                onEdit(anchor)
+              }}
             >
               <PenLine size={14} />
             </button>
@@ -3070,7 +3144,10 @@ function AnchorListItem({ anchor, projects, query, onTogglePinned, onEdit, onAsk
               type="button"
               aria-label="Reflect on anchor with AI"
               title="Reflect on anchor with AI"
-              onClick={() => onAskAI(anchor)}
+              onClick={(event) => {
+                event.stopPropagation()
+                onAskAI(anchor)
+              }}
             >
               <Sparkles size={14} />
             </button>
@@ -3080,26 +3157,32 @@ function AnchorListItem({ anchor, projects, query, onTogglePinned, onEdit, onAsk
             type="button"
             aria-label={anchor.pinned ? 'Unpin anchor' : 'Pin anchor'}
             title={anchor.pinned ? 'Unpin anchor' : 'Pin anchor'}
-            onClick={() => onTogglePinned(anchor.id)}
+            onClick={(event) => {
+              event.stopPropagation()
+              onTogglePinned(anchor.id)
+            }}
           >
             <Pin size={15} fill={anchor.pinned ? 'currentColor' : 'none'} />
           </button>
         </div>
       </div>
-      <h3><HighlightedText value={anchor.title} query={query} /></h3>
-      <p><HighlightedText value={anchor.body} query={query} /></p>
-      {anchor.evidence && (
-        <a
-          className="evidence-link"
-          href={anchor.evidence.url}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <ShieldCheck size={12} />
-          Evidence-informed · {anchor.evidence.label}
-          <ArrowUpRight size={11} />
-        </a>
-      )}
+      <div className={`anchor-title-block ${titleExpanded ? 'expanded' : ''}`}>
+        <h3><HighlightedText value={anchor.title} query={query} /></h3>
+        {canExpandTitle && (
+          <button
+            className="anchor-title-expand"
+            type="button"
+            aria-expanded={titleExpanded}
+            onClick={(event) => {
+              event.stopPropagation()
+              setTitleExpanded((expanded) => !expanded)
+            }}
+          >
+            {titleExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            {titleExpanded ? 'Show less' : 'Show full title'}
+          </button>
+        )}
+      </div>
       <div className="anchor-item-footer">
         <span className="anchor-tag"><HighlightedText value={anchor.tag} query={query} /></span>
         <EntityIdentity
@@ -3114,6 +3197,115 @@ function AnchorListItem({ anchor, projects, query, onTogglePinned, onEdit, onAsk
   )
 }
 
+interface AnchorDetailViewProps {
+  anchor: Anchor
+  projects: Project[]
+  backLabel: string
+  onBack: () => void
+  onEdit: () => void
+  onTogglePinned: (anchorId: string) => void
+  onAskAI: (anchor: Anchor) => void
+}
+
+function AnchorDetailView({
+  anchor,
+  projects,
+  backLabel,
+  onBack,
+  onEdit,
+  onTogglePinned,
+  onAskAI,
+}: AnchorDetailViewProps) {
+  const project = getProject(projects, anchor.projectId)
+  const hasBody = anchor.body.trim().length > 0
+
+  return (
+    <div className="anchor-detail-view page-enter">
+      <button className="back-button" type="button" onClick={onBack}>
+        <ArrowLeft size={16} />
+        {backLabel}
+      </button>
+      <article className={`anchor-detail-card accent-${anchor.color}`}>
+        <div className="anchor-detail-top">
+          <div className="anchor-context">
+            <span className={`context-dot ${anchor.color}`} />
+            <span>{project?.name ?? 'Global context'}</span>
+          </div>
+          <div className="anchor-detail-actions">
+            <button
+              className={`pin-button ${anchor.pinned ? 'pinned' : ''}`}
+              type="button"
+              aria-label={anchor.pinned ? 'Unpin anchor' : 'Pin anchor'}
+              title={anchor.pinned ? 'Unpin anchor' : 'Pin anchor'}
+              onClick={() => onTogglePinned(anchor.id)}
+            >
+              <Pin size={16} fill={anchor.pinned ? 'currentColor' : 'none'} />
+            </button>
+            <button className="secondary-button anchor-detail-edit" type="button" onClick={onEdit}>
+              <PenLine size={15} />
+              Edit anchor
+            </button>
+          </div>
+        </div>
+
+        <div className="anchor-detail-heading">
+          <p className="eyebrow"><AnchorIcon size={13} /> {formatEntitySerial('A', anchor.serialNumber)}</p>
+          <h1>{anchor.title}</h1>
+        </div>
+
+        <section className="anchor-detail-context">
+          <p className="eyebrow">More context</p>
+          {hasBody ? (
+            <p className="anchor-detail-copy">{anchor.body}</p>
+          ) : (
+            <div className="anchor-detail-no-context">
+              <AnchorIcon size={17} />
+              <span>This anchor stands on its own. No additional context was added.</span>
+            </div>
+          )}
+        </section>
+
+        {anchor.evidence && (
+          <a
+            className="evidence-link anchor-detail-evidence"
+            href={anchor.evidence.url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <ShieldCheck size={12} />
+            Evidence-informed · {anchor.evidence.label}
+            <ArrowUpRight size={11} />
+          </a>
+        )}
+
+        <div className="anchor-detail-footer">
+          <div className="anchor-detail-tags">
+            <span className="anchor-tag">{anchor.tag}</span>
+            <span className="anchor-detail-scope">
+              {anchor.scope === 'global' ? 'Everywhere' : 'Project context'}
+            </span>
+          </div>
+          <EntityIdentity
+            prefix="A"
+            serialNumber={anchor.serialNumber}
+            id={anchor.id}
+            createdAt={anchor.createdAt}
+            updatedAt={anchor.updatedAt}
+            exact
+          />
+        </div>
+      </article>
+      <div className="anchor-detail-toolbar">
+        <button className="secondary-button" type="button" onClick={() => onAskAI(anchor)}>
+          <Sparkles size={15} />
+          Reflect on this anchor
+        </button>
+        <span>{formatUpdatedAt(anchor.updatedAt)}</span>
+      </div>
+    </div>
+  )
+}
+
 function aiDraftString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -3124,8 +3316,8 @@ function parseAnchorDraft(response: string): { title: string; body: string; tag:
   const body = aiDraftString(draft.body)
   const tag = aiDraftString(draft.tag)
 
-  if (!title || !body) {
-    throw new Error('Anchor needs both a clear title and a little context. Try again with more detail.')
+  if (!title) {
+    throw new Error('Anchor drafts need a clear title. Try again with a little more detail.')
   }
 
   return { title, body, tag }
@@ -3545,8 +3737,9 @@ interface DecisionViewProps {
 function anchorPromptLine(anchor: Anchor): string {
   const evidence = anchor.evidence ? ` [Evidence reference: ${anchor.evidence.label} — ${anchor.evidence.url}]` : ''
   const serial = formatEntitySerial('A', anchor.serialNumber)
+  const body = anchor.body.trim()
 
-  return `- ${serial} ${anchor.title}: ${anchor.body}${evidence}`
+  return `- ${serial} ${anchor.title}${body ? `: ${body}` : ''}${evidence}`
 }
 
 function decisionSystemPrompt(
@@ -5752,6 +5945,7 @@ interface ProjectViewProps {
   onBack: () => void
   onAddAnchor: () => void
   onEditAnchor: (anchor: Anchor) => void
+  onOpenAnchor: (anchor: Anchor) => void
   onEditProject: () => void
   onTogglePinned: (anchorId: string) => void
   onAskAnchor: (anchor: Anchor) => void
@@ -5767,6 +5961,7 @@ function ProjectView({
   onBack,
   onAddAnchor,
   onEditAnchor,
+  onOpenAnchor,
   onEditProject,
   onTogglePinned,
   onAskAnchor,
@@ -5855,6 +6050,7 @@ function ProjectView({
               key={anchor.id}
               onTogglePinned={onTogglePinned}
               onEdit={onEditAnchor}
+              onOpen={onOpenAnchor}
               onAskAI={onAskAnchor}
             />
           ))}
@@ -5956,7 +6152,7 @@ function AnchorComposer({
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (!title.trim() || !body.trim() || (scope === 'project' && !projectId)) {
+    if (!title.trim() || (scope === 'project' && !projectId)) {
       return
     }
 
@@ -5990,11 +6186,11 @@ function AnchorComposer({
           />
         </label>
         <label className="form-field">
-          <span>Give it some context</span>
+          <span>More context <em>optional</em></span>
           <textarea
             value={body}
             onChange={(event) => setBody(event.target.value)}
-            placeholder="Why does this matter when you forget it?"
+            placeholder="Add context if it helps you return to this later."
             rows={4}
           />
         </label>
@@ -6003,7 +6199,7 @@ function AnchorComposer({
           onOpenSettings={onOpenSettings}
           label="Draft with AI"
           disabled={!title.trim() && !body.trim()}
-          prompt={`Turn this rough thought into a useful Anchor reminder. Preserve the person’s meaning, make the title memorable, and make the context concrete without inventing facts. Return only JSON with exactly these keys: title, body, tag. Do not shorten or omit meaningful details.\n\nROUGH TITLE\n${title || '(empty)'}\n\nROUGH CONTEXT\n${body || '(empty)'}\n\nCURRENT TAG\n${tag || '(empty)'}`}
+          prompt={`Turn this rough thought into a useful Anchor reminder. Preserve the person’s meaning, make the title memorable, and add context only when it is useful without inventing facts. Return only JSON with exactly these keys: title, body, tag. Context is optional; do not shorten or omit meaningful details.\n\nROUGH TITLE\n${title || '(empty)'}\n\nROUGH CONTEXT\n${body || '(none — context is optional)'}\n\nCURRENT TAG\n${tag || '(empty)'}`}
           onResult={(response) => {
             const draft = parseAnchorDraft(response)
             setTitle(draft.title)
@@ -6098,7 +6294,7 @@ function AnchorComposer({
         </label>
         <div className="modal-actions">
           <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
-          <button className="primary-button" type="submit" disabled={!title.trim() || !body.trim()}>
+          <button className="primary-button" type="submit" disabled={!title.trim()}>
             <AnchorIcon size={16} />
             Save anchor
           </button>
@@ -6141,7 +6337,7 @@ function AnchorEditModal({
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (!title.trim() || !body.trim() || (scope === 'project' && !projectId)) {
+    if (!title.trim() || (scope === 'project' && !projectId)) {
       return
     }
 
@@ -6193,11 +6389,11 @@ function AnchorEditModal({
           />
         </label>
         <label className="form-field">
-          <span>Give it some context</span>
+          <span>More context <em>optional</em></span>
           <textarea
             value={body}
             onChange={(event) => setBody(event.target.value)}
-            placeholder="Why does this matter when you forget it?"
+            placeholder="Add context if it helps you return to this later."
             rows={4}
           />
         </label>
@@ -6205,7 +6401,7 @@ function AnchorEditModal({
           settings={settings}
           onOpenSettings={onOpenSettings}
           label="Polish with AI"
-          prompt={`Polish this existing Anchor without changing its underlying meaning. Make it clear, memorable, and practical. Return only JSON with exactly these keys: title, body, tag. Preserve all meaningful details without shortening the content. Do not invent evidence or claims.\n\nTITLE\n${title}\n\nCONTEXT\n${body}\n\nTAG\n${tag}`}
+          prompt={`Polish this existing Anchor without changing its underlying meaning. Make it clear, memorable, and practical. Return only JSON with exactly these keys: title, body, tag. Preserve all meaningful details without shortening the content. Context is optional; do not invent evidence or claims.\n\nTITLE\n${title}\n\nCONTEXT\n${body || '(none — context is optional)'}\n\nTAG\n${tag}`}
           onResult={(response) => {
             const draft = parseAnchorDraft(response)
             setTitle(draft.title)
@@ -6309,7 +6505,7 @@ function AnchorEditModal({
           </button>
           <div className="modal-actions-right">
             <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
-            <button className="primary-button" type="submit" disabled={!title.trim() || !body.trim()}>
+            <button className="primary-button" type="submit" disabled={!title.trim()}>
               <Check size={16} />
               Save changes
             </button>
