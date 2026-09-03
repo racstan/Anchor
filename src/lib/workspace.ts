@@ -12,10 +12,13 @@ export interface WorkspaceAISettings {
   model: string
   baseUrl: string
   accountId: string
+  // Optional for backwards compatibility with pre-AI-key sync snapshots.
+  apiKey?: string
 }
 
-// Deliberately excludes secrets and device-only security state. API keys,
-// Dropbox/WebDAV credentials, and the device PIN must never enter a vault.
+// Workspace exports omit the API key by default. Cloud sync explicitly opts in
+// because a second device cannot use the synced AI connection without it. The
+// Dropbox/WebDAV credentials and device PIN remain device-only.
 export interface WorkspacePreferences {
   updatedAt?: string
   theme?: 'light' | 'dark'
@@ -34,6 +37,10 @@ export interface WorkspaceExport {
   profile: UserProfile
   preferences: WorkspacePreferences
   state: AnchorState
+}
+
+export interface WorkspaceSerializationOptions {
+  includeAIKey?: boolean
 }
 
 const accentColors = new Set(['coral', 'sage', 'sky', 'gold', 'plum'])
@@ -168,7 +175,12 @@ function readProfileValue(value: unknown): UserProfile {
   }
 }
 
-function readWorkspacePreferencesValue(value: unknown): WorkspacePreferences {
+function readWorkspacePreferencesValue(
+  value: unknown,
+  options: { includeAIKey?: boolean } = {},
+): WorkspacePreferences {
+  const includeAIKey = options.includeAIKey !== false
+
   if (!isRecord(value)) {
     return {}
   }
@@ -191,6 +203,7 @@ function readWorkspacePreferencesValue(value: unknown): WorkspacePreferences {
       model: value.ai.model,
       baseUrl: value.ai.baseUrl,
       accountId: value.ai.accountId,
+      ...(includeAIKey && isString(value.ai.apiKey) ? { apiKey: value.ai.apiKey } : {}),
     }
   }
 
@@ -247,6 +260,7 @@ export function createWorkspaceExport(
   state: AnchorState,
   profile: UserProfile,
   preferences: WorkspacePreferences = {},
+  options: WorkspaceSerializationOptions = {},
 ): WorkspaceExport {
   const normalizedState = normalizeAnchorState(state)
 
@@ -255,7 +269,7 @@ export function createWorkspaceExport(
     version: 1,
     exportedAt: new Date().toISOString(),
     profile: readProfileValue(profile),
-    preferences: readWorkspacePreferencesValue(preferences),
+    preferences: readWorkspacePreferencesValue(preferences, { includeAIKey: options.includeAIKey === true }),
     state: normalizedState,
   }
 }
@@ -264,8 +278,9 @@ export function serializeWorkspaceExport(
   state: AnchorState,
   profile: UserProfile,
   preferences: WorkspacePreferences = {},
+  options: WorkspaceSerializationOptions = {},
 ): string {
-  return JSON.stringify(createWorkspaceExport(state, profile, preferences), null, 2)
+  return JSON.stringify(createWorkspaceExport(state, profile, preferences, options), null, 2)
 }
 
 export function parseWorkspaceExport(rawValue: string): {
@@ -333,10 +348,20 @@ export function mergeWorkspacePreferences(
     return current
   }
 
+  const mergedAI: WorkspaceAISettings | undefined = incoming.ai
+    ? {
+      ...(current.ai ?? incoming.ai),
+      ...incoming.ai,
+      ...(incoming.ai.apiKey === undefined && current.ai?.apiKey !== undefined
+        ? { apiKey: current.ai.apiKey }
+        : {}),
+    }
+    : current.ai
+
   return {
     ...current,
     ...incoming,
-    ai: incoming.ai ?? current.ai,
+    ...(mergedAI ? { ai: mergedAI } : {}),
   }
 }
 

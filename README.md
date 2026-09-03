@@ -31,7 +31,7 @@ Onboarding also lets you start with a blank workspace or keep the gentle starter
 
 Open **Settings → AI connection**, choose a provider, enter its credentials, discover or type a model ID, and save the connection. Anchor supports OpenAI-compatible providers, Gemini, and Cloudflare Workers AI through the adapters in `src/lib/ai.ts`.
 
-Browser requests use `/api/anchor-ai`, a short-lived Vercel/server development relay that avoids provider CORS restrictions. The relay does not persist keys or decision context. API credentials remain in the browser's local storage, so use a private device and deploy your own relay for a production setup with stricter secrets management.
+Browser requests use `/api/anchor-ai`, a short-lived Vercel/server development relay that avoids provider CORS restrictions. The relay does not persist keys or decision context. API credentials remain in the browser's local storage, and are copied into the sync vault only when cloud sync is enabled, so use a private device and a sync provider you trust.
 
 Once connected, AI is available throughout the workspace:
 
@@ -44,7 +44,7 @@ These actions are opt-in: Anchor does not silently analyze or auto-send workspac
 
 ## Workspace backups
 
-**Settings → Workspace data** can export anchors, projects, decisions, notes, your profile, and safe preferences to a readable JSON file. AI provider/model preferences, appearance, and notification schedules sync with the workspace when cloud sync is enabled; API keys, Dropbox/WebDAV credentials, and the device PIN are deliberately excluded. Imports are validated and can either merge records by ID or replace the current workspace. Older state-only JSON backups are accepted too.
+**Settings → Workspace data** can export anchors, projects, decisions, notes, your profile, and safe preferences to a readable JSON file. AI provider/model preferences, appearance, and notification schedules sync with the workspace when cloud sync is enabled; the AI API key is included in the cloud-sync vault so another device can use the connection, while manual exports still omit it. Dropbox/WebDAV credentials and the device PIN remain device-only. Imports are validated and can either merge records by ID or replace the current workspace. Older state-only JSON backups are accepted too.
 
 **Notes** are a flexible place for rough thoughts, lists, drafts, and reference material. From Decision space, any recent note can be added directly to the situation or more-context field before asking Anchor to think it through.
 
@@ -54,11 +54,11 @@ Every workspace record has a stable machine ID plus a readable serial such as `A
 
 ## Dropbox sync
 
-The released web app is preconfigured with Anchor's public Dropbox App Key. Users only open **Settings → Cloud sync**, choose **Dropbox**, click **Connect Dropbox**, and approve access. They do not create an app, paste an access token, or create a folder. OAuth uses the browser-compatible PKCE code flow; access and refresh tokens stay in that device's local storage. The vault syncs workspace data plus non-secret preferences, including notification choices; provider credentials and device-only locks remain local.
+The released web app is preconfigured with Anchor's public Dropbox App Key. Users only open **Settings → Cloud sync**, choose **Dropbox**, click **Connect Dropbox**, and approve access. They do not create an app, paste an access token, or create a folder. OAuth uses the browser-compatible PKCE code flow; access and refresh tokens stay in that device's local storage. The vault syncs workspace data plus preferences, including notification choices and the AI API key, so another device can use the configured decision companion. Every sync is serialized and runs pull → merge → push; a failed pull never overwrites the remote vault. Use a Dropbox vault you trust; provider access tokens and device-only locks remain local.
 
 Desktop releases use Tauri's signed updater and can install updates from inside Anchor. Android releases download the signed APK inside Anchor and open Android's installer; Android may ask once for permission to install apps from Anchor, and the final install confirmation is always controlled by Android. The workflow also produces a signed AAB that is ready for Play Store submission when distribution is configured. The direct-APK installer permission is intended for sideloaded releases; review Google Play's `REQUEST_INSTALL_PACKAGES` policy before using the AAB there.
 
-The Dropbox app owner must configure an **App folder** app with `account_info.read`, `files.metadata.read`, `files.content.read`, and `files.content.write`, and register the exact callback `https://anchor-chi-eight.vercel.app/dropbox/callback`. On native releases, Anchor opens Dropbox in the system browser and hands the result back through its `anchor://` app link; the custom URI does not need to be added to Dropbox. Anchor creates a folder named after the vault automatically, then stores the workspace JSON at `/Anchor/anchor-vault.json` inside the Dropbox app folder. Decisions, anchors, notes, profile data, safe AI preferences, and notification choices are included; AI provider keys are not.
+The Dropbox app owner must configure an **App folder** app with `account_info.read`, `files.metadata.read`, `files.content.read`, and `files.content.write`, and register the exact callback `https://anchor-chi-eight.vercel.app/dropbox/callback`. On native releases, Anchor opens Dropbox in the system browser and hands the result back through its `anchor://` app link; the custom URI does not need to be added to Dropbox. Anchor creates a folder named after the vault automatically, then stores the workspace JSON at `/Anchor/anchor-vault.json` inside the Dropbox app folder. Decisions, anchors, notes, profile data, AI connection settings including the API key, and notification choices are included; Dropbox access tokens are not.
 
 ## Notifications
 

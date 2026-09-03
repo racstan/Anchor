@@ -1,16 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   getDropboxAuthUrl,
   getDropboxBackupPath,
   getDropboxNativeCallbackUrl,
   getDropboxVaultFolder,
+  executeWorkspaceSync,
   isDropboxNativeCallbackUrl,
   isNativeDropboxOAuthState,
   mergeSyncState,
   normalizeSyncSettings,
   readSyncSettings,
 } from './sync'
+import { initialState } from './anchors'
 import type { AnchorState } from './anchors'
+import { serializeWorkspaceExport } from './workspace'
 
 describe('timestamp-aware CRDT merge', () => {
   it('merges records preferring the newer timestamp', () => {
@@ -85,6 +88,124 @@ describe('timestamp-aware CRDT merge', () => {
 
     const anchor3 = merged.anchors.find((a) => a.id === 'anchor-3')
     expect(anchor3?.title).toBe('Remote only anchor')
+  })
+})
+
+describe('sync pipeline', () => {
+  it('pulls, merges, then pushes one merged snapshot including the AI key', async () => {
+    const remotePreferences = {
+      updatedAt: '2026-01-02T00:00:00.000Z',
+      ai: {
+        providerId: 'openai',
+        model: 'gpt-4.1-mini',
+        baseUrl: 'https://api.openai.com/v1',
+        accountId: '',
+        apiKey: 'remote-ai-key',
+      },
+    }
+    const remotePayload = serializeWorkspaceExport(initialState, { name: 'Remote name' }, remotePreferences, { includeAIKey: true })
+    const phases: string[] = []
+    const methods: string[] = []
+    let uploadedPayload = ''
+
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      methods.push(method)
+
+      if (method === 'PUT') {
+        uploadedPayload = new TextDecoder().decode(init?.body as Uint8Array)
+      }
+
+      return method === 'GET'
+        ? new Response(remotePayload, { status: 200 })
+        : new Response(null, { status: 200 })
+    }))
+
+    try {
+      const result = await executeWorkspaceSync(
+        { ...initialState, anchors: [] },
+        { name: 'Local name' },
+        {
+          enabled: true,
+          provider: 'webdav',
+          vaultName: 'Anchor',
+          autoSyncOnStartup: false,
+          autoSyncIntervalMinutes: 0,
+          webdavUrl: 'https://sync.example.test',
+        },
+        {
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          ai: {
+            providerId: 'openai',
+            model: 'gpt-4.1-mini',
+            baseUrl: 'https://api.openai.com/v1',
+            accountId: '',
+            apiKey: 'local-ai-key',
+          },
+        },
+        { onPhase: (phase) => phases.push(phase) },
+      )
+
+      expect(result.success).toBe(true)
+      expect(phases).toEqual(['pulling', 'merging', 'pushing'])
+      expect(methods).toEqual(['GET', 'PUT'])
+      expect(result.mergedPreferences?.ai?.apiKey).toBe('remote-ai-key')
+      expect(uploadedPayload).toContain('remote-ai-key')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('re-pulls before pushing when a WebDAV vault changes mid-sync', async () => {
+    const firstPayload = serializeWorkspaceExport(initialState, { name: 'Remote name' })
+    const latestState = {
+      ...initialState,
+      anchors: [{ ...initialState.anchors[0], title: 'Changed on another device', updatedAt: '2026-01-04T00:00:00.000Z' }],
+    }
+    const latestPayload = serializeWorkspaceExport(latestState, { name: 'Remote name' })
+    const methods: string[] = []
+    const ifMatchHeaders: (string | null)[] = []
+    let getCount = 0
+    let putCount = 0
+
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      methods.push(method)
+
+      if (method === 'GET') {
+        getCount += 1
+        return new Response(getCount === 1 ? firstPayload : latestPayload, {
+          status: 200,
+          headers: { ETag: getCount === 1 ? '"v1"' : '"v2"' },
+        })
+      }
+
+      putCount += 1
+      ifMatchHeaders.push(new Headers(init?.headers).get('If-Match'))
+      return new Response(null, { status: putCount === 1 ? 412 : 200 })
+    }))
+
+    try {
+      const result = await executeWorkspaceSync(
+        { ...initialState, anchors: [] },
+        { name: 'Local name' },
+        {
+          enabled: true,
+          provider: 'webdav',
+          vaultName: 'Anchor',
+          autoSyncOnStartup: false,
+          autoSyncIntervalMinutes: 0,
+          webdavUrl: 'https://sync.example.test',
+        },
+      )
+
+      expect(result.success).toBe(true)
+      expect(methods).toEqual(['GET', 'PUT', 'GET', 'PUT'])
+      expect(ifMatchHeaders).toEqual(['"v1"', '"v2"'])
+      expect(result.mergedState?.anchors[0]?.title).toBe('Changed on another device')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 
