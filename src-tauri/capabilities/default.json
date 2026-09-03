@@ -23,6 +23,7 @@
       ]
     },
     "notification:default",
+    "upload:default",
     "opener:default"
   ]
 }

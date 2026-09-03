@@ -1,6 +1,8 @@
+import packageMetadata from '../../package.json'
+
 export type PlatformType = 'web' | 'desktop-windows' | 'desktop-macos' | 'desktop-linux' | 'android'
 
-export const CURRENT_APP_VERSION = '0.1.12'
+export const CURRENT_APP_VERSION = packageMetadata.version
 export const GITHUB_REPO = 'racstan/Anchor'
 export const RELEASES_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
 export const RELEASES_WEB_URL = `https://github.com/${GITHUB_REPO}/releases/latest`
@@ -13,6 +15,15 @@ export interface ReleaseAsset {
   size: number
 }
 
+export interface AppUpdateProgress {
+  downloadedBytes: number
+  totalBytes?: number
+  percent?: number
+  transferSpeed?: number
+}
+
+export type AppUpdateProgressHandler = (progress: AppUpdateProgress) => void
+
 export interface AppUpdateInfo {
   isAvailable: boolean
   currentVersion: string
@@ -22,7 +33,7 @@ export interface AppUpdateInfo {
   publishedAt: string
   downloadUrl?: string
   assetName?: string
-  installUpdate?: () => Promise<void>
+  installUpdate?: (onProgress?: AppUpdateProgressHandler) => Promise<void>
   htmlUrl: string
   platform: PlatformType
   isNative: boolean
@@ -138,7 +149,10 @@ function isAllowedAndroidUpdateUrl(downloadUrl: string): boolean {
  * package installer. Android always shows a confirmation screen; silent
  * installation is not available to ordinary apps.
  */
-export async function downloadAndInstallAndroidUpdate(downloadUrl: string): Promise<void> {
+export async function downloadAndInstallAndroidUpdate(
+  downloadUrl: string,
+  onProgress?: AppUpdateProgressHandler,
+): Promise<void> {
   if (!isNativeApp() || getAppPlatform() !== 'android') {
     throw new Error('Android self-install is only available in the native Android app.')
   }
@@ -146,8 +160,8 @@ export async function downloadAndInstallAndroidUpdate(downloadUrl: string): Prom
     throw new Error('The Android update URL is not a trusted Anchor release.')
   }
 
-  const [http, path, filesystem, installer] = await Promise.all([
-    import('@tauri-apps/plugin-http'),
+  const [upload, path, filesystem, installer] = await Promise.all([
+    import('@tauri-apps/plugin-upload'),
     import('@tauri-apps/api/path'),
     import('@tauri-apps/plugin-fs'),
     import('tauri-plugin-android-installer-api'),
@@ -160,24 +174,49 @@ export async function downloadAndInstallAndroidUpdate(downloadUrl: string): Prom
     }
   }
 
-  const response = await http.fetch(downloadUrl, {
-    method: 'GET',
-    maxRedirections: 5,
-    connectTimeout: 30_000,
-  })
-  if (!response.ok) {
-    throw new Error(`Android update download failed (HTTP ${response.status})`)
-  }
-
-  const contentLength = Number(response.headers.get('content-length'))
-  if (Number.isFinite(contentLength) && contentLength > MAX_ANDROID_UPDATE_BYTES) {
-    throw new Error('The Android update is unexpectedly large and was not downloaded.')
-  }
-
   const cachePath = await path.appCacheDir()
   const apkPath = await path.join(cachePath, ANDROID_UPDATE_FILENAME)
-  const apkData = response.body ?? new Uint8Array(await response.arrayBuffer())
-  await filesystem.writeFile(apkPath, apkData)
+
+  let latestProgress: AppUpdateProgress | undefined
+  onProgress?.({ downloadedBytes: 0 })
+
+  try {
+    await upload.download(downloadUrl, apkPath, (progress) => {
+      const totalBytes = Number.isFinite(progress.total) && progress.total > 0 ? progress.total : undefined
+      const downloadedBytes = Math.max(0, progress.progressTotal)
+
+      if (totalBytes && totalBytes > MAX_ANDROID_UPDATE_BYTES) {
+        throw new Error('The Android update is unexpectedly large and was not downloaded.')
+      }
+
+      latestProgress = {
+        downloadedBytes,
+        ...(totalBytes ? {
+          totalBytes,
+          percent: Math.min(100, Math.max(0, Math.round((downloadedBytes / totalBytes) * 100))),
+        } : {}),
+        ...(progress.transferSpeed > 0 ? { transferSpeed: progress.transferSpeed } : {}),
+      }
+      onProgress?.(latestProgress)
+    })
+  } catch (error) {
+    try {
+      await filesystem.remove(apkPath)
+    } catch {
+      // A partial cache file is harmless if Android or the filesystem already
+      // removed it while reporting the download failure.
+    }
+    throw error
+  }
+
+  if (latestProgress?.percent !== 100) {
+    onProgress?.({
+      ...latestProgress,
+      downloadedBytes: latestProgress?.totalBytes ?? latestProgress?.downloadedBytes ?? 0,
+      ...(latestProgress?.totalBytes ? { totalBytes: latestProgress.totalBytes } : {}),
+      percent: 100,
+    })
+  }
   await installer.install(apkPath)
 }
 
@@ -264,7 +303,7 @@ async function checkGithubRelease(platform: PlatformType, isNative: boolean): Pr
     platform,
     isNative,
     installUpdate: isNative && platform === 'android' && bestAsset
-      ? () => downloadAndInstallAndroidUpdate(bestAsset.browser_download_url)
+      ? (onProgress) => downloadAndInstallAndroidUpdate(bestAsset.browser_download_url, onProgress)
       : undefined,
   }
 }

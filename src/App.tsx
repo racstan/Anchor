@@ -109,7 +109,7 @@ import {
   getAppPlatform,
   isNativeApp,
 } from './lib/updater'
-import type { AppUpdateInfo } from './lib/updater'
+import type { AppUpdateInfo, AppUpdateProgress } from './lib/updater'
 import {
   completeDropboxOAuth,
   DEFAULT_DROPBOX_APP_KEY,
@@ -6948,16 +6948,26 @@ interface UpdateModalProps {
   onClose: () => void
 }
 
+function formatUpdateBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—'
+  if (bytes < 1024) return `${Math.round(bytes)} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+}
+
 function UpdateModal({ updateInfo, onClose }: UpdateModalProps) {
   const [isInstalling, setIsInstalling] = useState(false)
   const [installError, setInstallError] = useState<string>()
+  const [downloadProgress, setDownloadProgress] = useState<AppUpdateProgress>()
 
   const handleDownload = async () => {
     if (updateInfo.installUpdate) {
       setIsInstalling(true)
       setInstallError(undefined)
+      setDownloadProgress(undefined)
       try {
-        await updateInfo.installUpdate()
+        await updateInfo.installUpdate((progress) => setDownloadProgress(progress))
       } catch (error) {
         setInstallError(error instanceof Error ? error.message : 'The update could not be installed. Please try again from the release page.')
       } finally {
@@ -7005,6 +7015,32 @@ function UpdateModal({ updateInfo, onClose }: UpdateModalProps) {
         )}
         {updateInfo.platform === 'android' && updateInfo.installUpdate && (
           <p className="update-asset-note">Anchor will download the APK and open Android&apos;s installer. Android may ask you to allow installs from Anchor once.</p>
+        )}
+        {isInstalling && updateInfo.platform === 'android' && (
+          <div className="update-progress" role="status" aria-live="polite">
+            <div className="update-progress-heading">
+              <span>{downloadProgress?.percent === 100 ? 'Download complete — opening installer…' : 'Downloading update…'}</span>
+              <strong>{downloadProgress?.percent !== undefined ? `${downloadProgress.percent}%` : 'Starting'}</strong>
+            </div>
+            <div
+              className={`update-progress-track ${downloadProgress?.percent === undefined ? 'indeterminate' : ''}`}
+              role="progressbar"
+              aria-label="Android update download progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              {...(downloadProgress?.percent !== undefined ? { 'aria-valuenow': downloadProgress.percent } : {})}
+            >
+              {downloadProgress?.percent !== undefined && (
+                <span className="update-progress-fill" style={{ width: `${downloadProgress.percent}%` }} />
+              )}
+              {downloadProgress?.percent === undefined && <span className="update-progress-fill indeterminate" />}
+            </div>
+            <p className="update-progress-detail">
+              {downloadProgress
+                ? `${formatUpdateBytes(downloadProgress.downloadedBytes)}${downloadProgress.totalBytes ? ` of ${formatUpdateBytes(downloadProgress.totalBytes)}` : ' downloaded'}`
+                : 'Preparing a secure download…'}
+            </p>
+          </div>
         )}
         {installError && <div className="update-install-error" role="alert"><CircleAlert size={14} /> <span>{installError}</span></div>}
         <div className="modal-actions modal-actions-split">

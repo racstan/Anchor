@@ -2644,10 +2644,15 @@ html[data-theme='dark'] {
   position: fixed;
   z-index: 40;
   inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: 100vw;
+  max-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
+  overflow: hidden;
   background: rgba(8, 14, 30, 0.54);
   backdrop-filter: blur(8px) saturate(1.1);
   -webkit-backdrop-filter: blur(8px) saturate(1.1);
@@ -2655,8 +2660,13 @@ html[data-theme='dark'] {
 
 .modal-card {
   width: min(560px, 100%);
+  max-width: calc(100vw - 40px);
+  min-width: 0;
+  min-height: 0;
   max-height: calc(100vh - 32px);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 26px 26px 22px;
   border: 1px solid rgba(255, 255, 255, 0.9);
   border-radius: var(--radius-xl);
@@ -2689,6 +2699,7 @@ html[data-theme='dark'] {
 }
 
 .modal-header h2 {
+  min-width: 0;
   margin: 0;
   color: var(--ink);
   font-family: var(--font-display);
@@ -2696,6 +2707,7 @@ html[data-theme='dark'] {
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.1;
+  overflow-wrap: anywhere;
 }
 
 .modal-close {
@@ -3012,6 +3024,7 @@ fieldset.form-field {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 }
 
 .modal-actions-right {
@@ -6413,6 +6426,7 @@ fieldset.form-field {
 /* Update Modal */
 .update-modal-content {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 16px;
 }
@@ -6420,12 +6434,17 @@ fieldset.form-field {
 .update-version-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
+  min-width: 0;
 }
 
 .version-pill {
+  max-width: 100%;
+  min-width: 0;
   padding: 6px 12px;
   border-radius: 999px;
+  overflow-wrap: anywhere;
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
@@ -6449,6 +6468,7 @@ fieldset.form-field {
 }
 
 .update-notes-box {
+  min-width: 0;
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -6463,26 +6483,100 @@ fieldset.form-field {
 }
 
 .update-notes-body {
+  min-width: 0;
   font-size: 13px;
   color: var(--muted);
   line-height: 1.5;
   white-space: pre-line;
+  overflow-wrap: anywhere;
   max-height: 180px;
   overflow-y: auto;
 }
 
 .update-asset-note {
+  min-width: 0;
   margin: 0;
   font-size: 12px;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .update-asset-note code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
   font-family: var(--font-mono);
   background: var(--surface-2);
   padding: 2px 6px;
   border-radius: 4px;
   border: 1px solid var(--line);
+}
+
+.update-progress {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--primary-border);
+  border-radius: var(--radius-md);
+  background: var(--primary-light);
+}
+
+.update-progress-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.update-progress-heading span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.update-progress-heading strong {
+  flex: 0 0 auto;
+  color: var(--primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.update-progress-track {
+  position: relative;
+  width: 100%;
+  height: 8px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.update-progress-fill {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 180ms ease;
+}
+
+.update-progress-fill.indeterminate {
+  width: 38%;
+  animation: updateProgressIndeterminate 1.15s ease-in-out infinite;
+}
+
+@keyframes updateProgressIndeterminate {
+  0% { transform: translateX(-110%); }
+  50% { transform: translateX(120%); }
+  100% { transform: translateX(290%); }
+}
+
+.update-progress-detail {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
 }
 
 .update-install-error {
@@ -7765,12 +7859,43 @@ fieldset.form-field {
 
   .modal-backdrop {
     align-items: flex-start;
+    width: 100vw;
+    height: 100dvh;
+    max-width: 100vw;
+    max-height: 100dvh;
     padding: 12px;
   }
 
   .modal-card {
+    width: 100%;
+    max-width: 100%;
     max-height: calc(100dvh - 24px);
     -webkit-overflow-scrolling: touch;
+  }
+
+  .modal-actions-split {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .modal-actions-right {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .modal-actions-right .primary-button,
+  .modal-actions-right .secondary-button {
+    width: 100%;
+  }
+
+  .native-android .modal-backdrop {
+    padding-top: calc(12px + var(--android-safe-top));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .native-android .modal-card {
+    max-height: calc(100dvh - 24px - var(--android-safe-top) - env(safe-area-inset-bottom));
   }
 
   .page-heading {
