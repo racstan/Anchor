@@ -1,6 +1,6 @@
 # Anchor
 
-**Version: 0.1.12**
+**Version: 0.1.13**
 
 Anchor is a calm, local-first workspace for the ideas, principles, and decisions you want to keep close. The same React frontend runs on the web and inside the Tauri 2 desktop/mobile shell.
 
