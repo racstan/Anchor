@@ -267,4 +267,15 @@ export const APP_CHANGELOG: readonly AppChangelogEntry[] = [
       'Anchor references stay unique through stable workspace serials',
     ],
   },
+  {
+    version: '0.1.23',
+    title: 'A more capable companion',
+    releasedAt: '2026-09-04',
+    summary: 'Anchor can now inspect your workspace with local AI tools and keep reminders dependable across Android and other platforms.',
+    highlights: [
+      'Workspace-aware AI tools for Walkthrough, Decision space, and Anchor agents',
+      'Collapsible Walkthrough AI panel and clearer lookup status',
+      'Selected-day and repeating-interval notification schedules with native Android reminders',
+    ],
+  },
 ]
