@@ -1,6 +1,6 @@
 # Anchor
 
-**Version: 0.1.21**
+**Version: 0.1.22**
 
 Anchor is a calm, local-first workspace for the ideas, principles, and decisions you want to keep close. The same React frontend runs on the web and inside the Tauri 2 desktop/mobile shell.
 
@@ -53,7 +53,7 @@ When a newer Anchor release is available, the app checks on launch and opens a c
 
 ## Record identity and editing
 
-Every workspace record has a stable machine ID and a readable reference. Global anchors use references such as `GLOBAL-ANCHOR-0001`; project anchors include their project name, such as `PROJECT-TRADING-ANCHOR-0002`, so they cannot be confused with anchors in another space. Projects, notes, decision rooms, and chat messages retain compact serials such as `P-0001`, `N-0001`, `D-0001`, and `M-0001`. References remain unique through local backups and sync, and older workspaces are handled automatically on the next open. New anchors start outside the daily rotation; pin one when you want it on Today.
+Every workspace record has a stable machine ID and a readable reference. Global anchors use references such as `GLOBAL-ANCHOR-0001`; project anchors use the project's lowercase initials, such as `tr-0001` for Trading Rulebook, so they are easy to identify without a long label. Projects, notes, decision rooms, and chat messages retain compact serials such as `P-0001`, `N-0001`, `D-0001`, and `M-0001`. References remain unique through local backups and sync, and older workspaces are handled automatically on the next open. New anchors start outside the daily rotation; pin one when you want it on Today.
 
 ## Dropbox sync
 

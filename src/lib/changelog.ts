@@ -256,4 +256,15 @@ export const APP_CHANGELOG: readonly AppChangelogEntry[] = [
       'A concise walkthrough with exact actions and workspace-aware AI help',
     ],
   },
+  {
+    version: '0.1.22',
+    title: 'Shorter names, same context',
+    releasedAt: '2026-09-04',
+    summary: 'Project anchors now use compact lowercase initials, so Trading Rulebook anchors read as tr-0001 instead of a long project label.',
+    highlights: [
+      'Project anchor references use the first letter of each project-name word',
+      'Existing legacy A-0001 searches continue to work',
+      'Anchor references stay unique through stable workspace serials',
+    ],
+  },
 ]

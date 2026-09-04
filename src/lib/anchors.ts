@@ -223,23 +223,22 @@ export function formatEntitySerial(prefix: EntitySerialPrefix, serialNumber: num
   return `${prefix}-${String(safeSerial).padStart(4, '0')}`
 }
 
-function readableProjectKey(name: string): string {
-  const key = name
+function projectAnchorPrefix(name: string): string {
+  const words = name
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 32)
-    .replace(/-+$/g, '')
+    .toLowerCase()
+    .match(/[a-z0-9]+/g) ?? []
+  const prefix = words.length > 1
+    ? words.map((word) => word[0]).join('')
+    : words[0]?.slice(0, 2) ?? ''
 
-  return key || 'PROJECT'
+  return prefix.slice(0, 8) || 'pr'
 }
 
 /**
  * A human-facing anchor reference. The internal `id` stays opaque and stable;
- * this reference makes an anchor's scope obvious and prevents project anchors
- * from looking like duplicate global records.
+ * project anchors use the project's initials so their scope is clear at a glance.
  */
 export function formatAnchorSerial(
   anchor: Pick<Anchor, 'scope' | 'serialNumber'>,
@@ -251,10 +250,7 @@ export function formatAnchorSerial(
     return `GLOBAL-ANCHOR-${serial}`
   }
 
-  const projectKey = readableProjectKey(projectName)
-  return projectKey === 'PROJECT'
-    ? `PROJECT-ANCHOR-${serial}`
-    : `PROJECT-${projectKey}-ANCHOR-${serial}`
+  return `${projectAnchorPrefix(projectName)}-${serial}`
 }
 
 export function nextSerialNumber(records: SerialRecord[]): number {
@@ -474,7 +470,7 @@ export function filterAnchors(
     })
     .map((anchor) => ({
       anchor,
-      match: getAnchorSearchMatch(anchor, query, projects.find((project) => project.id === anchor.projectId)?.name),
+      match: getAnchorSearchMatch(anchor, query, anchor.projectId ? projects.find((project) => project.id === anchor.projectId)?.name ?? anchor.projectId : ''),
     }))
     .filter((entry): entry is { anchor: Anchor; match: AnchorSearchMatch } => entry.match !== null)
 

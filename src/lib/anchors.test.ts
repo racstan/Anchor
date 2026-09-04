@@ -78,7 +78,7 @@ describe('anchor filtering', () => {
       createdAt: '2025-01-01T00:00:00.000Z',
     }]
 
-    expect(filterAnchors(anchors, 'all', undefined, 'PROJECT-TRADING-ANCHOR-0002', projects)).toEqual([anchors[1]])
+    expect(filterAnchors(anchors, 'all', undefined, 'tr-0002', projects)).toEqual([anchors[1]])
   })
 })
 
@@ -116,8 +116,9 @@ describe('record identity and timestamps', () => {
     expect(nextSerialNumber(normalized.anchors)).toBe(9)
     expect(formatEntitySerial('A', normalized.anchors[0].serialNumber)).toBe('A-0001')
     expect(formatAnchorSerial(anchors[0])).toBe('GLOBAL-ANCHOR-0001')
-    expect(formatAnchorSerial(anchors[1], 'Trading')).toBe('PROJECT-TRADING-ANCHOR-0002')
-    expect(formatAnchorSerial(anchors[1])).toBe('PROJECT-ANCHOR-0002')
+    expect(formatAnchorSerial({ ...anchors[1], serialNumber: 1 }, 'Trading Rulebook')).toBe('tr-0001')
+    expect(formatAnchorSerial(anchors[1], 'Trading Rulebook')).toBe('tr-0002')
+    expect(formatAnchorSerial(anchors[1])).toBe('pr-0002')
   })
 
   it('formats an exact timestamp for record details', () => {

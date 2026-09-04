@@ -420,7 +420,10 @@ function profileInitial(name: string): string {
 }
 
 function anchorReference(anchor: Anchor, projects: Project[] = []): string {
-  return formatAnchorSerial(anchor, getProject(projects, anchor.projectId)?.name)
+  const projectName = anchor.projectId
+    ? getProject(projects, anchor.projectId)?.name ?? anchor.projectId
+    : ''
+  return formatAnchorSerial(anchor, projectName)
 }
 
 function serializeDraftValue(value: unknown): string {
@@ -3601,7 +3604,7 @@ function HomeView({
                   )}
                   <div className="spotlight-bottom">
                     <div className="spotlight-meta">
-                      <span className="spotlight-record">{formatAnchorSerial(spotlight, getProject(projects, spotlight.projectId)?.name)}</span>
+                      <span className="spotlight-record">{anchorReference(spotlight, projects)}</span>
                       <span className="meta-separator">/</span>
                       <span className="spotlight-scope">
                         {spotlight.scope === 'global' ? 'Global context' : 'Project context'}
@@ -4043,7 +4046,7 @@ function AnchorListItem({ anchor, projects, query, onOpen, onTogglePinned, onEdi
         )}
         <EntityIdentity
           prefix="A"
-          displaySerial={formatAnchorSerial(anchor, project?.name)}
+          displaySerial={anchorReference(anchor, projects)}
           serialNumber={anchor.serialNumber}
           id={anchor.id}
           createdAt={anchor.createdAt}
@@ -4106,7 +4109,7 @@ function AnchorDetailView({
         </div>
 
         <div className="anchor-detail-heading">
-          <p className="eyebrow"><AnchorIcon size={13} /> {formatAnchorSerial(anchor, project?.name)}</p>
+          <p className="eyebrow"><AnchorIcon size={13} /> {anchorReference(anchor, projects)}</p>
           <h1>{anchor.title}</h1>
         </div>
 
@@ -4151,7 +4154,7 @@ function AnchorDetailView({
           </div>
           <EntityIdentity
             prefix="A"
-            displaySerial={formatAnchorSerial(anchor, project?.name)}
+            displaySerial={anchorReference(anchor, projects)}
             serialNumber={anchor.serialNumber}
             id={anchor.id}
             createdAt={anchor.createdAt}
@@ -4541,7 +4544,7 @@ function buildWorkspaceAIContext(
     const count = anchors.filter((anchor) => anchor.projectId === project.id).length
     return `- ${project.name}: ${project.description} (${count} anchor${count === 1 ? '' : 's'})`
   })
-  const anchorLines = anchors.slice(0, 24).map((anchor) => anchorPromptLine(anchor, getProject(projects, anchor.projectId)?.name))
+  const anchorLines = anchors.slice(0, 24).map((anchor) => anchorPromptLine(anchor, anchor.projectId ? getProject(projects, anchor.projectId)?.name ?? anchor.projectId : ''))
   const decisionLines = decisions.slice(0, 8).map((decision) =>
     `- ${decisionPreview(decision)}${decision.projectId ? ` [project: ${projects.find((project) => project.id === decision.projectId)?.name ?? 'unknown'}]` : ''}`,
   )
@@ -5363,7 +5366,7 @@ function AnchorReflectionModal({
     const related = relatedAnchors
       .filter((item) => item.id !== anchor.id && (item.projectId === anchor.projectId || item.scope === 'global'))
       .slice(0, 8)
-      .map((item) => anchorPromptLine(item, project?.name ?? ''))
+      .map((item) => anchorPromptLine(item, item.projectId ? project?.name ?? item.projectId : ''))
       .join('\n')
 
     try {
@@ -5374,7 +5377,7 @@ function AnchorReflectionModal({
         },
         {
           role: 'user',
-          content: `ANCHOR\n${anchorPromptLine(anchor, project?.name ?? '')}\n\n${project ? `PROJECT\n${project.name}: ${project.description}` : 'SCOPE\nGlobal context'}\n\nRELATED ANCHORS\n${related || '- None yet.'}\n\nREQUEST\n${trimmedPrompt}`,
+          content: `ANCHOR\n${anchorPromptLine(anchor, anchor.projectId ? project?.name ?? anchor.projectId : '')}\n\n${project ? `PROJECT\n${project.name}: ${project.description}` : 'SCOPE\nGlobal context'}\n\nRELATED ANCHORS\n${related || '- None yet.'}\n\nREQUEST\n${trimmedPrompt}`,
         },
       ], requestController.signal)
       setAnswer(response)
@@ -5442,7 +5445,7 @@ function anchorPromptLine(anchor: Anchor, projectName = ''): string {
   const attachments = anchor.attachments?.length
     ? ` [Attachments: ${anchor.attachments.map((attachment) => `${attachment.name}${attachment.source === 'link' ? ` — ${attachment.url}` : ''}`).join('; ')}]`
     : ''
-  const serial = formatAnchorSerial(anchor, projectName)
+  const serial = formatAnchorSerial(anchor, projectName || anchor.projectId || '')
   const body = anchor.body.trim()
 
   return `- ${serial} ${anchor.title}${body ? `: ${body}` : ''}${evidence}${attachments}`
@@ -5794,7 +5797,7 @@ function buildWalkthroughAIContext(
   const records: WalkthroughContextRecord[] = [
     ...anchors.map((anchor) => ({
       kind: 'Anchor' as const,
-      text: `${anchorPromptLine(anchor, anchor.projectId ? projectNames.get(anchor.projectId) ?? '' : '')} [${anchor.projectId ? `Project: ${projectNames.get(anchor.projectId) ?? 'Unknown project'}` : 'Global context'}]`,
+      text: `${anchorPromptLine(anchor, anchor.projectId ? projectNames.get(anchor.projectId) ?? anchor.projectId : '')} [${anchor.projectId ? `Project: ${projectNames.get(anchor.projectId) ?? 'Unknown project'}` : 'Global context'}]`,
       updatedAt: anchor.updatedAt,
     })),
     ...projects.map((project) => ({
@@ -6237,7 +6240,7 @@ function AnchorImportPicker({ anchors, projects, selectedIds, onChange }: Anchor
                   <span className="anchor-import-check">{selected && <Check size={12} />}</span>
                   <span className={`context-dot ${anchor.color}`} />
                   <span className="anchor-import-option-copy">
-                    <strong><span className="record-number">{formatAnchorSerial(anchor, getProject(projects, anchor.projectId)?.name)}</span>{anchor.title}</strong>
+                    <strong><span className="record-number">{anchorReference(anchor, projects)}</span>{anchor.title}</strong>
                     <small>{anchor.scope === 'global' ? 'Global context' : 'Project context'} · {anchor.tag}</small>
                   </span>
                 </button>
@@ -6728,7 +6731,7 @@ function DecisionView({
                 {importedAnchors.map((anchor) => (
                   <span key={anchor.id}>
                     <span className={`context-dot ${anchor.color}`} />
-                    <strong>{formatAnchorSerial(anchor, getProject(projects, anchor.projectId)?.name)}</strong> {anchor.title}
+                    <strong>{anchorReference(anchor, projects)}</strong> {anchor.title}
                   </span>
                 ))}
               </div>
@@ -8757,7 +8760,6 @@ function AnchorEditModal({
   onSave,
   onDelete,
 }: AnchorEditModalProps) {
-  const project = getProject(projects, anchor.projectId)
   const initialDraft: AnchorComposerDraft = {
     title: anchor.title,
     body: anchor.body,
@@ -8840,7 +8842,7 @@ function AnchorEditModal({
       <form className="composer-form" onSubmit={handleSubmit}>
         <EntityIdentity
           prefix="A"
-          displaySerial={formatAnchorSerial(anchor, project?.name)}
+          displaySerial={anchorReference(anchor, projects)}
           serialNumber={anchor.serialNumber}
           id={anchor.id}
           createdAt={anchor.createdAt}
