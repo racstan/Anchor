@@ -34,6 +34,7 @@ import {
   Link2,
   Menu,
   MessageCircle,
+  Minus,
   Moon,
   MoonStar,
   MoreHorizontal,
@@ -181,6 +182,42 @@ type AnchorFormData = Pick<Anchor, 'title' | 'body' | 'scope' | 'tag' | 'color' 
   projectId?: string
   evidence?: EvidenceSource
   attachments: AnchorAttachment[]
+}
+
+type AnchorAgentEditableFields = Pick<Anchor, 'title' | 'body' | 'tag' | 'color' | 'pinned'>
+
+type AnchorAgentNewAnchor = AnchorAgentEditableFields
+
+interface AnchorAgentUpdateChange {
+  action: 'update'
+  anchorId: string
+  changes: Partial<AnchorAgentEditableFields>
+  reason: string
+}
+
+interface AnchorAgentAddChange {
+  action: 'add'
+  anchor: AnchorAgentNewAnchor
+  reason: string
+}
+
+interface AnchorAgentDeleteChange {
+  action: 'delete'
+  anchorId: string
+  reason: string
+}
+
+type AnchorAgentChange = AnchorAgentUpdateChange | AnchorAgentAddChange | AnchorAgentDeleteChange
+
+interface AnchorAgentPlan {
+  summary: string
+  changes: AnchorAgentChange[]
+}
+
+interface AnchorAgentContext {
+  text: string
+  anchors: Anchor[]
+  omittedCount: number
 }
 
 type ProjectFormData = Pick<Project, 'name' | 'description' | 'color'>
@@ -2138,6 +2175,75 @@ function App() {
     showToast('Anchor updated.')
   }
 
+  const applyAnchorAgentChanges = (changes: AnchorAgentChange[]) => {
+    if (!changes.length) return
+
+    const timestamp = new Date().toISOString()
+    const currentState = stateRef.current
+    const nextAnchors = [...currentState.anchors]
+    const deletedIds = new Set<string>()
+    let appliedCount = 0
+
+    changes.forEach((change) => {
+      if (change.action === 'update') {
+        const anchorIndex = nextAnchors.findIndex((anchor) => anchor.id === change.anchorId)
+        if (anchorIndex < 0) return
+
+        const existingAnchor = nextAnchors[anchorIndex]
+        const nextAnchor: Anchor = {
+          ...existingAnchor,
+          ...change.changes,
+          updatedAt: timestamp,
+        }
+        if (!existingAnchor.pinned && nextAnchor.pinned) {
+          nextAnchor.lastSeenAt = undefined
+        }
+        nextAnchors[anchorIndex] = nextAnchor
+        appliedCount += 1
+        return
+      }
+
+      if (change.action === 'add') {
+        nextAnchors.unshift({
+          ...change.anchor,
+          id: createId('anchor'),
+          serialNumber: nextSerialNumber(nextAnchors),
+          scope: 'global',
+          title: change.anchor.title.trim(),
+          body: change.anchor.body.trim(),
+          tag: change.anchor.tag.trim() || 'Personal',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        })
+        appliedCount += 1
+        return
+      }
+
+      const anchorIndex = nextAnchors.findIndex((anchor) => anchor.id === change.anchorId)
+      if (anchorIndex < 0) return
+
+      const [deletedAnchor] = nextAnchors.splice(anchorIndex, 1)
+      if (deletedAnchor) {
+        removeLocalAnchorAttachments(deletedAnchor.attachments ?? [])
+        deletedIds.add(deletedAnchor.id)
+        appliedCount += 1
+      }
+    })
+
+    if (!appliedCount) {
+      showToast('Those AI changes are no longer available. Refresh the anchor list and try again.')
+      return
+    }
+
+    const nextState = { ...currentState, anchors: nextAnchors }
+    stateRef.current = nextState
+    setState(nextState)
+    if (spotlightAnchorId && deletedIds.has(spotlightAnchorId)) {
+      setSpotlightAnchorId(undefined)
+    }
+    showToast(`Applied ${appliedCount} AI change${appliedCount === 1 ? '' : 's'} to your anchors.`)
+  }
+
   const deleteAnchor = (anchorId: string) => {
     const deletedAnchor = state.anchors.find((anchor) => anchor.id === anchorId)
     if (deletedAnchor?.attachments) {
@@ -2620,6 +2726,7 @@ function App() {
         onEditAnchor={setEditingAnchor}
         onOpenAnchor={openAnchorDetail}
         onTogglePinned={togglePinned}
+        onApplyAnchorChanges={applyAnchorAgentChanges}
         onAskAnchor={setAIReflectionAnchor}
       />
     )
@@ -3407,7 +3514,30 @@ function HomeView({
                 <span className="eyebrow light-eyebrow">
                   <Sparkles size={13} /> Today&apos;s focus
                 </span>
-                {spotlight && <span className="spotlight-remaining">{pinnedCount} left today</span>}
+                {spotlight && (
+                  <div className="spotlight-header-tools">
+                    <span className="spotlight-remaining">{pinnedCount} left today</span>
+                    <div className="spotlight-actions">
+                      <button
+                        className="remember-button"
+                        type="button"
+                        onClick={() => onRemember(spotlight.id)}
+                        title="Mark this anchor as remembered for today and show the next one"
+                      >
+                        <Check size={15} />
+                        Done for today
+                      </button>
+                      <button className="next-anchor spotlight-open-anchor" type="button" onClick={() => onOpenAnchor(spotlight)}>
+                        <span>Open anchor</span>
+                        <ChevronRight size={15} />
+                      </button>
+                      <button className="next-anchor" type="button" onClick={onNextSpotlight}>
+                        <span>Another one</span>
+                        <ArrowUpRight size={15} />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
               {spotlight ? (
                 <>
@@ -3434,25 +3564,6 @@ function HomeView({
                       </span>
                       <span className="meta-separator">/</span>
                       <span>{spotlight.tag}</span>
-                    </div>
-                    <div className="spotlight-actions">
-                      <button
-                        className="remember-button"
-                        type="button"
-                        onClick={() => onRemember(spotlight.id)}
-                        title="Mark this anchor as remembered for today and show the next one"
-                      >
-                        <Check size={15} />
-                        Done for today
-                      </button>
-                      <button className="next-anchor spotlight-open-anchor" type="button" onClick={() => onOpenAnchor(spotlight)}>
-                        <span>Open anchor</span>
-                        <ChevronRight size={15} />
-                      </button>
-                      <button className="next-anchor" type="button" onClick={onNextSpotlight}>
-                        <span>Another one</span>
-                        <ArrowUpRight size={15} />
-                      </button>
                     </div>
                   </div>
                 </>
@@ -3569,6 +3680,7 @@ interface AnchorsViewProps {
   onEditAnchor: (anchor: Anchor) => void
   onOpenAnchor: (anchor: Anchor) => void
   onTogglePinned: (anchorId: string) => void
+  onApplyAnchorChanges: (changes: AnchorAgentChange[]) => void
   settings: AISettings
   onOpenSettings: () => void
   onAskAnchor: (anchor: Anchor) => void
@@ -3585,6 +3697,7 @@ function AnchorsView({
   onEditAnchor,
   onOpenAnchor,
   onTogglePinned,
+  onApplyAnchorChanges,
   settings,
   onOpenSettings,
   onAskAnchor,
@@ -3616,6 +3729,7 @@ function AnchorsView({
       return sort === 'updatedAsc' ? timeComparison : -timeComparison
     })
   }, [anchors, contentFilter, filter, filterNow, projectFilter, query, sort])
+  const anchorAIContext = useMemo(() => buildAnchorAIContext(anchors), [anchors])
   const hasAdvancedFilters = contentFilter !== 'all' || Boolean(projectFilter) || sort !== 'updatedDesc'
   const heading =
     filter === 'global' ? 'Global context' : filter === 'projects' ? 'Project anchors' : 'All anchors'
@@ -3734,19 +3848,13 @@ function AnchorsView({
       </div>
       <p className="anchor-filter-summary">Showing {filteredAnchors.length} of {filterAnchors(anchors, filter, projectFilter || undefined, '').length} anchors</p>
 
-      <AIInsightCard
-        className="anchors-ai-card"
-        eyebrow="Your context, understood"
-        title="Make your anchors work harder"
-        description="Ask Anchor to spot themes, simplify a group of reminders, or turn what you saved into a practical next step."
-        context={limitAIContext(anchors.map(anchorPromptLine).join('\n') || '- No anchors yet.', 12000)}
-        prompts={[
-          { label: 'Find themes', prompt: 'What themes or tensions show up across these anchors?' },
-          { label: 'Make them actionable', prompt: 'Turn the most useful anchors into three small actions for this week.' },
-          { label: 'Spot duplicates', prompt: 'Which anchors overlap, and how could I combine them without losing meaning?' },
-        ]}
+      <AnchorAgentCard
+        context={anchorAIContext.text}
+        contextAnchors={anchorAIContext.anchors}
+        omittedContextCount={anchorAIContext.omittedCount}
         settings={settings}
         onOpenSettings={onOpenSettings}
+        onApplyChanges={onApplyAnchorChanges}
       />
 
       {filteredAnchors.length > 0 ? (
@@ -4030,6 +4138,41 @@ function attachmentKindLabel(kind: AnchorAttachment['kind']): string {
   return 'Link'
 }
 
+type AnchorMediaKind = Exclude<AnchorAttachment['kind'], 'link'>
+
+function attachmentPreviewKind(attachment: AnchorAttachment): AnchorMediaKind | undefined {
+  if (attachment.kind !== 'link') {
+    return attachment.kind
+  }
+
+  const mimeType = attachment.mimeType?.toLowerCase() ?? ''
+  if (mimeType.startsWith('image/')) return 'image'
+  if (mimeType.startsWith('video/')) return 'video'
+  if (mimeType.startsWith('audio/')) return 'audio'
+
+  if (attachment.source !== 'link') {
+    return undefined
+  }
+
+  try {
+    const pathname = new URL(attachment.url).pathname.toLowerCase()
+    if (/\.(avif|gif|jpe?g|png|svg|webp)$/.test(pathname)) return 'image'
+    if (/\.(m4v|mov|mp4|ogv|webm)$/.test(pathname)) return 'video'
+    if (/\.(aac|flac|m4a|mp3|oga|wav)$/.test(pathname)) return 'audio'
+  } catch {
+    return undefined
+  }
+
+  return undefined
+}
+
+function anchorTitleForSave(title: string, attachments: AnchorAttachment[]): string {
+  const trimmedTitle = title.trim()
+  if (trimmedTitle) return trimmedTitle
+
+  return attachments.find((attachment) => attachment.name.trim())?.name.trim() || 'Untitled attachment'
+}
+
 function formatAttachmentSize(size?: number): string {
   if (!size || !Number.isFinite(size) || size < 0) return ''
   if (size < 1024) return `${size} B`
@@ -4076,6 +4219,7 @@ interface AnchorAttachmentItemProps {
 function AnchorAttachmentItem({ attachment, compact = false, onRemove }: AnchorAttachmentItemProps) {
   const [resolvedUrl, setResolvedUrl] = useState(attachment.source === 'link' ? attachment.url : '')
   const [loadError, setLoadError] = useState(false)
+  const previewKind = attachmentPreviewKind(attachment)
   const sizeLabel = formatAttachmentSize(attachment.size)
 
   useEffect(() => {
@@ -4106,12 +4250,12 @@ function AnchorAttachmentItem({ attachment, compact = false, onRemove }: AnchorA
     }
   }, [attachment.id, attachment.source, attachment.url, compact])
 
-  const metadata = [attachmentKindLabel(attachment.kind), sizeLabel].filter(Boolean).join(' · ')
+  const metadata = [attachmentKindLabel(previewKind ?? attachment.kind), sizeLabel].filter(Boolean).join(' · ')
 
   return (
     <article className={`anchor-attachment ${compact ? 'compact' : ''}`}>
       <div className="anchor-attachment-heading">
-        <span className={`anchor-attachment-icon ${attachment.kind}`}><AttachmentTypeIcon kind={attachment.kind} size={15} /></span>
+        <span className={`anchor-attachment-icon ${previewKind ?? attachment.kind}`}><AttachmentTypeIcon kind={previewKind ?? attachment.kind} size={15} /></span>
         <div className="anchor-attachment-copy">
           {attachment.source === 'link' ? (
             <a href={attachment.url} target="_blank" rel="noreferrer" title={attachment.url}>{attachment.name}</a>
@@ -4133,20 +4277,28 @@ function AnchorAttachmentItem({ attachment, compact = false, onRemove }: AnchorA
           </button>
         )}
       </div>
-      {!compact && attachment.source === 'file' && !loadError && resolvedUrl && attachment.kind === 'image' && (
-        <img className="anchor-attachment-image" src={resolvedUrl} alt={attachment.name} onError={() => setLoadError(true)} />
+      {!compact && !loadError && resolvedUrl && previewKind === 'image' && (
+        <img className="anchor-attachment-image" src={resolvedUrl} alt={attachment.name} loading="lazy" onError={() => setLoadError(true)} />
       )}
-      {!compact && attachment.source === 'file' && !loadError && resolvedUrl && attachment.kind === 'video' && (
-        <video className="anchor-attachment-video" controls preload="metadata" src={resolvedUrl} onError={() => setLoadError(true)} />
+      {!compact && !loadError && resolvedUrl && previewKind === 'video' && (
+        <video
+          className="anchor-attachment-video"
+          controls
+          playsInline
+          preload="metadata"
+          src={resolvedUrl}
+          aria-label={attachment.name}
+          onError={() => setLoadError(true)}
+        />
       )}
-      {!compact && attachment.source === 'file' && !loadError && resolvedUrl && attachment.kind === 'audio' && (
+      {!compact && !loadError && resolvedUrl && previewKind === 'audio' && (
         <audio className="anchor-attachment-audio" controls preload="metadata" src={resolvedUrl} onError={() => setLoadError(true)} />
       )}
       {!compact && attachment.source === 'file' && !resolvedUrl && (
         <span className="anchor-attachment-status">{loadError ? 'File unavailable on this device.' : 'Loading attachment…'}</span>
       )}
-      {!compact && attachment.source === 'file' && resolvedUrl && loadError && (
-        <span className="anchor-attachment-status">This file could not be previewed.</span>
+      {!compact && previewKind && resolvedUrl && loadError && (
+        <span className="anchor-attachment-status">This media could not be previewed.</span>
       )}
     </article>
   )
@@ -4275,7 +4427,7 @@ function AnchorAttachmentEditor({ attachments, originalAttachmentIds = [], onCha
       </div>
       {attachments.length > 0 && <AnchorAttachmentList attachments={attachments} compact onRemove={removeAttachment} />}
       {error && <div className="attachment-editor-error" role="alert"><CircleAlert size={13} /> <span>{error}</span></div>}
-      <small className="attachment-editor-note">Files stay in this device&apos;s local storage. Links open from their original address.</small>
+      <small className="attachment-editor-note">Files stay in this device&apos;s local storage. If you leave the title blank, the first attachment name becomes the anchor title.</small>
     </div>
   )
 }
@@ -4536,6 +4688,511 @@ function AIInsightCard({
   )
 }
 
+function isAgentRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function parseAnchorAgentPlan(response: string, anchors: Anchor[]): AnchorAgentPlan {
+  const parsed = parseAIObject(response)
+  const rawChanges = parsed.changes
+
+  if (!Array.isArray(rawChanges)) {
+    throw new Error('Anchor returned a plan without a readable changes list. Try again.')
+  }
+  if (rawChanges.length > 20) {
+    throw new Error('Anchor suggested too many changes at once. Ask it to make a smaller pass.')
+  }
+
+  const knownAnchors = new Map(anchors.map((anchor) => [anchor.id, anchor]))
+  const changes: AnchorAgentChange[] = []
+  const reasonFor = (value: Record<string, unknown>) =>
+    typeof value.reason === 'string' && value.reason.trim() ? value.reason.trim() : 'Suggested from the current anchor context.'
+
+  rawChanges.forEach((rawChange) => {
+    if (!isAgentRecord(rawChange) || typeof rawChange.action !== 'string') {
+      throw new Error('Anchor returned an unreadable change. Try again.')
+    }
+
+    if (rawChange.action === 'update') {
+      const anchorId = typeof rawChange.anchorId === 'string' ? rawChange.anchorId.trim() : ''
+      const existingAnchor = knownAnchors.get(anchorId)
+      if (!existingAnchor) {
+        throw new Error('Anchor suggested a change for a record that is not in the current context.')
+      }
+      if (!isAgentRecord(rawChange.changes)) {
+        throw new Error('Anchor returned an update without readable fields.')
+      }
+
+      const proposed: Partial<AnchorAgentEditableFields> = {}
+      const incoming = rawChange.changes
+      if ('title' in incoming) {
+        if (typeof incoming.title !== 'string') throw new Error('Anchor returned an invalid title change.')
+        proposed.title = incoming.title.trim()
+      }
+      if ('body' in incoming) {
+        if (typeof incoming.body !== 'string') throw new Error('Anchor returned an invalid context change.')
+        proposed.body = incoming.body.trim()
+      }
+      if ('tag' in incoming) {
+        if (typeof incoming.tag !== 'string') throw new Error('Anchor returned an invalid tag change.')
+        proposed.tag = incoming.tag.trim()
+      }
+      if ('color' in incoming) {
+        if (typeof incoming.color !== 'string' || !colorOptions.includes(incoming.color as AccentColor)) {
+          throw new Error('Anchor returned an invalid tone change.')
+        }
+        proposed.color = incoming.color as AccentColor
+      }
+      if ('pinned' in incoming) {
+        if (typeof incoming.pinned !== 'boolean') throw new Error('Anchor returned an invalid pin change.')
+        proposed.pinned = incoming.pinned
+      }
+
+      const meaningfulChanges: Partial<AnchorAgentEditableFields> = {}
+      const fields: (keyof AnchorAgentEditableFields)[] = ['title', 'body', 'tag', 'color', 'pinned']
+      fields.forEach((field) => {
+        const nextValue = proposed[field]
+        if (nextValue !== undefined && nextValue !== existingAnchor[field]) {
+          Object.assign(meaningfulChanges, { [field]: nextValue })
+        }
+      })
+
+      if (Object.keys(meaningfulChanges).length > 0) {
+        changes.push({ action: 'update', anchorId, changes: meaningfulChanges, reason: reasonFor(rawChange) })
+      }
+      return
+    }
+
+    if (rawChange.action === 'add') {
+      if (!isAgentRecord(rawChange.anchor)) {
+        throw new Error('Anchor returned a new record without readable fields.')
+      }
+
+      const rawAnchor = rawChange.anchor
+      const title = typeof rawAnchor.title === 'string' ? rawAnchor.title.trim() : ''
+      if (!title) {
+        throw new Error('Anchor returned a new record without a title.')
+      }
+      const color = rawAnchor.color === undefined ? 'coral' : rawAnchor.color
+      if (typeof color !== 'string' || !colorOptions.includes(color as AccentColor)) {
+        throw new Error('Anchor returned an invalid tone for a new record.')
+      }
+      if (rawAnchor.body !== undefined && typeof rawAnchor.body !== 'string') {
+        throw new Error('Anchor returned invalid context for a new record.')
+      }
+      if (rawAnchor.tag !== undefined && typeof rawAnchor.tag !== 'string') {
+        throw new Error('Anchor returned an invalid tag for a new record.')
+      }
+      if (rawAnchor.pinned !== undefined && typeof rawAnchor.pinned !== 'boolean') {
+        throw new Error('Anchor returned an invalid pin value for a new record.')
+      }
+
+      changes.push({
+        action: 'add',
+        anchor: {
+          title,
+          body: typeof rawAnchor.body === 'string' ? rawAnchor.body.trim() : '',
+          tag: typeof rawAnchor.tag === 'string' ? rawAnchor.tag.trim() || 'Personal' : 'Personal',
+          color: color as AccentColor,
+          pinned: rawAnchor.pinned === true,
+        },
+        reason: reasonFor(rawChange),
+      })
+      return
+    }
+
+    if (rawChange.action === 'delete') {
+      const anchorId = typeof rawChange.anchorId === 'string' ? rawChange.anchorId.trim() : ''
+      if (!knownAnchors.has(anchorId)) {
+        throw new Error('Anchor suggested deleting a record that is not in the current context.')
+      }
+      changes.push({ action: 'delete', anchorId, reason: reasonFor(rawChange) })
+      return
+    }
+
+    throw new Error('Anchor returned an unsupported change type. Try again.')
+  })
+
+  const summary = typeof parsed.summary === 'string' && parsed.summary.trim()
+    ? parsed.summary.trim()
+    : changes.length
+      ? `Anchor prepared ${changes.length} workspace change${changes.length === 1 ? '' : 's'} for review.`
+      : 'Anchor found no workspace changes to suggest.'
+
+  return { summary, changes }
+}
+
+interface AnchorAgentCardProps {
+  context: string
+  contextAnchors: Anchor[]
+  omittedContextCount: number
+  settings: AISettings
+  onOpenSettings: () => void
+  onApplyChanges: (changes: AnchorAgentChange[]) => void
+}
+
+function AnchorAgentCard({
+  context,
+  contextAnchors,
+  omittedContextCount,
+  settings,
+  onOpenSettings,
+  onApplyChanges,
+}: AnchorAgentCardProps) {
+  const [answer, setAnswer] = useState<string>()
+  const [question, setQuestion] = useState('')
+  const [plan, setPlan] = useState<AnchorAgentPlan>()
+  const [selectedChangeIndexes, setSelectedChangeIndexes] = useState<number[]>([])
+  const [isThinking, setIsThinking] = useState(false)
+  const [error, setError] = useState<string>()
+  const requestControllerRef = useRef<AbortController | undefined>(undefined)
+  const ready = isAIReady(settings)
+
+  useEffect(() => () => requestControllerRef.current?.abort(), [])
+
+  const askAnchor = async (requestedPrompt: string) => {
+    const trimmedPrompt = requestedPrompt.trim()
+    if (!trimmedPrompt) return
+
+    if (!ready) {
+      setError('Connect an AI provider, API key, and model in Settings before asking Anchor to work on your anchors.')
+      return
+    }
+
+    requestControllerRef.current?.abort()
+    const requestController = new AbortController()
+    requestControllerRef.current = requestController
+    setIsThinking(true)
+    setError(undefined)
+    setAnswer(undefined)
+    setPlan(undefined)
+    setSelectedChangeIndexes([])
+    setQuestion('')
+
+    try {
+      const response = await completeAIChat(settings, [
+        {
+          role: 'system',
+          content: 'You are Anchor’s careful workspace agent. Use only the supplied anchor records. Preserve the person’s meaning and suggest the smallest useful set of changes. You may update title, body, tag, tone, or pinned status; add a new global anchor; or delete an anchor only when the request clearly calls for it or it is a true duplicate. Never invent evidence or attachments, and never change project membership. Return only one valid JSON object with exactly these keys: summary (string) and changes (array). Each update is {"action":"update","anchorId":"existing id","reason":"short reason","changes":{"title":"...","body":"...","tag":"...","color":"coral|sage|sky|gold|plum","pinned":true|false}}. Each addition is {"action":"add","reason":"short reason","anchor":{"title":"...","body":"...","tag":"...","color":"coral|sage|sky|gold|plum","pinned":true|false}}. Each deletion is {"action":"delete","anchorId":"existing id","reason":"short reason"}. Return an empty changes array when a read-only answer is enough. Keep the plan to 20 changes or fewer. The person must review and approve every change; do not pretend anything has already been changed.',
+        },
+        {
+          role: 'user',
+          content: `ANCHOR CONTEXT (these are the records you may reference)\n${context}\n\nREQUEST\n${trimmedPrompt}`,
+        },
+      ], requestController.signal)
+
+      const nextPlan = parseAnchorAgentPlan(response, contextAnchors)
+      if (nextPlan.changes.length > 0) {
+        setPlan(nextPlan)
+        setSelectedChangeIndexes(nextPlan.changes.map((_, index) => index))
+      } else {
+        setAnswer(nextPlan.summary)
+      }
+      void notifyAIResponse('Anchor agent plan ready', nextPlan.summary)
+    } catch (requestError) {
+      if (requestError instanceof DOMException && requestError.name === 'AbortError') return
+      setError(requestError instanceof Error ? requestError.message : 'Anchor could not prepare that workspace plan.')
+    } finally {
+      if (requestControllerRef.current === requestController) {
+        requestControllerRef.current = undefined
+        setIsThinking(false)
+      }
+    }
+  }
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void askAnchor(question)
+  }
+
+  const clearResult = () => {
+    setAnswer(undefined)
+    setPlan(undefined)
+    setSelectedChangeIndexes([])
+    setError(undefined)
+  }
+
+  const dismissPlan = () => {
+    if (!plan) return
+    setAnswer(plan.summary)
+    setPlan(undefined)
+    setSelectedChangeIndexes([])
+  }
+
+  const applySelectedChanges = () => {
+    if (!plan) return
+    const selected = plan.changes.filter((_, index) => selectedChangeIndexes.includes(index))
+    if (!selected.length) return
+
+    onApplyChanges(selected)
+    setAnswer(`${plan.summary}\n\nApplied ${selected.length} approved change${selected.length === 1 ? '' : 's'}.`)
+    setPlan(undefined)
+    setSelectedChangeIndexes([])
+  }
+
+  const toggleChange = (index: number) => {
+    setSelectedChangeIndexes((currentIndexes) => currentIndexes.includes(index)
+      ? currentIndexes.filter((currentIndex) => currentIndex !== index)
+      : [...currentIndexes, index])
+  }
+
+  return (
+    <section className="ai-insight-card anchors-ai-card">
+      <div className="ai-insight-header">
+        <div className="ai-insight-title-wrap">
+          <span className="ai-insight-icon"><Sparkles size={17} /></span>
+          <div>
+            <p className="eyebrow">Your anchors, understood</p>
+            <h2>Let Anchor work on your workspace</h2>
+          </div>
+        </div>
+        {!ready ? (
+          <button className="text-button ai-connect-link" type="button" onClick={onOpenSettings}>
+            Connect AI <ArrowUpRight size={13} />
+          </button>
+        ) : (
+          <span className="ai-agent-badge"><WandSparkles size={12} /> Agent ready</span>
+        )}
+      </div>
+      <p className="ai-insight-description">See exactly which anchors Anchor reads, then review a red-and-green change plan before anything is added, edited, or removed.</p>
+
+      <details className="ai-context-disclosure" open>
+        <summary>
+          <span><Layers3 size={14} /> Context used</span>
+          <small>{contextAnchors.length} anchor{contextAnchors.length === 1 ? '' : 's'}{omittedContextCount ? ` · ${omittedContextCount} omitted` : ''}</small>
+        </summary>
+        <div className="ai-context-list">
+          {contextAnchors.length > 0 ? contextAnchors.map((anchor) => {
+            const contextParts = [
+              anchor.body.trim() ? 'title + context' : 'title only',
+              anchor.evidence ? 'evidence reference' : '',
+              anchor.attachments?.length ? `${anchor.attachments.length} attachment${anchor.attachments.length === 1 ? '' : 's'}` : '',
+            ].filter(Boolean)
+            return (
+              <div className="ai-context-item" key={anchor.id}>
+                <span className={`ai-context-dot ${anchor.color}`} />
+                <div>
+                  <strong><span>{formatEntitySerial('A', anchor.serialNumber)}</span>{anchor.title || 'Untitled anchor'}</strong>
+                  <small>{contextParts.join(' · ')}</small>
+                </div>
+              </div>
+            )
+          }) : (
+            <div className="ai-context-empty"><Layers3 size={15} /> No anchors are in the context yet.</div>
+          )}
+        </div>
+        {omittedContextCount > 0 && <p className="ai-context-warning">The context was capped for this request. The omitted anchors are not available to the agent.</p>}
+        <p className="ai-context-note"><ShieldCheck size={12} /> Titles, text, tags, evidence references, and attachment names are sent when you ask. Local file contents stay on this device.</p>
+        <details className="ai-context-raw">
+          <summary>View exact context text</summary>
+          <pre>{context}</pre>
+        </details>
+      </details>
+
+      <div className="ai-quick-prompts">
+        <button className="ai-quick-prompt" type="button" disabled={isThinking} onClick={() => void askAnchor('Find true duplicate anchors. Propose the smallest safe merge: keep the clearest anchor, update it only if useful, and delete only confirmed duplicates.') }>
+          <WandSparkles size={13} /> Review duplicates
+        </button>
+        <button className="ai-quick-prompt" type="button" disabled={isThinking} onClick={() => void askAnchor('Make the least actionable anchors clearer and more practical without changing their meaning. Propose only changes that are genuinely useful.') }>
+          <WandSparkles size={13} /> Make actionable
+        </button>
+        <button className="ai-quick-prompt" type="button" disabled={isThinking} onClick={() => void askAnchor('Review this workspace and suggest only the most valuable organization or cleanup changes. Do not delete anything unless it is a true duplicate.') }>
+          <WandSparkles size={13} /> Suggest cleanup
+        </button>
+      </div>
+
+      {plan ? (
+        <AnchorAgentPlanView
+          plan={plan}
+          anchors={contextAnchors}
+          selectedChangeIndexes={selectedChangeIndexes}
+          onToggleChange={toggleChange}
+          onSelectAll={() => setSelectedChangeIndexes(plan.changes.map((_, index) => index))}
+          onClearSelection={() => setSelectedChangeIndexes([])}
+          onDismiss={dismissPlan}
+          onApply={applySelectedChanges}
+        />
+      ) : answer ? (
+        <div className="ai-insight-response">
+          <div className="ai-response-heading">
+            <span><Bot size={14} /> Anchor&apos;s plan</span>
+            <button className="text-button" type="button" onClick={clearResult}>Clear</button>
+          </div>
+          <ChatRichText content={answer} />
+        </div>
+      ) : (
+        <div className="ai-insight-empty">
+          <Bot size={16} />
+          <span>Ask Anchor to inspect, improve, add, or safely clean up your anchors. It will show the proposed diff before making any change.</span>
+        </div>
+      )}
+
+      <form className="ai-question-form" onSubmit={handleSubmit}>
+        <input
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          placeholder="Ask Anchor to review or change your anchors…"
+          aria-label="Ask Anchor to work on your anchors"
+          disabled={isThinking}
+        />
+        <button className="ai-send-button" type="submit" disabled={isThinking || !question.trim()} aria-label="Ask Anchor">
+          {isThinking ? <RefreshCw className="spin" size={15} /> : <Send size={15} />}
+        </button>
+      </form>
+      {error && (
+        <div className="ai-inline-error" role="alert">
+          <CircleAlert size={14} />
+          <span>{error}</span>
+          {!ready && <button type="button" onClick={onOpenSettings}>Open Settings</button>}
+        </div>
+      )}
+      <span className="ai-privacy-note"><ShieldCheck size={12} /> Sent to your chosen provider only when you ask. Workspace changes always require your approval.</span>
+    </section>
+  )
+}
+
+function agentFieldLabel(field: keyof AnchorAgentEditableFields): string {
+  if (field === 'title') return 'Title'
+  if (field === 'body') return 'Context'
+  if (field === 'tag') return 'Tag'
+  if (field === 'color') return 'Tone'
+  return 'Daily rotation'
+}
+
+function agentDiffValue(value: unknown): string {
+  if (typeof value === 'boolean') return value ? 'Pinned' : 'Not pinned'
+  if (typeof value === 'string') return value.trim() || '(empty)'
+  return value === undefined || value === null ? '(not set)' : String(value)
+}
+
+interface AnchorAgentPlanViewProps {
+  plan: AnchorAgentPlan
+  anchors: Anchor[]
+  selectedChangeIndexes: number[]
+  onToggleChange: (index: number) => void
+  onSelectAll: () => void
+  onClearSelection: () => void
+  onDismiss: () => void
+  onApply: () => void
+}
+
+function AnchorAgentPlanView({
+  plan,
+  anchors,
+  selectedChangeIndexes,
+  onToggleChange,
+  onSelectAll,
+  onClearSelection,
+  onDismiss,
+  onApply,
+}: AnchorAgentPlanViewProps) {
+  return (
+    <div className="ai-agent-plan">
+      <div className="ai-agent-plan-header">
+        <div>
+          <span className="ai-agent-plan-label"><GitFork size={13} /> Proposed workspace diff</span>
+          <strong>{plan.changes.length} change{plan.changes.length === 1 ? '' : 's'} ready to review</strong>
+        </div>
+        <span className="ai-agent-review-badge"><ShieldCheck size={12} /> Approval required</span>
+      </div>
+      <p className="ai-agent-plan-summary">{plan.summary}</p>
+      <div className="ai-agent-plan-controls">
+        <span>{selectedChangeIndexes.length} selected</span>
+        <button className="text-button" type="button" onClick={onSelectAll}>Select all</button>
+        <button className="text-button" type="button" onClick={onClearSelection}>Clear</button>
+      </div>
+      <div className="ai-agent-change-list">
+        {plan.changes.map((change, index) => (
+          <AnchorAgentDiff
+            change={change}
+            anchors={anchors}
+            selected={selectedChangeIndexes.includes(index)}
+            onToggle={() => onToggleChange(index)}
+            key={`${change.action}-${change.action === 'add' ? `new-${index}` : change.anchorId}`}
+          />
+        ))}
+      </div>
+      <div className="ai-agent-plan-actions">
+        <button className="text-button" type="button" onClick={onDismiss}>Discard plan</button>
+        <button className="primary-button" type="button" onClick={onApply} disabled={!selectedChangeIndexes.length}>
+          <Check size={15} /> Apply {selectedChangeIndexes.length} change{selectedChangeIndexes.length === 1 ? '' : 's'}
+        </button>
+      </div>
+      <small className="ai-agent-legend"><span className="ai-legend-removed">−</span> red is removed/old <span className="ai-legend-added">+</span> green is added/new. Nothing changes until you apply it.</small>
+    </div>
+  )
+}
+
+interface AnchorAgentDiffProps {
+  change: AnchorAgentChange
+  anchors: Anchor[]
+  selected: boolean
+  onToggle: () => void
+}
+
+function AnchorAgentDiff({ change, anchors, selected, onToggle }: AnchorAgentDiffProps) {
+  const originalAnchor = change.action === 'add' ? undefined : anchors.find((anchor) => anchor.id === change.anchorId)
+  const isAvailable = change.action === 'add' || Boolean(originalAnchor)
+  const title = change.action === 'add'
+    ? 'New anchor'
+    : `${formatEntitySerial('A', originalAnchor?.serialNumber)} · ${originalAnchor?.title || 'Anchor no longer available'}`
+  const fieldNames: (keyof AnchorAgentEditableFields)[] = ['title', 'body', 'tag', 'color', 'pinned']
+
+  return (
+    <article className={`ai-agent-change ${change.action} ${selected ? 'selected' : ''} ${isAvailable ? '' : 'stale'}`.trim()}>
+      <div className="ai-agent-change-header">
+        <label className="ai-agent-change-select">
+          <input type="checkbox" checked={selected} disabled={!isAvailable} onChange={onToggle} aria-label={`Approve ${change.action} for ${title}`} />
+          <span className="ai-agent-checkbox"><Check size={11} /></span>
+        </label>
+        <span className={`ai-agent-action-badge ${change.action}`}>
+          {change.action === 'add' ? <Plus size={12} /> : change.action === 'delete' ? <Trash2 size={12} /> : <PenLine size={12} />}
+          {change.action === 'add' ? 'Add' : change.action === 'delete' ? 'Delete' : 'Update'}
+        </span>
+        <strong>{title}</strong>
+      </div>
+
+      {change.action === 'update' && originalAnchor && (
+        <div className="ai-agent-diff-fields">
+          {fieldNames.filter((field) => change.changes[field] !== undefined).map((field) => (
+            <div className="ai-diff-field" key={field}>
+              <span className="ai-diff-field-label">{agentFieldLabel(field)}</span>
+              <div className="ai-diff-lines">
+                <div className="ai-diff-line removed"><Minus size={13} /><span>{agentDiffValue(originalAnchor[field])}</span></div>
+                <div className="ai-diff-line added"><Plus size={13} /><span>{agentDiffValue(change.changes[field])}</span></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {change.action === 'add' && (
+        <div className="ai-agent-diff-fields">
+          {fieldNames.map((field) => (
+            <div className="ai-diff-field" key={field}>
+              <span className="ai-diff-field-label">{agentFieldLabel(field)}</span>
+              <div className="ai-diff-lines">
+                <div className="ai-diff-line added"><Plus size={13} /><span>{agentDiffValue(change.anchor[field])}</span></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {change.action === 'delete' && originalAnchor && (
+        <div className="ai-agent-diff-fields">
+          <div className="ai-diff-lines">
+            <div className="ai-diff-line removed"><Minus size={13} /><span><strong>{formatEntitySerial('A', originalAnchor.serialNumber)} · {originalAnchor.title}</strong>{originalAnchor.body.trim() ? ` — ${originalAnchor.body.trim()}` : ''}</span></div>
+          </div>
+        </div>
+      )}
+
+      {!isAvailable && <p className="ai-agent-stale-message">This anchor changed or disappeared after the plan was prepared.</p>}
+      <small className="ai-agent-change-reason">Why: {change.reason}</small>
+    </article>
+  )
+}
+
 interface AIWriterButtonProps {
   settings: AISettings
   onOpenSettings: () => void
@@ -4736,6 +5393,35 @@ function anchorPromptLine(anchor: Anchor): string {
   const body = anchor.body.trim()
 
   return `- ${serial} ${anchor.title}${body ? `: ${body}` : ''}${evidence}${attachments}`
+}
+
+function buildAnchorAIContext(anchors: Anchor[]): AnchorAgentContext {
+  const maxLength = 12000
+  const includedAnchors: Anchor[] = []
+  const lines: string[] = []
+  let currentLength = 0
+  let omittedContextCount = 0
+
+  anchors.some((anchor, index) => {
+    const line = anchorPromptLine(anchor)
+    const nextLength = currentLength + line.length + (lines.length ? 1 : 0)
+
+    if (nextLength > maxLength) {
+      omittedContextCount = anchors.length - index
+      return true
+    }
+
+    lines.push(line)
+    includedAnchors.push(anchor)
+    currentLength = nextLength
+    return false
+  })
+
+  return {
+    text: lines.join('\n') || '- No anchors yet.',
+    anchors: includedAnchors,
+    omittedCount: omittedContextCount,
+  }
 }
 
 function decisionSystemPrompt(
@@ -7477,7 +8163,7 @@ function AnchorComposer({
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (!draft.title.trim() || (draft.scope === 'project' && !draft.projectId)) {
+    if ((!draft.title.trim() && draft.attachments.length === 0) || (draft.scope === 'project' && !draft.projectId)) {
       return
     }
 
@@ -7488,7 +8174,7 @@ function AnchorComposer({
 
     clearDraft()
     onSubmit({
-      title: draft.title.trim(),
+      title: anchorTitleForSave(draft.title, draft.attachments),
       body: draft.body.trim(),
       tag: draft.tag.trim() || (draft.scope === 'global' ? 'Personal' : 'Project note'),
       scope: draft.scope,
@@ -7505,7 +8191,7 @@ function AnchorComposer({
       <form className="composer-form" onSubmit={handleSubmit}>
         {hasDraft && <DraftNotice onDiscard={discardDraft} />}
         <label className="form-field">
-          <span>What do you want to remember?</span>
+          <span>What do you want to remember? <em>optional with an attachment</em></span>
           <input
             autoFocus
             value={draft.title}
@@ -7624,7 +8310,7 @@ function AnchorComposer({
         </label>
         <div className="modal-actions">
           <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
-          <button className="primary-button" type="submit" disabled={!draft.title.trim()}>
+          <button className="primary-button" type="submit" disabled={!draft.title.trim() && draft.attachments.length === 0}>
             <AnchorIcon size={16} />
             Save anchor
           </button>
@@ -7694,7 +8380,7 @@ function AnchorEditModal({
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (!draft.title.trim() || (draft.scope === 'project' && !draft.projectId)) {
+    if ((!draft.title.trim() && draft.attachments.length === 0) || (draft.scope === 'project' && !draft.projectId)) {
       return
     }
 
@@ -7706,7 +8392,7 @@ function AnchorEditModal({
     clearDraft()
     onSave({
       ...anchor,
-      title: draft.title.trim(),
+      title: anchorTitleForSave(draft.title, draft.attachments),
       body: draft.body.trim(),
       tag: draft.tag.trim() || (draft.scope === 'global' ? 'Personal' : 'Project note'),
       scope: draft.scope,
@@ -7743,7 +8429,7 @@ function AnchorEditModal({
         />
         {hasDraft && <DraftNotice onDiscard={discardDraft} />}
         <label className="form-field">
-          <span>What do you want to remember?</span>
+          <span>What do you want to remember? <em>optional with an attachment</em></span>
           <input
             autoFocus
             value={draft.title}
@@ -7871,7 +8557,7 @@ function AnchorEditModal({
           </button>
           <div className="modal-actions-right">
             <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
-            <button className="primary-button" type="submit" disabled={!draft.title.trim()}>
+            <button className="primary-button" type="submit" disabled={!draft.title.trim() && draft.attachments.length === 0}>
               <Check size={16} />
               Save changes
             </button>
