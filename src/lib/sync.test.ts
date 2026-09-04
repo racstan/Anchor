@@ -10,6 +10,7 @@ import {
   mergeSyncState,
   normalizeSyncSettings,
   readSyncSettings,
+  uploadDropboxVault,
 } from './sync'
 import { initialState } from './anchors'
 import type { AnchorState } from './anchors'
@@ -237,6 +238,30 @@ describe('Dropbox configuration', () => {
   it('puts the backup in a folder named after the vault', () => {
     expect(getDropboxVaultFolder('My vault')).toBe('/My_vault')
     expect(getDropboxBackupPath('My vault')).toBe('/My_vault/anchor-vault.json')
+  })
+
+  it('sends Dropbox update revisions as strings', async () => {
+    let apiArg: Record<string, unknown> | undefined
+
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const header = new Headers(init?.headers).get('Dropbox-API-Arg')
+      apiArg = header ? JSON.parse(header) as Record<string, unknown> : undefined
+      return new Response(null, { status: 200 })
+    }))
+
+    try {
+      await uploadDropboxVault('token', 'Anchor', '{}', undefined, 'rev-123')
+
+      expect(apiArg).toEqual({
+        path: '/Anchor/anchor-vault.json',
+        mode: { '.tag': 'update', update: 'rev-123' },
+        autorename: false,
+        mute: true,
+        strict_conflict: true,
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('normalizes the old default vault name to Anchor', () => {

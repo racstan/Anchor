@@ -571,7 +571,7 @@ export async function uploadDropboxVault(
         mode: expectedRevision === null
           ? 'add'
           : expectedRevision
-            ? { '.tag': 'update', update: { rev: expectedRevision } }
+            ? { '.tag': 'update', update: expectedRevision }
             : 'overwrite',
         autorename: false,
         mute: true,
