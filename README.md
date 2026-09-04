@@ -1,6 +1,6 @@
 # Anchor
 
-**Version: 0.1.15**
+**Version: 0.1.19**
 
 Anchor is a calm, local-first workspace for the ideas, principles, and decisions you want to keep close. The same React frontend runs on the web and inside the Tauri 2 desktop/mobile shell.
 
@@ -37,7 +37,7 @@ Once connected, AI is available throughout the workspace:
 
 - **Dashboard:** ask for patterns, priorities, or one small next step across projects, anchors, notes, and decision rooms.
 - **Projects:** generate a project brief, uncover missing context, or turn project anchors into a realistic seven-day plan.
-- **Anchors:** draft or polish an anchor while writing, reflect on an existing anchor, find blind spots, and make reminders more actionable.
+- **Anchors:** draft or polish an anchor while writing, reflect on an existing anchor, find blind spots, make reminders more actionable, and ask the transparent workspace agent to propose reviewed red/green diffs for safe edits, additions, or cleanup.
 - **Decision space:** continue the full contextual decision conversation as before.
 
 These actions are opt-in: Anchor does not silently analyze or auto-send workspace data. Each action shows what context is being used and sends it only to the provider you configured.
