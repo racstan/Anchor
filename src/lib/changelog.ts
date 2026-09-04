@@ -234,4 +234,15 @@ export const APP_CHANGELOG: readonly AppChangelogEntry[] = [
       'Attachment-only anchors, image previews, and video players',
     ],
   },
+  {
+    version: '0.1.20',
+    title: 'Every update tells its story',
+    releasedAt: '2026-09-04',
+    summary: 'Updates now arrive with a warm welcome and the complete Anchor journey, so no improvement gets lost between releases.',
+    highlights: [
+      'Update notices open automatically when a newer release is found',
+      'Beautiful cumulative changelog from the first Anchor release to today',
+      'Release history still reads offline from the local curated fallback',
+    ],
+  },
 ]
