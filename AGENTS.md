@@ -114,7 +114,7 @@ npm run build    # tsc -b && vite build → dist/
 - `src/App.tsx` — shell + views (sidebar, home, anchors, projects, decide, walkthrough, settings)
 - `src/App.css` — harbor design system, responsive + collapsed sidebar
 - `src/lib/anchors.ts`, `workspace.ts`, `ai.ts`, `notifications.ts`, `security.ts`
-- Workspace records carry stable machine IDs, scope-aware anchor references (`GLOBAL-ANCHOR-0001`, `tr-0001` for Trading Rulebook), readable per-type serials for other records (`P-0001`, `N-0001`, `D-0001`, `M-0001`), and timestamps; `normalizeAnchorState` migrates older local/backup data. New anchors are off the daily rotation by default. Sync carries profile, appearance, notification schedules, and the AI connection including its API key; manual exports omit the AI key, while Dropbox/WebDAV credentials and device PINs remain local. Sync is serialized and always runs pull → merge → push.
+- Workspace records carry stable machine IDs, scope-aware anchor references (`GLOBAL-ANCHOR-0001`, `tr-0001` for Trading Rulebook), readable per-type serials for other records (`P-0001`, `N-0001`, `D-0001`, `M-0001`), and timestamps; `normalizeAnchorState` migrates older local/backup data. New anchors are off the daily rotation by default. Notifications support fixed times, selected weekdays, and repeating intervals; Android schedules are handed to the OS. Sync carries profile, appearance, notification schedules, and the AI connection including its API key; manual exports omit the AI key, while Dropbox/WebDAV credentials and device PINs remain local. Sync is serialized and always runs pull → merge → push.
 - `api/anchor-ai.ts` — prod relay
 - `vite-ai-proxy.ts` — dev relay logic
 - `src-tauri/` — Tauri 2 shell

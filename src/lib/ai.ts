@@ -29,6 +29,26 @@ export interface AIMessage {
   content: string
 }
 
+export interface AIToolDefinition {
+  name: string
+  description: string
+  input: string
+}
+
+export interface AIToolAgentOptions {
+  systemPrompt: string
+  messages: AIMessage[]
+  tools: readonly AIToolDefinition[]
+  executeTool: (name: string, input: Record<string, unknown>) => string | Promise<string>
+  maxSteps?: number
+  signal?: AbortSignal
+}
+
+export interface AIToolAgentResult {
+  answer: string
+  toolCalls: string[]
+}
+
 export const AI_PROVIDERS: AIProvider[] = [
   {
     id: 'opencode-zen',
@@ -495,6 +515,71 @@ export function parseAIObject(response: string): Record<string, unknown> {
   } catch {
     throw new Error('Anchor could not read that draft. Try again, or write it manually.')
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function toolProtocolPrompt(tools: readonly AIToolDefinition[]): string {
+  const toolList = tools.map((tool) => `- ${tool.name}: ${tool.description} Input: ${tool.input}`).join('\n')
+  return `\n\nLOCAL WORKSPACE TOOLS\nYou can inspect the local workspace without changing it. Use a tool before answering workspace-specific questions when the supplied context is not enough. To call one, return exactly one JSON object: {"type":"tool_call","tool":"tool_name","input":{}}. After receiving a tool result, either call another tool or return exactly one JSON object: {"type":"final","answer":"your concise answer"}. Never claim a tool changed anything.\n\n${toolList}`
+}
+
+export async function runAIToolAgent(
+  settings: AISettings,
+  options: AIToolAgentOptions,
+): Promise<AIToolAgentResult> {
+  const maxSteps = Math.max(1, Math.min(6, options.maxSteps ?? 4))
+  const knownTools = new Set(options.tools.map((tool) => tool.name))
+  const conversation = [...options.messages]
+  const toolCalls: string[] = []
+  const systemPrompt = `${options.systemPrompt}${toolProtocolPrompt(options.tools)}`
+
+  for (let step = 0; step < maxSteps; step += 1) {
+    const response = await completeAIChat(settings, [
+      { role: 'system', content: systemPrompt },
+      ...conversation,
+    ], options.signal)
+
+    let parsed: Record<string, unknown> | undefined
+    try {
+      parsed = parseAIObject(response)
+    } catch {
+      return { answer: response, toolCalls }
+    }
+
+    if (parsed.type === 'final' && typeof parsed.answer === 'string' && parsed.answer.trim()) {
+      return { answer: parsed.answer.trim(), toolCalls }
+    }
+
+    if (parsed.type !== 'tool_call' || typeof parsed.tool !== 'string') {
+      return { answer: response, toolCalls }
+    }
+
+    const toolName = parsed.tool.trim()
+    const input = isRecord(parsed.input) ? parsed.input : {}
+    toolCalls.push(toolName)
+    let result: string
+
+    if (!knownTools.has(toolName)) {
+      result = JSON.stringify({ error: `Unknown tool: ${toolName}. Choose one of the listed tools.` })
+    } else {
+      try {
+        result = await options.executeTool(toolName, input)
+      } catch (error) {
+        result = JSON.stringify({ error: error instanceof Error ? error.message : 'The local tool failed.' })
+      }
+    }
+
+    conversation.push({ role: 'assistant', content: response })
+    conversation.push({
+      role: 'user',
+      content: `LOCAL TOOL RESULT — ${toolName}\n${result}\n\nContinue with another tool or return the final answer JSON.`,
+    })
+  }
+
+  throw new Error('Anchor reached the workspace lookup limit. Ask a narrower question and try again.')
 }
 
 export async function completeAIChat(

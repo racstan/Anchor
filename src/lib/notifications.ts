@@ -1,6 +1,6 @@
 import { getAppPlatform, isNativeApp } from './updater'
 
-export type NotificationFrequency = 'off' | 'hourly' | 'daily' | 'weekdays' | 'weekly'
+export type NotificationFrequency = 'off' | 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'selected-days' | 'interval'
 
 export interface NotificationSettings {
   enabled: boolean
@@ -10,6 +10,8 @@ export interface NotificationSettings {
   frequency: NotificationFrequency
   time: string
   weekday: number
+  weekdays: number[]
+  intervalMinutes: number
 }
 
 export interface NotificationContent {
@@ -27,14 +29,16 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   frequency: 'daily',
   time: '09:00',
   weekday: 1,
+  weekdays: [2, 3, 4, 5, 6],
+  intervalMinutes: 120,
 }
 
 // These are reserved for Anchor's scheduled reminders. Immediate AI notices
 // intentionally do not use a fixed ID so the OS can show each response.
-const NATIVE_REMINDER_IDS = [48101, 48102, 48103, 48104, 48105]
+const NATIVE_REMINDER_IDS = [48101, 48102, 48103, 48104, 48105, 48106, 48107, 48108]
 
 function isFrequency(value: unknown): value is NotificationFrequency {
-  return value === 'off' || value === 'hourly' || value === 'daily' || value === 'weekdays' || value === 'weekly'
+  return value === 'off' || value === 'hourly' || value === 'daily' || value === 'weekdays' || value === 'weekly' || value === 'selected-days' || value === 'interval'
 }
 
 function normalizeTime(value: unknown): string {
@@ -52,6 +56,19 @@ function normalizeTime(value: unknown): string {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
 }
 
+function normalizeWeekdays(value: unknown): number[] {
+  if (!Array.isArray(value)) return [...DEFAULT_NOTIFICATION_SETTINGS.weekdays]
+
+  const days = Array.from(new Set(value.filter((day): day is number => typeof day === 'number' && Number.isInteger(day) && day >= 1 && day <= 7)))
+    .sort((first, second) => first - second)
+  return days.length > 0 ? days : [...DEFAULT_NOTIFICATION_SETTINGS.weekdays]
+}
+
+function normalizeIntervalMinutes(value: unknown): number {
+  const interval = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : DEFAULT_NOTIFICATION_SETTINGS.intervalMinutes
+  return Math.max(15, Math.min(24 * 60, interval))
+}
+
 export function normalizeNotificationSettings(value: Partial<NotificationSettings> | null | undefined): NotificationSettings {
   const settings = value ?? {}
   const weekday = typeof settings.weekday === 'number' && Number.isInteger(settings.weekday) && settings.weekday >= 1 && settings.weekday <= 7
@@ -66,6 +83,8 @@ export function normalizeNotificationSettings(value: Partial<NotificationSetting
     frequency: isFrequency(settings.frequency) ? settings.frequency : DEFAULT_NOTIFICATION_SETTINGS.frequency,
     time: normalizeTime(settings.time),
     weekday,
+    weekdays: normalizeWeekdays(settings.weekdays),
+    intervalMinutes: normalizeIntervalMinutes(settings.intervalMinutes),
   }
 }
 
@@ -101,13 +120,15 @@ function getTimeParts(time: string): { hour: number; minute: number } {
 }
 
 function isAllowedDay(date: Date, settings: NotificationSettings): boolean {
+  const sundayBasedDay = date.getDay() + 1
   if (settings.frequency === 'weekdays') {
-    const day = date.getDay()
-    return day >= 1 && day <= 5
+    return sundayBasedDay >= 2 && sundayBasedDay <= 6
   }
   if (settings.frequency === 'weekly') {
-    const sundayBasedDay = date.getDay() + 1
     return sundayBasedDay === settings.weekday
+  }
+  if (settings.frequency === 'selected-days') {
+    return settings.weekdays.includes(sundayBasedDay)
   }
   return true
 }
@@ -115,6 +136,10 @@ function isAllowedDay(date: Date, settings: NotificationSettings): boolean {
 /** Returns the next local time at which a browser timer should fire. */
 export function getNextReminderDate(settings: NotificationSettings, now = new Date()): Date | null {
   if (!notificationsHaveReminder(settings)) return null
+
+  if (settings.frequency === 'interval') {
+    return new Date(now.getTime() + settings.intervalMinutes * 60 * 1000)
+  }
 
   const { hour, minute } = getTimeParts(settings.time)
   const candidate = new Date(now)
@@ -144,11 +169,21 @@ export interface NativeReminderPattern {
   hour?: number
   minute?: number
   weekday?: number
+  every?: { unit: 'minute' | 'hour'; count: number }
 }
 
 /** Creates calendar patterns understood by the Tauri notification plugin. */
 export function getNativeReminderPatterns(settings: NotificationSettings): NativeReminderPattern[] {
   if (!notificationsHaveReminder(settings)) return []
+
+  if (settings.frequency === 'interval') {
+    return [{
+      id: NATIVE_REMINDER_IDS[0],
+      every: settings.intervalMinutes % 60 === 0
+        ? { unit: 'hour', count: settings.intervalMinutes / 60 }
+        : { unit: 'minute', count: settings.intervalMinutes },
+    }]
+  }
 
   const { hour, minute } = getTimeParts(settings.time)
   if (settings.frequency === 'hourly') {
@@ -158,9 +193,17 @@ export function getNativeReminderPatterns(settings: NotificationSettings): Nativ
     return [{ id: NATIVE_REMINDER_IDS[0], weekday: settings.weekday, hour, minute }]
   }
   if (settings.frequency === 'weekdays') {
-    return [1, 2, 3, 4, 5].map((weekday, index) => ({
+    return [2, 3, 4, 5, 6].map((weekday, index) => ({
       id: NATIVE_REMINDER_IDS[index],
-      weekday: weekday + 1,
+      weekday,
+      hour,
+      minute,
+    }))
+  }
+  if (settings.frequency === 'selected-days') {
+    return settings.weekdays.map((weekday, index) => ({
+      id: NATIVE_REMINDER_IDS[index],
+      weekday,
       hour,
       minute,
     }))
@@ -173,7 +216,7 @@ function hasNotificationConstructor(): boolean {
 }
 
 async function hasNotificationPermission(): Promise<boolean> {
-  if (!hasNotificationConstructor()) return false
+  if (!hasNotificationConstructor() && !isNativeApp()) return false
 
   if (isNativeApp()) {
     try {
@@ -188,7 +231,7 @@ async function hasNotificationPermission(): Promise<boolean> {
 }
 
 export async function requestNotificationPermission(): Promise<boolean> {
-  if (!hasNotificationConstructor()) return false
+  if (!hasNotificationConstructor() && !isNativeApp()) return false
 
   try {
     if (isNativeApp()) {
@@ -210,10 +253,21 @@ export async function sendAppNotification(content: NotificationContent): Promise
 
   try {
     if (isNativeApp()) {
-      const { sendNotification } = await import('@tauri-apps/plugin-notification')
+      const { createChannel, Importance, sendNotification, Visibility } = await import('@tauri-apps/plugin-notification')
+      if (getAppPlatform() === 'android') {
+        await createChannel({
+          id: 'anchor-default',
+          name: 'Anchor',
+          description: 'Immediate updates from your Anchor workspace.',
+          importance: Importance.Default,
+          visibility: Visibility.Private,
+          vibration: true,
+        })
+      }
       sendNotification({
         title: content.title,
         body: content.body,
+        ...(getAppPlatform() === 'android' ? { channelId: 'anchor-default' } : {}),
         autoCancel: true,
         group: 'anchor',
       })
@@ -242,20 +296,34 @@ export async function scheduleNativeReminderNotifications(
   if (!isNativeApp() || getAppPlatform() !== 'android') return
 
   try {
-    const { cancel, isPermissionGranted, Schedule, sendNotification } = await import('@tauri-apps/plugin-notification')
+    const { cancel, createChannel, Importance, isPermissionGranted, Schedule, ScheduleEvery, sendNotification, Visibility } = await import('@tauri-apps/plugin-notification')
     await cancel(NATIVE_REMINDER_IDS)
     if (!content || !notificationsHaveReminder(settings) || !(await isPermissionGranted())) return
 
+    await createChannel({
+      id: 'anchor-reminders',
+      name: 'Anchor reminders',
+      description: 'Scheduled reminders from your Anchor workspace.',
+      importance: Importance.Default,
+      visibility: Visibility.Private,
+      vibration: true,
+    })
+
     getNativeReminderPatterns(settings).forEach((pattern) => {
+      const schedule = pattern.every
+        ? Schedule.every(pattern.every.unit === 'hour' ? ScheduleEvery.Hour : ScheduleEvery.Minute, pattern.every.count, true)
+        : Schedule.interval({
+          ...(pattern.weekday ? { weekday: pattern.weekday } : {}),
+          ...(pattern.hour !== undefined ? { hour: pattern.hour } : {}),
+          ...(pattern.minute !== undefined ? { minute: pattern.minute } : {}),
+        }, true)
+
       sendNotification({
         id: pattern.id,
         title: content.title,
         body: content.body,
-        schedule: Schedule.interval({
-          ...(pattern.weekday ? { weekday: pattern.weekday } : {}),
-          ...(pattern.hour !== undefined ? { hour: pattern.hour } : {}),
-          ...(pattern.minute !== undefined ? { minute: pattern.minute } : {}),
-        }, true),
+        schedule,
+        channelId: 'anchor-reminders',
         autoCancel: true,
         group: 'anchor-reminders',
       })

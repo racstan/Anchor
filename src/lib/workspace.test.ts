@@ -45,6 +45,8 @@ describe('workspace backups', () => {
         frequency: 'daily',
         time: '09:30',
         weekday: 1,
+        weekdays: [2, 3, 4, 5, 6],
+        intervalMinutes: 120,
       },
     })
     const parsed = parseWorkspaceExport(raw)

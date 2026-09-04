@@ -682,6 +682,10 @@ html[data-theme='dusk'] {
   padding-top: 14px;
 }
 
+.sidebar-bottom-nav {
+  margin-bottom: 10px;
+}
+
 .sidebar-prompt {
   display: flex;
   gap: 10px;
@@ -5306,6 +5310,12 @@ fieldset.form-field {
   letter-spacing: -0.01em;
 }
 
+.decision-tool-status {
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
 .chat-title span:not(.chat-bot-mark) {
   color: var(--muted);
   font-size: 11px;
@@ -6404,6 +6414,17 @@ fieldset.form-field {
   overflow: hidden;
 }
 
+.walkthrough-ai-card.collapsed {
+  min-height: 0;
+}
+
+.walkthrough-ai-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
 .walkthrough-ai-header {
   display: flex;
   align-items: center;
@@ -6448,6 +6469,27 @@ fieldset.form-field {
 .walkthrough-ai-actions .text-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.walkthrough-ai-collapse {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+  transition: all 120ms ease;
+}
+
+.walkthrough-ai-collapse:hover {
+  color: var(--primary);
+  border-color: var(--primary-border);
+  background: var(--primary-light);
 }
 
 .walkthrough-context-count {
@@ -6681,6 +6723,10 @@ fieldset.form-field {
     order: -1;
     min-height: 560px;
   }
+
+  .walkthrough-ai-card.collapsed {
+    min-height: 0;
+  }
 }
 
 @media (max-width: 700px) {
@@ -6702,6 +6748,10 @@ fieldset.form-field {
 
   .walkthrough-ai-card {
     min-height: 520px;
+  }
+
+  .walkthrough-ai-card.collapsed {
+    min-height: 0;
   }
 
   .walkthrough-ai-header {
@@ -8818,6 +8868,67 @@ fieldset.form-field {
   margin-top: 16px;
 }
 
+.notification-day-picker {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.notification-day-picker > span {
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.notification-day-options {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.notification-day-options label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.notification-day-options label.selected {
+  color: var(--primary);
+  border-color: var(--primary-border);
+  background: var(--primary-light);
+}
+
+.notification-day-options label:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.notification-day-options input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.notification-day-picker > small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
 .notification-settings-footer {
   display: flex;
   align-items: center;
@@ -9436,6 +9547,10 @@ fieldset.form-field {
     display: flex;
     flex-direction: column;
     align-items: center;
+  }
+
+  .sidebar-collapsed .sidebar-bottom-nav {
+    width: 100%;
   }
 
   .sidebar-collapsed .user-row {

@@ -42,6 +42,8 @@ import {
   NotebookPen,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Palette,
   Paperclip,
   PenLine,
@@ -107,6 +109,7 @@ import {
   AI_PROVIDERS,
   completeAIChat,
   DEFAULT_AI_SETTINGS,
+  runAIToolAgent,
   discoverModels,
   isAIReady,
   parseAIObject,
@@ -114,6 +117,8 @@ import {
   writeAISettings,
 } from './lib/ai'
 import type { AIMessage, AIModel, AISettings } from './lib/ai'
+import { createWorkspaceToolset } from './lib/ai-tools'
+import type { WorkspaceToolset } from './lib/ai-tools'
 import {
   mergeWorkspacePreferences,
   mergeWorkspaceProfile,
@@ -2664,6 +2669,7 @@ function App() {
         projects={state.projects}
         anchors={state.anchors}
         notes={state.notes}
+        notificationSettings={notificationSettings}
         settings={aiSettings}
         decisions={state.decisions}
         onOpenSettings={() => navigate('settings')}
@@ -2678,6 +2684,7 @@ function App() {
         projects={state.projects}
         notes={state.notes}
         decisions={state.decisions}
+        notificationSettings={notificationSettings}
         settings={aiSettings}
         onOpenSettings={() => navigate('settings')}
         onOpenAnchors={() => navigate('all')}
@@ -2828,12 +2835,6 @@ function App() {
             onClick={() => navigate('home')}
           />
           <NavItem
-            icon={Compass}
-            label="Walkthrough"
-            active={activeView === 'walkthrough' && !activeProjectId}
-            onClick={() => navigate('walkthrough')}
-          />
-          <NavItem
             icon={BookOpenText}
             label="Wisdom & Thoughts"
             active={activeView === 'dashboard' && !activeProjectId}
@@ -2910,6 +2911,14 @@ function App() {
         </div>
 
         <div className="sidebar-bottom">
+          <div className="sidebar-bottom-nav">
+            <NavItem
+              icon={Compass}
+              label="Walkthrough"
+              active={activeView === 'walkthrough' && !activeProjectId}
+              onClick={() => navigate('walkthrough')}
+            />
+          </div>
           <div className="sidebar-prompt">
             <div className="prompt-icon">
               <Lightbulb size={15} />
@@ -3777,6 +3786,10 @@ function AnchorsView({
     })
   }, [anchors, contentFilter, filter, filterNow, projectFilter, projects, query, sort])
   const anchorAIContext = useMemo(() => buildAnchorAIContext(anchors, projects), [anchors, projects])
+  const workspaceTools = useMemo(
+    () => createWorkspaceToolset({ anchors, projects, notes: [], decisions: [] }),
+    [anchors, projects],
+  )
   const hasAdvancedFilters = contentFilter !== 'all' || Boolean(projectFilter) || sort !== 'updatedDesc'
   const heading =
     filter === 'global' ? 'Global context' : filter === 'projects' ? 'Project anchors' : 'All anchors'
@@ -3899,6 +3912,7 @@ function AnchorsView({
         context={anchorAIContext.text}
         contextAnchors={anchorAIContext.anchors}
         projects={projects}
+        workspaceTools={workspaceTools}
         omittedContextCount={anchorAIContext.omittedCount}
         settings={settings}
         onOpenSettings={onOpenSettings}
@@ -4876,6 +4890,7 @@ interface AnchorAgentCardProps {
   context: string
   contextAnchors: Anchor[]
   projects: Project[]
+  workspaceTools: WorkspaceToolset
   omittedContextCount: number
   settings: AISettings
   onOpenSettings: () => void
@@ -4886,6 +4901,7 @@ function AnchorAgentCard({
   context,
   contextAnchors,
   projects,
+  workspaceTools,
   omittedContextCount,
   settings,
   onOpenSettings,
@@ -4922,18 +4938,15 @@ function AnchorAgentCard({
     setQuestion('')
 
     try {
-      const response = await completeAIChat(settings, [
-        {
-          role: 'system',
-          content: 'You are Anchor’s careful workspace agent. Use only the supplied anchor records. Preserve the person’s meaning and suggest the smallest useful set of changes. You may update title, body, tag, tone, or pinned status; add a new global anchor; or delete an anchor only when the request clearly calls for it or it is a true duplicate. Never invent evidence or attachments, and never change project membership. Return only one valid JSON object with exactly these keys: summary (string) and changes (array). Each update is {"action":"update","anchorId":"existing id","reason":"short reason","changes":{"title":"...","body":"...","tag":"...","color":"coral|sage|sky|gold|plum","pinned":true|false}}. Each addition is {"action":"add","reason":"short reason","anchor":{"title":"...","body":"...","tag":"...","color":"coral|sage|sky|gold|plum","pinned":true|false}}. Each deletion is {"action":"delete","anchorId":"existing id","reason":"short reason"}. Return an empty changes array when a read-only answer is enough. Keep the plan to 20 changes or fewer. The person must review and approve every change; do not pretend anything has already been changed.',
-        },
-        {
-          role: 'user',
-          content: `ANCHOR CONTEXT (these are the records you may reference)\n${context}\n\nREQUEST\n${trimmedPrompt}`,
-        },
-      ], requestController.signal)
+      const agentResult = await runAIToolAgent(settings, {
+        systemPrompt: `You are Anchor’s careful workspace agent. Use only the supplied anchor records and local workspace tools. Preserve the person’s meaning and suggest the smallest useful set of changes. You may update title, body, tag, tone, or pinned status; add a new global anchor; or delete an anchor only when the request clearly calls for it or it is a true duplicate. Never invent evidence or attachments, and never change project membership. Return the final answer as one valid JSON object with exactly these keys: summary (string) and changes (array). Each update is {"action":"update","anchorId":"existing id","reason":"short reason","changes":{"title":"...","body":"...","tag":"...","color":"coral|sage|sky|gold|plum","pinned":true|false}}. Each addition is {"action":"add","reason":"short reason","anchor":{"title":"...","body":"...","tag":"...","color":"coral|sage|sky|gold|plum","pinned":true|false}}. Each deletion is {"action":"delete","anchorId":"existing id","reason":"short reason"}. Return an empty changes array when a read-only answer is enough. Keep the plan to 20 changes or fewer. The person must review and approve every change; do not pretend anything has already been changed.\n\nVISIBLE ANCHOR CONTEXT\n${context}`,
+        messages: [{ role: 'user', content: trimmedPrompt }],
+        tools: workspaceTools.definitions,
+        executeTool: workspaceTools.execute,
+        signal: requestController.signal,
+      })
 
-      const nextPlan = parseAnchorAgentPlan(response, contextAnchors)
+      const nextPlan = parseAnchorAgentPlan(agentResult.answer, contextAnchors)
       if (nextPlan.changes.length > 0) {
         setPlan(nextPlan)
         setSelectedChangeIndexes(nextPlan.changes.map((_, index) => index))
@@ -5433,6 +5446,7 @@ interface DecisionViewProps {
   projects: Project[]
   anchors: Anchor[]
   notes: Note[]
+  notificationSettings: NotificationSettings
   settings: AISettings
   decisions: Decision[]
   onOpenSettings: () => void
@@ -5744,6 +5758,7 @@ interface WalkthroughViewProps {
   projects: Project[]
   notes: Note[]
   decisions: Decision[]
+  notificationSettings: NotificationSettings
   settings: AISettings
   onOpenSettings: () => void
   onOpenAnchors: () => void
@@ -5774,7 +5789,8 @@ Anchor actions:
 - Create a project from Projects or the + button beside Projects. Open a project to add project anchors.
 - Write a note from Notes, then save it. Notes can be imported into a decision.
 - Use Decision space to enter a situation, optionally import a project, anchors, or note, then select Think this through. Follow-up questions stay in the room.
-- Change AI, theme, notifications, security, sync, and export/import options in Settings.
+- In Settings → Notifications choose AI responses, saved anchors, or thoughts, then use a fixed time, selected weekdays, or a repeating interval; Android can deliver scheduled reminders while Anchor is closed.
+- Change AI, theme, security, sync, and export/import options in Settings.
 `
 
 function truncateForWalkthrough(value: string, maxLength: number): string {
@@ -5863,6 +5879,7 @@ function WalkthroughView({
   projects,
   notes,
   decisions,
+  notificationSettings,
   settings,
   onOpenSettings,
   onOpenAnchors,
@@ -5877,8 +5894,14 @@ function WalkthroughView({
   const [isThinking, setIsThinking] = useState(false)
   const [error, setError] = useState<string>()
   const [matchedCount, setMatchedCount] = useState<number>()
+  const [toolCalls, setToolCalls] = useState<string[]>([])
+  const [aiCollapsed, setAICollapsed] = useState(false)
   const requestControllerRef = useRef<AbortController | undefined>(undefined)
   const connectionReady = isAIReady(settings)
+  const workspaceTools = useMemo(
+    () => createWorkspaceToolset({ anchors, projects, notes, decisions, notifications: notificationSettings }),
+    [anchors, decisions, notes, notificationSettings, projects],
+  )
 
   useEffect(() => () => requestControllerRef.current?.abort(), [])
 
@@ -5901,14 +5924,10 @@ function WalkthroughView({
     }
     const nextMessages = [...messages, userMessage]
     const aiMessages: AIMessage[] = [
-      {
-        role: 'system',
-        content: `You are Anchor's concise in-app guide and workspace librarian. Answer the question directly. For how-to questions, give exact clicks or keyboard actions in order. For workspace questions, use only the supplied records and say when the information is not present. Never invent records, features, or facts. Keep answers short and use Markdown when it improves scanning.\n\nAPP REFERENCE${WALKTHROUGH_REFERENCE}`,
-      },
       ...messages.map((message) => ({ role: message.role, content: message.content })),
       {
         role: 'user',
-        content: `QUESTION\n${trimmedQuestion}\n\n${context.text}`,
+        content: `QUESTION\n${trimmedQuestion}\n\nSTARTING WORKSPACE SNAPSHOT\n${context.text}`,
       },
     ]
 
@@ -5918,11 +5937,20 @@ function WalkthroughView({
     setMessages(nextMessages)
     setQuestion('')
     setMatchedCount(context.matchedCount)
+    setToolCalls([])
     setError(undefined)
     setIsThinking(true)
 
     try {
-      const response = await completeAIChat(settings, aiMessages, requestController.signal)
+      const agentResult = await runAIToolAgent(settings, {
+        systemPrompt: `You are Anchor's concise in-app guide and workspace librarian. Answer the question directly. For how-to questions, give exact clicks or keyboard actions in order. For workspace questions, use only the supplied records and local tool results. Say when the information is not present. Never invent records, features, or facts. Keep answers short and use Markdown when it improves scanning.\n\nAPP REFERENCE${WALKTHROUGH_REFERENCE}`,
+        messages: aiMessages,
+        tools: workspaceTools.definitions,
+        executeTool: workspaceTools.execute,
+        signal: requestController.signal,
+      })
+      setToolCalls(agentResult.toolCalls)
+      const response = agentResult.answer
       setMessages([...nextMessages, {
         id: createId('message'),
         serialNumber: nextSerialNumber(nextMessages),
@@ -5953,6 +5981,7 @@ function WalkthroughView({
     setMessages([])
     setQuestion('')
     setMatchedCount(undefined)
+    setToolCalls([])
     setError(undefined)
     setIsThinking(false)
   }
@@ -6029,17 +6058,30 @@ function WalkthroughView({
           </div>
         </section>
 
-        <section className="walkthrough-ai-card" aria-labelledby="walkthrough-ai-title">
+        <section className={`walkthrough-ai-card ${aiCollapsed ? 'collapsed' : ''}`} aria-labelledby="walkthrough-ai-title">
           <div className="walkthrough-ai-header">
             <div className="walkthrough-ai-title">
               <span className="walkthrough-ai-icon"><Bot size={18} /></span>
               <h2 id="walkthrough-ai-title">Ask Anchor</h2>
             </div>
             <div className="walkthrough-ai-actions">
-              {matchedCount !== undefined && <span className="walkthrough-context-count">{matchedCount} matching record{matchedCount === 1 ? '' : 's'}</span>}
-              <button className="text-button" type="button" onClick={clearChat} disabled={!messages.length && !isThinking}>Clear</button>
+              {!aiCollapsed && matchedCount !== undefined && <span className="walkthrough-context-count">{matchedCount} matching record{matchedCount === 1 ? '' : 's'}</span>}
+              {!aiCollapsed && toolCalls.length > 0 && <span className="walkthrough-context-count">{toolCalls.length} local lookup{toolCalls.length === 1 ? '' : 's'}</span>}
+              {!aiCollapsed && <button className="text-button" type="button" onClick={clearChat} disabled={!messages.length && !isThinking}>Clear</button>}
+              <button
+                className="walkthrough-ai-collapse"
+                type="button"
+                aria-expanded={!aiCollapsed}
+                aria-controls="walkthrough-ai-panel"
+                aria-label={aiCollapsed ? 'Expand Ask Anchor' : 'Collapse Ask Anchor'}
+                title={aiCollapsed ? 'Expand Ask Anchor' : 'Collapse Ask Anchor'}
+                onClick={() => setAICollapsed((collapsed) => !collapsed)}
+              >
+                {aiCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}
+              </button>
             </div>
           </div>
+          {!aiCollapsed && <div id="walkthrough-ai-panel" className="walkthrough-ai-panel">
           <div className="walkthrough-ai-messages" aria-live="polite">
             {messages.length === 0 ? (
               <div className="walkthrough-ai-empty">
@@ -6086,6 +6128,7 @@ function WalkthroughView({
             </div>
           )}
           {error && <div className="walkthrough-ai-error" role="alert"><CircleAlert size={14} /><span>{error}</span></div>}
+          </div>}
         </section>
       </div>
     </div>
@@ -6297,6 +6340,7 @@ function DecisionView({
   projects,
   anchors,
   notes,
+  notificationSettings,
   settings,
   decisions,
   onOpenSettings,
@@ -6331,6 +6375,7 @@ function DecisionView({
   const [historyCollapsed, setHistoryCollapsed] = useState(true)
   const [copiedMessageId, setCopiedMessageId] = useState<string>()
   const [isThinking, setIsThinking] = useState(false)
+  const [toolCalls, setToolCalls] = useState<string[]>([])
   const [error, setError] = useState<string>()
   const requestControllerRef = useRef<AbortController | undefined>(undefined)
   const chatMessagesRef = useRef<HTMLDivElement>(null)
@@ -6344,6 +6389,10 @@ function DecisionView({
   const globalAnchors = anchors.filter((anchor) => anchor.scope === 'global' && anchor.pinned).slice(0, 6)
   const provider = AI_PROVIDERS.find((item) => item.id === settings.providerId)
   const connectionReady = Boolean(settings.apiKey.trim() && settings.model.trim() && (!provider?.requiresAccountId || settings.accountId.trim()))
+  const workspaceTools = useMemo(
+    () => createWorkspaceToolset({ anchors, projects, notes, decisions, notifications: notificationSettings }),
+    [anchors, decisions, notes, notificationSettings, projects],
+  )
 
   useEffect(() => {
     const chatMessages = chatMessagesRef.current
@@ -6419,24 +6468,27 @@ function DecisionView({
       createdAt: new Date().toISOString(),
     }
     const nextMessages = [...messages, userMessage]
-    const aiMessages: AIMessage[] = [
-      {
-        role: 'system',
-        content: `${decisionSystemPrompt(selectedProject && projectImported ? selectedProject : undefined, projectAnchors, globalAnchors)}\n\nCURRENT DECISION CONTEXT\n${buildUserPrompt()}`,
-      },
-      ...nextMessages.map((message) => ({ role: message.role, content: message.content })),
-    ]
+    const aiMessages: AIMessage[] = nextMessages.map((message) => ({ role: message.role, content: message.content }))
 
     requestControllerRef.current?.abort()
     const requestController = new AbortController()
 
     requestControllerRef.current = requestController
     setError(undefined)
+    setToolCalls([])
     saveCurrentDecision(nextMessages, { chatInput: '' })
     setIsThinking(true)
 
     try {
-      const response = await completeAIChat(settings, aiMessages, requestController.signal)
+      const agentResult = await runAIToolAgent(settings, {
+        systemPrompt: `${decisionSystemPrompt(selectedProject && projectImported ? selectedProject : undefined, projectAnchors, globalAnchors)}\n\nCURRENT DECISION CONTEXT\n${buildUserPrompt()}`,
+        messages: aiMessages,
+        tools: workspaceTools.definitions,
+        executeTool: workspaceTools.execute,
+        signal: requestController.signal,
+      })
+      setToolCalls(agentResult.toolCalls)
+      const response = agentResult.answer
       const assistantMessage: ChatMessage = {
         id: createId('message'),
         serialNumber: nextSerialNumber(nextMessages),
@@ -6492,6 +6544,7 @@ function DecisionView({
       updateDecisionDraft({ messages: [], chatInput: '' })
     }
     setCopiedMessageId(undefined)
+    setToolCalls([])
     setError(undefined)
   }
 
@@ -6547,6 +6600,7 @@ function DecisionView({
     requestControllerRef.current?.abort()
     requestControllerRef.current = undefined
     setIsThinking(false)
+    setToolCalls([])
     setBriefCollapsed(false)
     const emptyDraft = decisionDraftFromDecision()
     decisionBaselineRef.current = emptyDraft
@@ -6560,6 +6614,7 @@ function DecisionView({
     requestControllerRef.current?.abort()
     requestControllerRef.current = undefined
     setIsThinking(false)
+    setToolCalls([])
     setBriefCollapsed(false)
     const loadedDraft = decisionDraftFromDecision(decision)
     decisionBaselineRef.current = loadedDraft
@@ -6852,6 +6907,7 @@ function DecisionView({
               <span className="chat-bot-mark"><Bot size={18} /></span>
               <div>
                 <strong>Anchor companion</strong>
+                {toolCalls.length > 0 && <small className="decision-tool-status">{toolCalls.length} local workspace lookup{toolCalls.length === 1 ? '' : 's'}</small>}
               </div>
             </div>
             <div className="chat-header-actions">
@@ -7688,11 +7744,11 @@ function SettingsView({
           <div className="settings-card-heading compact">
             <span className="settings-card-icon notifications"><Bell size={18} /></span>
             <div>
-              <p className="eyebrow">05 — Gentle nudges</p>
+              <p className="eyebrow">05 — Advanced nudges</p>
               <h2>Notifications</h2>
             </div>
           </div>
-          <p className="settings-card-copy">Let Anchor bring back an AI response, a saved anchor, or a philosophical thought at a time you choose. Notifications are opt-in.</p>
+          <p className="settings-card-copy">Choose what Anchor sends and when: a fixed time, selected days, or a repeating interval. Notifications are opt-in and Android keeps scheduled reminders with the OS.</p>
 
           <label className="notification-toggle-row">
             <input
@@ -7745,7 +7801,7 @@ function SettingsView({
 
           <div className="notification-schedule-grid">
             <label className="form-field">
-              <span>Reminder frequency</span>
+              <span>Reminder schedule</span>
               <div className="select-wrap">
                 <select
                   value={notificationSettings.frequency}
@@ -7757,19 +7813,44 @@ function SettingsView({
                   <option value="daily">Every day</option>
                   <option value="weekdays">Weekdays</option>
                   <option value="weekly">Every week</option>
+                  <option value="selected-days">Selected days</option>
+                  <option value="interval">Repeating interval</option>
                 </select>
                 <ChevronDown size={15} />
               </div>
             </label>
-            <label className="form-field">
-              <span>Time</span>
-              <input
-                type="time"
-                value={notificationSettings.time}
-                disabled={!notificationSettings.enabled || notificationSettings.frequency === 'off'}
-                onChange={(event) => onNotificationsChange({ time: event.target.value })}
-              />
-            </label>
+            {notificationSettings.frequency === 'interval' ? (
+              <label className="form-field">
+                <span>Repeat every</span>
+                <div className="select-wrap">
+                  <select
+                    value={notificationSettings.intervalMinutes}
+                    disabled={!notificationSettings.enabled}
+                    onChange={(event) => onNotificationsChange({ intervalMinutes: Number(event.target.value) })}
+                  >
+                    <option value={15}>15 minutes</option>
+                    <option value={30}>30 minutes</option>
+                    <option value={60}>1 hour</option>
+                    <option value={120}>2 hours</option>
+                    <option value={240}>4 hours</option>
+                    <option value={360}>6 hours</option>
+                    <option value={720}>12 hours</option>
+                    <option value={1440}>24 hours</option>
+                  </select>
+                  <ChevronDown size={15} />
+                </div>
+              </label>
+            ) : notificationSettings.frequency !== 'off' && (
+              <label className="form-field">
+                <span>{notificationSettings.frequency === 'hourly' ? 'Minute of each hour' : 'Time'}</span>
+                <input
+                  type="time"
+                  value={notificationSettings.time}
+                  disabled={!notificationSettings.enabled}
+                  onChange={(event) => onNotificationsChange({ time: event.target.value })}
+                />
+              </label>
+            )}
             {notificationSettings.frequency === 'weekly' && (
               <label className="form-field">
                 <span>Day</span>
@@ -7786,6 +7867,33 @@ function SettingsView({
               </label>
             )}
           </div>
+          {notificationSettings.frequency === 'selected-days' && (
+            <div className="notification-day-picker">
+              <span>Days to remind me</span>
+              <div className="notification-day-options" role="group" aria-label="Select reminder days">
+                {notificationWeekdays.map((day) => {
+                  const selected = notificationSettings.weekdays.includes(day.value)
+                  return (
+                    <label className={selected ? 'selected' : ''} key={day.value}>
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        disabled={!notificationSettings.enabled}
+                        onChange={(event) => {
+                          const nextDays = event.target.checked
+                            ? [...notificationSettings.weekdays, day.value]
+                            : notificationSettings.weekdays.filter((value) => value !== day.value)
+                          if (nextDays.length > 0) onNotificationsChange({ weekdays: nextDays })
+                        }}
+                      />
+                      {day.label.slice(0, 3)}
+                    </label>
+                  )
+                })}
+              </div>
+              <small>Select at least one day. Anchor keeps the schedule on Android even when the app is closed.</small>
+            </div>
+          )}
 
           <div className="notification-settings-footer">
             <button className="secondary-button" type="button" onClick={() => void onEnableNotifications()}>

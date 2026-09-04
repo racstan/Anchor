@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AI_PROVIDERS, discoverModels, isAIReady, parseAIObject } from './ai'
+import { AI_PROVIDERS, discoverModels, isAIReady, parseAIObject, runAIToolAgent } from './ai'
 import type { AISettings } from './ai'
 
 const settings: AISettings = {
@@ -57,5 +57,30 @@ describe('AI provider connections', () => {
       'https://openrouter.ai/api/v1/models',
       expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer test-key' }) }),
     )
+  })
+
+  it('runs a local tool before returning an agent answer', async () => {
+    const responses = [
+      '{"type":"tool_call","tool":"search_workspace","input":{"query":"sleep"}}',
+      '{"type":"final","answer":"I found the sleep anchor."}',
+    ]
+    const fetchMock = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: responses.shift() } }] }),
+    }))
+    const executeTool = vi.fn().mockReturnValue('{"results":[{"id":"sleep-anchor"}]}')
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runAIToolAgent({ ...settings, model: 'live-model' }, {
+      systemPrompt: 'Use the workspace carefully.',
+      messages: [{ role: 'user', content: 'Find my sleep anchor.' }],
+      tools: [{ name: 'search_workspace', description: 'Search local records.', input: '{"query":"..."}' }],
+      executeTool,
+    })
+
+    expect(result.answer).toBe('I found the sleep anchor.')
+    expect(result.toolCalls).toEqual(['search_workspace'])
+    expect(executeTool).toHaveBeenCalledWith('search_workspace', { query: 'sleep' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

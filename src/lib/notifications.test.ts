@@ -26,6 +26,8 @@ describe('notification settings', () => {
     expect(settings.frequency).toBe('daily')
     expect(settings.time).toBe('09:00')
     expect(settings.weekday).toBe(1)
+    expect(settings.weekdays).toEqual([2, 3, 4, 5, 6])
+    expect(settings.intervalMinutes).toBe(120)
   })
 
   it('finds the next daily reminder at the configured local time', () => {
@@ -53,6 +55,21 @@ describe('notification settings', () => {
 
     expect(patterns).toHaveLength(5)
     expect(patterns.map((pattern) => pattern.weekday)).toEqual([2, 3, 4, 5, 6])
+  })
+
+  it('supports selected days and repeating intervals', () => {
+    const selectedDays = normalizeNotificationSettings({
+      ...baseSettings,
+      frequency: 'selected-days',
+      weekdays: [1, 4, 7],
+    })
+    const selectedPatterns = getNativeReminderPatterns(selectedDays)
+    expect(selectedPatterns.map((pattern) => pattern.weekday)).toEqual([1, 4, 7])
+
+    const interval = normalizeNotificationSettings({ ...baseSettings, frequency: 'interval', intervalMinutes: 120 })
+    const nextInterval = getNextReminderDate(interval, new Date(2026, 0, 5, 8, 15))
+    expect(nextInterval?.getTime()).toBe(new Date(2026, 0, 5, 10, 15).getTime())
+    expect(getNativeReminderPatterns(interval)[0].every).toEqual({ unit: 'hour', count: 2 })
   })
 
   it('does not schedule reminders when the user turns them off', () => {

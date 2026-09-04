@@ -65,7 +65,7 @@ The Dropbox app owner must configure an **App folder** app with `account_info.re
 
 ## Notifications
 
-Open **Settings → Notifications** to opt in to AI-response notices and scheduled anchor or thought reminders. Choose hourly, daily, weekday, or weekly delivery and a local time. Android schedules can fire while the app is closed; web and desktop reminders run while Anchor is open. Permission is requested only after you choose to enable notifications.
+Open **Settings → Notifications** to opt in to AI-response notices and scheduled anchor or thought reminders. Choose hourly, daily, weekday, weekly, selected-day, or repeating-interval delivery; fixed schedules use a local time and selected days can be mixed freely. Android schedules are handed to the OS with a private reminder channel and can fire while Anchor is closed; web and desktop reminders run while Anchor is open. Permission is requested only after you choose to enable notifications.
 
 Starter wellbeing anchors are evidence-informed rather than medical prescriptions. They link to public guidance from WHO, CDC, NCCIH, and MedlinePlus, and remind people to seek qualified care for symptoms or treatment decisions.
 
@@ -75,7 +75,8 @@ Starter wellbeing anchors are evidence-informed rather than medical prescription
 - `src/App.css` — shared visual system and responsive styles
 - `src/lib/anchors.ts` — anchor/project/decision models and local persistence
 - `src/lib/workspace.ts` — profile persistence and validated backup format
-- `src/lib/ai.ts` — provider adapters and live model discovery
+- `src/lib/ai.ts` — provider adapters, live model discovery, and the tool-using agent loop
+- `src/lib/ai-tools.ts` — read-only workspace tools used by walkthrough, anchors, and Decision space
 - `src/lib/notifications.ts` — opt-in OS/browser notifications and reminder schedules
 - `api/anchor-ai.ts` — Vercel production AI relay
 - `vite-ai-proxy.ts` — local development/preview AI relay
