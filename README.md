@@ -42,6 +42,8 @@ Once connected, AI is available throughout the workspace:
 
 These actions are opt-in: Anchor does not silently analyze or auto-send workspace data. Each action shows what context is being used and sends it only to the provider you configured.
 
+When a newer Anchor release is available, the app checks on launch and opens a cumulative, scrollable changelog—from v0.1.0 through the waiting release—before offering the platform-specific update action. The release history remains available from the update prompt even if GitHub history cannot be reached.
+
 ## Workspace backups
 
 **Settings → Workspace data** can export anchors, projects, decisions, notes, your profile, and safe preferences to a readable JSON file. AI provider/model preferences, appearance, and notification schedules sync with the workspace when cloud sync is enabled; the AI API key is included in the cloud-sync vault so another device can use the connection, while manual exports still omit it. Dropbox/WebDAV credentials and the device PIN remain device-only. Imports are validated and can either merge records by ID or replace the current workspace. Older state-only JSON backups are accepted too.

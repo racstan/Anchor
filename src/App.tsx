@@ -1332,11 +1332,20 @@ function App() {
   }, [syncSettings.enabled, syncSettings.provider, syncSettings.autoSyncIntervalMinutes, triggerSync])
 
   useEffect(() => {
-    checkAppUpdate().then((info) => {
+    let cancelled = false
+
+    void checkAppUpdate().then((info) => {
+      if (cancelled) return
+
+      setUpdateInfo(info)
       if (info.isAvailable) {
-        setUpdateInfo(info)
+        setIsUpdateModalOpen(true)
       }
     })
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   // Finish the browser PKCE flow after Dropbox returns to /dropbox/callback.
@@ -8089,13 +8098,14 @@ interface ModalProps {
   eyebrow: string
   children: React.ReactNode
   onClose: () => void
+  className?: string
 }
 
-function Modal({ title, eyebrow, children, onClose }: ModalProps) {
+function Modal({ title, eyebrow, children, onClose, className = '' }: ModalProps) {
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div
-        className="modal-card"
+        className={`modal-card ${className}`.trim()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
@@ -8812,6 +8822,107 @@ function formatUpdateBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }
 
+function formatReleaseDate(value?: string): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    year: 'numeric',
+  }).format(date)
+}
+
+function UpdateChangelog({ updateInfo }: { updateInfo: AppUpdateInfo }) {
+  const normalizedLatestVersion = updateInfo.latestVersion.replace(/^v/i, '')
+  const entries = updateInfo.changelog.length > 0
+    ? updateInfo.changelog
+    : [{
+      version: normalizedLatestVersion,
+      title: updateInfo.releaseName.replace(/^anchor\s+/i, ''),
+      summary: updateInfo.releaseNotes || 'Refinements, stability improvements, and a little more room to think.',
+      highlights: [],
+      releasedAt: updateInfo.publishedAt,
+    }]
+  const orderedEntries = [...entries].sort((first, second) => second.version.localeCompare(first.version, undefined, { numeric: true }))
+  const latestEntry = entries.find((entry) => entry.version === normalizedLatestVersion) ?? entries[entries.length - 1]
+  const firstVersion = entries[0]?.version ?? normalizedLatestVersion
+
+  return (
+    <>
+      <div className="update-welcome-hero">
+        <div className="update-welcome-orbit" aria-hidden="true">
+          <span className="update-welcome-orbit-ring ring-one" />
+          <span className="update-welcome-orbit-ring ring-two" />
+          <span className="update-welcome-orbit-core"><Sparkles size={22} /></span>
+        </div>
+        <div className="update-welcome-copy">
+          <span className="update-welcome-kicker">A new chapter is ready</span>
+          <h3>Your Anchor just got steadier.</h3>
+          <p>Here&apos;s the whole journey so far — from the first release to the update waiting for you now.</p>
+        </div>
+      </div>
+
+      <div className="update-version-row">
+        <div className="version-pill current">Current: v{updateInfo.currentVersion}</div>
+        <span className="version-arrow">→</span>
+        <div className="version-pill target">Latest: v{updateInfo.latestVersion}</div>
+      </div>
+
+      {latestEntry && (
+        <div className="update-release-highlight">
+          <div className="update-release-highlight-icon"><Sparkles size={16} /></div>
+          <div>
+            <span className="update-release-highlight-label">What&apos;s new in v{latestEntry.version}</span>
+            <h3>{latestEntry.title}</h3>
+            <p>{latestEntry.summary}</p>
+            {latestEntry.highlights.length > 0 && (
+              <ul>
+                {latestEntry.highlights.map((highlight) => <li key={highlight}>{highlight}</li>)}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="update-journey-heading">
+        <div>
+          <span className="update-journey-label"><BookOpenText size={13} /> The journey so far</span>
+          <h3>Every chapter, kept close</h3>
+        </div>
+        <span className="update-journey-range">v{firstVersion} <span>→</span> v{normalizedLatestVersion}</span>
+      </div>
+
+      <div className="update-changelog-list" aria-label="Anchor release history">
+        {orderedEntries.map((entry) => {
+          const isLatest = entry.version === normalizedLatestVersion
+          const releaseDate = formatReleaseDate(entry.releasedAt)
+
+          return (
+            <article className={`update-changelog-entry ${isLatest ? 'latest' : ''}`.trim()} key={entry.version}>
+              <div className="update-changelog-node" aria-hidden="true"><span /></div>
+              <div className="update-changelog-entry-copy">
+                <div className="update-changelog-entry-meta">
+                  <span className="update-changelog-version">v{entry.version}</span>
+                  {isLatest && <span className="update-changelog-latest-badge"><Sparkles size={10} /> You&apos;re here</span>}
+                  {releaseDate && <time dateTime={entry.releasedAt}>{releaseDate}</time>}
+                </div>
+                <h4>{entry.title}</h4>
+                <p>{entry.summary}</p>
+                {entry.highlights.length > 0 && (
+                  <ul>
+                    {entry.highlights.map((highlight) => <li key={highlight}>{highlight}</li>)}
+                  </ul>
+                )}
+              </div>
+            </article>
+          )
+        })}
+      </div>
+    </>
+  )
+}
+
 function UpdateModal({ updateInfo, onClose }: UpdateModalProps) {
   const [isInstalling, setIsInstalling] = useState(false)
   const [installError, setInstallError] = useState<string>()
@@ -8853,17 +8964,9 @@ function UpdateModal({ updateInfo, onClose }: UpdateModalProps) {
           : 'Download installer'
 
   return (
-    <Modal eyebrow="A fresh release is ready" title={`Anchor v${updateInfo.latestVersion}`} onClose={onClose}>
+    <Modal className="update-changelog-modal" eyebrow="A fresh release is ready" title={`Anchor v${updateInfo.latestVersion}`} onClose={onClose}>
       <div className="update-modal-content">
-        <div className="update-version-row">
-          <div className="version-pill current">Current: v{updateInfo.currentVersion}</div>
-          <span className="version-arrow">→</span>
-          <div className="version-pill target">Latest: v{updateInfo.latestVersion}</div>
-        </div>
-        <div className="update-notes-box">
-          <h4>What&apos;s new in this release</h4>
-          <div className="update-notes-body">{updateInfo.releaseNotes || 'Refinements, stability enhancements, and harbor polish.'}</div>
-        </div>
+        <UpdateChangelog updateInfo={updateInfo} />
         {updateInfo.assetName && (
           <p className="update-asset-note">
             Target installer for your {updateInfo.platform}: <code>{updateInfo.assetName}</code>
