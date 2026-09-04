@@ -245,4 +245,15 @@ export const APP_CHANGELOG: readonly AppChangelogEntry[] = [
       'Release history still reads offline from the local curated fallback',
     ],
   },
+  {
+    version: '0.1.21',
+    title: 'Context that names itself',
+    releasedAt: '2026-09-04',
+    summary: 'Anchor references now tell you where an anchor belongs, while new reminders stay out of Today until you choose to pin them.',
+    highlights: [
+      'Scope-aware references such as GLOBAL-ANCHOR-0001 and PROJECT-TRADING-ANCHOR-0002',
+      'New anchors start outside the daily rotation',
+      'A concise walkthrough with exact actions and workspace-aware AI help',
+    ],
+  },
 ]

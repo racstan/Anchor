@@ -83,7 +83,7 @@ curl -I https://anchor-chi-eight.vercel.app
   - `android` (ubuntu): `tauri android build --ci --apk true --aab true` → signed universal release `apk` + `aab`. Direct-APK Android releases can download and launch the system installer from inside Anchor; Android still requires user confirmation and may require the one-time install-from-this-source permission. The in-app Tauri updater plugin remains desktop-only.
 - **Tooling:** `tauri-apps/tauri-action@v0`, `dtolnay/rust-toolchain@stable`, `actions/setup-node@v4`, `actions/setup-java@v4` + `android-actions/setup-android@v3`
 - **Release creation:** Tauri action creates GitHub Release `vX.Y.Z` and attaches desktop bundles; the Android job uses `gh release upload` to append the signed `apk/aab`. It also uploads `anchor-android-apk-aab` as a workflow artifact.
-- **Version source:** `src-tauri/tauri.conf.json` (`version`) + `package.json` (`version`) + `src-tauri/Cargo.toml` — keep them in sync before tagging (currently `0.1.20`).
+- **Version source:** `src-tauri/tauri.conf.json` (`version`) + `package.json` (`version`) + `src-tauri/Cargo.toml` — keep them in sync before tagging (currently `0.1.21`).
 - **Local test before tag:**
   ```bash
   npm run build                      # must pass
@@ -111,10 +111,10 @@ npm run build    # tsc -b && vite build → dist/
 ```
 
 ## Repo Layout
-- `src/App.tsx` — shell + views (sidebar, home, anchors, projects, decide, settings)
+- `src/App.tsx` — shell + views (sidebar, home, anchors, projects, decide, walkthrough, settings)
 - `src/App.css` — harbor design system, responsive + collapsed sidebar
 - `src/lib/anchors.ts`, `workspace.ts`, `ai.ts`, `notifications.ts`, `security.ts`
-- Workspace records carry stable IDs, readable per-type serials (`A-0001`, `P-0001`, `N-0001`, `D-0001`, `M-0001`), and timestamps; `normalizeAnchorState` migrates older local/backup data. Sync carries profile, appearance, notification schedules, and the AI connection including its API key; manual exports omit the AI key, while Dropbox/WebDAV credentials and device PINs remain local. Sync is serialized and always runs pull → merge → push.
+- Workspace records carry stable machine IDs, scope-aware anchor references (`GLOBAL-ANCHOR-0001`, `PROJECT-TRADING-ANCHOR-0002`), readable per-type serials for other records (`P-0001`, `N-0001`, `D-0001`, `M-0001`), and timestamps; `normalizeAnchorState` migrates older local/backup data. New anchors are off the daily rotation by default. Sync carries profile, appearance, notification schedules, and the AI connection including its API key; manual exports omit the AI key, while Dropbox/WebDAV credentials and device PINs remain local. Sync is serialized and always runs pull → merge → push.
 - `api/anchor-ai.ts` — prod relay
 - `vite-ai-proxy.ts` — dev relay logic
 - `src-tauri/` — Tauri 2 shell

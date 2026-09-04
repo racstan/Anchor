@@ -1,6 +1,6 @@
 # Anchor
 
-**Version: 0.1.20**
+**Version: 0.1.21**
 
 Anchor is a calm, local-first workspace for the ideas, principles, and decisions you want to keep close. The same React frontend runs on the web and inside the Tauri 2 desktop/mobile shell.
 
@@ -39,6 +39,7 @@ Once connected, AI is available throughout the workspace:
 - **Projects:** generate a project brief, uncover missing context, or turn project anchors into a realistic seven-day plan.
 - **Anchors:** draft or polish an anchor while writing, reflect on an existing anchor, find blind spots, make reminders more actionable, and ask the transparent workspace agent to propose reviewed red/green diffs for safe edits, additions, or cleanup.
 - **Decision space:** continue the full contextual decision conversation as before.
+- **Walkthrough:** follow exact actions for common tasks and ask Anchor questions about the app or your workspace.
 
 These actions are opt-in: Anchor does not silently analyze or auto-send workspace data. Each action shows what context is being used and sends it only to the provider you configured.
 
@@ -52,7 +53,7 @@ When a newer Anchor release is available, the app checks on launch and opens a c
 
 ## Record identity and editing
 
-Every workspace record has a stable machine ID plus a readable serial such as `A-0001` (anchor), `P-0001` (project), `N-0001` (note), `D-0001` (decision room), and `M-0001` (chat message). Serial numbers survive edits and remain stable through local backups and sync; legacy workspaces receive them automatically on the next open. Cards expose the serial, an ID-copy control, and the last-updated time. Anchors, projects, notes, and decision rooms can be edited or renamed, and each has a deliberate delete action. Hover a timestamp for the exact created/updated time.
+Every workspace record has a stable machine ID and a readable reference. Global anchors use references such as `GLOBAL-ANCHOR-0001`; project anchors include their project name, such as `PROJECT-TRADING-ANCHOR-0002`, so they cannot be confused with anchors in another space. Projects, notes, decision rooms, and chat messages retain compact serials such as `P-0001`, `N-0001`, `D-0001`, and `M-0001`. References remain unique through local backups and sync, and older workspaces are handled automatically on the next open. New anchors start outside the daily rotation; pin one when you want it on Today.
 
 ## Dropbox sync
 

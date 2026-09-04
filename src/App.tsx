@@ -72,6 +72,7 @@ import type { LucideIcon } from 'lucide-react'
 import {
   createId,
   filterAnchors,
+  formatAnchorSerial,
   formatEntitySerial,
   formatTimestamp,
   formatUpdatedAt,
@@ -174,7 +175,7 @@ import {
 import type { PhilosophyCategory, PhilosophyThought } from './lib/philosophy'
 import './App.css'
 
-type View = 'home' | 'dashboard' | 'all' | 'global' | 'projects' | 'notes' | 'decide' | 'settings'
+type View = 'home' | 'dashboard' | 'all' | 'global' | 'projects' | 'notes' | 'decide' | 'walkthrough' | 'settings'
 type AnchorContentFilter = 'all' | 'pinned' | 'unPinned' | 'withEvidence' | 'withAttachment' | 'recent'
 type AnchorSort = 'updatedDesc' | 'updatedAsc' | 'createdDesc' | 'titleAsc' | 'titleDesc'
 
@@ -271,6 +272,9 @@ function readAppRoute(pathname = typeof window === 'undefined' ? '/' : window.lo
   if (first === 'decisions' || first === 'decide') {
     return { view: 'decide' }
   }
+  if (first === 'walkthrough' || first === 'guide') {
+    return { view: 'walkthrough' }
+  }
   if (first === 'settings') {
     return { view: 'settings' }
   }
@@ -297,6 +301,7 @@ function appRoutePath(route: AppRoute): string {
   if (route.view === 'notes') return '/notes'
   if (route.view === 'all' && route.filter === 'projects') return '/anchors/projects'
   if (route.view === 'decide') return '/decisions'
+  if (route.view === 'walkthrough') return '/walkthrough'
   if (route.view === 'settings') return '/settings'
   return '/anchors'
 }
@@ -326,6 +331,7 @@ function viewLabel(view: View): string {
   if (view === 'projects') return 'Projects'
   if (view === 'notes') return 'Notes'
   if (view === 'decide') return 'Decision space'
+  if (view === 'walkthrough') return 'Walkthrough'
   return 'Settings'
 }
 
@@ -411,6 +417,10 @@ function profileInitial(name: string): string {
   const trimmedName = name.trim()
 
   return trimmedName ? trimmedName.charAt(0).toUpperCase() : '?'
+}
+
+function anchorReference(anchor: Anchor, projects: Project[] = []): string {
+  return formatAnchorSerial(anchor, getProject(projects, anchor.projectId)?.name)
 }
 
 function serializeDraftValue(value: unknown): string {
@@ -1586,7 +1596,7 @@ function App() {
       scope: 'global',
       tag: thought.school.replace(/[^a-zA-Z0-9]/g, ''),
       color: 'plum',
-      pinned: true,
+      pinned: false,
       createdAt: timestamp,
       updatedAt: timestamp,
       evidence: thought.source
@@ -1831,12 +1841,12 @@ function App() {
 
   useEffect(() => {
     const context = activeAnchor
-      ? `${formatEntitySerial('A', activeAnchor.serialNumber)} · ${activeAnchor.title}`
+      ? `${anchorReference(activeAnchor, state.projects)} · ${activeAnchor.title}`
       : activeProject
         ? activeProject.name
         : viewLabel(activeView)
     document.title = `${context} — Anchor`
-  }, [activeAnchor, activeProject, activeView])
+  }, [activeAnchor, activeProject, activeView, state.projects])
 
   useEffect(() => {
     const content = buildReminderNotificationContent(state.anchors, notificationSettings)
@@ -2648,7 +2658,6 @@ function App() {
   } else if (activeView === 'decide') {
     pageContent = (
       <DecisionView
-        name={profile.name}
         projects={state.projects}
         anchors={state.anchors}
         notes={state.notes}
@@ -2657,6 +2666,23 @@ function App() {
         onOpenSettings={() => navigate('settings')}
         onSaveDecision={saveDecision}
         onDeleteDecision={deleteDecision}
+      />
+    )
+  } else if (activeView === 'walkthrough') {
+    pageContent = (
+      <WalkthroughView
+        anchors={state.anchors}
+        projects={state.projects}
+        notes={state.notes}
+        decisions={state.decisions}
+        settings={aiSettings}
+        onOpenSettings={() => navigate('settings')}
+        onOpenAnchors={() => navigate('all')}
+        onOpenToday={() => navigate('home')}
+        onOpenNotes={() => navigate('notes')}
+        onOpenDecisions={() => navigate('decide')}
+        onAddAnchor={() => openAnchorComposer()}
+        onAddProject={() => setIsProjectComposerOpen(true)}
       />
     )
   } else if (activeView === 'settings') {
@@ -2799,6 +2825,12 @@ function App() {
             onClick={() => navigate('home')}
           />
           <NavItem
+            icon={Compass}
+            label="Walkthrough"
+            active={activeView === 'walkthrough' && !activeProjectId}
+            onClick={() => navigate('walkthrough')}
+          />
+          <NavItem
             icon={BookOpenText}
             label="Wisdom & Thoughts"
             active={activeView === 'dashboard' && !activeProjectId}
@@ -2927,7 +2959,7 @@ function App() {
                 </button>
                 <ChevronRight size={14} />
                 <strong className="breadcrumb-current" title={activeAnchor.title} aria-label={`Anchor: ${activeAnchor.title}`}>
-                  <span className="breadcrumb-record">{formatEntitySerial('A', activeAnchor.serialNumber)}</span>
+                  <span className="breadcrumb-record">{anchorReference(activeAnchor, state.projects)}</span>
                   <span className="breadcrumb-current-title">Anchor detail</span>
                 </strong>
               </>
@@ -3060,6 +3092,7 @@ function App() {
 
         <nav className="mobile-nav" aria-label="Mobile navigation">
           <MobileNavItem icon={Sunrise} label="Today" active={activeView === 'home' && !activeProjectId} onClick={() => navigate('home')} />
+          <MobileNavItem icon={Compass} label="Guide" active={activeView === 'walkthrough'} onClick={() => navigate('walkthrough')} />
           <MobileNavItem icon={BookOpenText} label="Wisdom" active={activeView === 'dashboard'} onClick={() => navigate('dashboard')} />
           <button className="mobile-add" type="button" aria-label="Add anchor" onClick={() => openAnchorComposer()}>
             <Plus size={21} />
@@ -3201,10 +3234,12 @@ interface EntityIdentityProps {
   updatedAt?: string
   compact?: boolean
   exact?: boolean
+  displaySerial?: string
 }
 
-function EntityIdentity({ prefix, serialNumber, id, createdAt, updatedAt, compact = false, exact = false }: EntityIdentityProps) {
+function EntityIdentity({ prefix, serialNumber, id, createdAt, updatedAt, compact = false, exact = false, displaySerial }: EntityIdentityProps) {
   const [copied, setCopied] = useState(false)
+  const serialLabel = displaySerial ?? formatEntitySerial(prefix, serialNumber)
 
   const copyId = async () => {
     try {
@@ -3223,8 +3258,8 @@ function EntityIdentity({ prefix, serialNumber, id, createdAt, updatedAt, compac
 
   return (
     <div className={`entity-identity ${compact ? 'compact' : ''}`}>
-      <span className="entity-serial" title={`Serial ${formatEntitySerial(prefix, serialNumber)} · ID ${id}`}>
-        {formatEntitySerial(prefix, serialNumber)}
+      <span className="entity-serial" title={`Reference ${serialLabel} · machine ID ${id}`}>
+        {serialLabel}
       </span>
       <button
         className={`entity-id-copy ${copied ? 'copied' : ''}`}
@@ -3233,8 +3268,8 @@ function EntityIdentity({ prefix, serialNumber, id, createdAt, updatedAt, compac
           event.stopPropagation()
           void copyId()
         }}
-        aria-label={copied ? 'ID copied' : `Copy ${formatEntitySerial(prefix, serialNumber)} ID`}
-        title={copied ? 'ID copied' : `Copy ID: ${id}`}
+        aria-label={copied ? 'ID copied' : `Copy machine ID for ${serialLabel}`}
+        title={copied ? 'ID copied' : `Copy machine ID: ${id}`}
       >
         {copied ? <Check size={11} /> : <Copy size={11} />}
       </button>
@@ -3284,7 +3319,7 @@ interface SearchPaletteProps {
 
 function SearchPalette({ anchors, projects, query, onQueryChange, onSelect }: SearchPaletteProps) {
   const hasQuery = query.trim().length > 0
-  const results = filterAnchors(anchors, 'all', undefined, query).slice(0, 6)
+  const results = filterAnchors(anchors, 'all', undefined, query, projects).slice(0, 6)
   const quickAnchors = anchors.filter((anchor) => anchor.pinned).slice(0, 3)
   const suggestions = ['patience', 'strategy', 'energy']
 
@@ -3309,7 +3344,7 @@ function SearchPalette({ anchors, projects, query, onQueryChange, onSelect }: Se
                   <span className="search-result-copy">
                     <strong><HighlightedText value={anchor.title} query={query} /></strong>
                     <small>
-                      <span className="search-result-id">{formatEntitySerial('A', anchor.serialNumber)}</span>
+                      <span className="search-result-id">{anchorReference(anchor, projects)}</span>
                       {project?.name ?? 'Global context'} <span>·</span>{' '}
                       <HighlightedText value={anchor.tag} query={query} />
                     </small>
@@ -3352,7 +3387,7 @@ function SearchPalette({ anchors, projects, query, onQueryChange, onSelect }: Se
               {quickAnchors.map((anchor) => (
                 <button className="search-quick-item" type="button" key={anchor.id} onClick={() => onSelect(anchor)}>
                   <span className={`search-result-mark ${anchor.color}`} />
-                  <span className="search-quick-item-copy"><strong>{anchor.title}</strong><small>{formatEntitySerial('A', anchor.serialNumber)}</small></span>
+                  <span className="search-quick-item-copy"><strong>{anchor.title}</strong><small>{anchorReference(anchor, projects)}</small></span>
                   <ChevronRight size={13} />
                 </button>
               ))}
@@ -3566,7 +3601,7 @@ function HomeView({
                   )}
                   <div className="spotlight-bottom">
                     <div className="spotlight-meta">
-                      <span className="spotlight-record">{formatEntitySerial('A', spotlight.serialNumber)}</span>
+                      <span className="spotlight-record">{formatAnchorSerial(spotlight, getProject(projects, spotlight.projectId)?.name)}</span>
                       <span className="meta-separator">/</span>
                       <span className="spotlight-scope">
                         {spotlight.scope === 'global' ? 'Global context' : 'Project context'}
@@ -3717,7 +3752,7 @@ function AnchorsView({
   const [filterNow] = useState(() => Date.now())
   const filteredAnchors = useMemo(() => {
     const recentCutoff = filterNow - 30 * 24 * 60 * 60 * 1000
-    const filtered = filterAnchors(anchors, filter, projectFilter || undefined, query).filter((anchor) => {
+    const filtered = filterAnchors(anchors, filter, projectFilter || undefined, query, projects).filter((anchor) => {
       if (contentFilter === 'pinned') return anchor.pinned
       if (contentFilter === 'unPinned') return !anchor.pinned
       if (contentFilter === 'withEvidence') return Boolean(anchor.evidence)
@@ -3737,8 +3772,8 @@ function AnchorsView({
       const timeComparison = (Number.isNaN(firstTime) ? 0 : firstTime) - (Number.isNaN(secondTime) ? 0 : secondTime)
       return sort === 'updatedAsc' ? timeComparison : -timeComparison
     })
-  }, [anchors, contentFilter, filter, filterNow, projectFilter, query, sort])
-  const anchorAIContext = useMemo(() => buildAnchorAIContext(anchors), [anchors])
+  }, [anchors, contentFilter, filter, filterNow, projectFilter, projects, query, sort])
+  const anchorAIContext = useMemo(() => buildAnchorAIContext(anchors, projects), [anchors, projects])
   const hasAdvancedFilters = contentFilter !== 'all' || Boolean(projectFilter) || sort !== 'updatedDesc'
   const heading =
     filter === 'global' ? 'Global context' : filter === 'projects' ? 'Project anchors' : 'All anchors'
@@ -3855,11 +3890,12 @@ function AnchorsView({
           )}
         </div>
       </div>
-      <p className="anchor-filter-summary">Showing {filteredAnchors.length} of {filterAnchors(anchors, filter, projectFilter || undefined, '').length} anchors</p>
+      <p className="anchor-filter-summary">Showing {filteredAnchors.length} of {filterAnchors(anchors, filter, projectFilter || undefined, '', projects).length} anchors</p>
 
       <AnchorAgentCard
         context={anchorAIContext.text}
         contextAnchors={anchorAIContext.anchors}
+        projects={projects}
         omittedContextCount={anchorAIContext.omittedCount}
         settings={settings}
         onOpenSettings={onOpenSettings}
@@ -4007,6 +4043,7 @@ function AnchorListItem({ anchor, projects, query, onOpen, onTogglePinned, onEdi
         )}
         <EntityIdentity
           prefix="A"
+          displaySerial={formatAnchorSerial(anchor, project?.name)}
           serialNumber={anchor.serialNumber}
           id={anchor.id}
           createdAt={anchor.createdAt}
@@ -4069,7 +4106,7 @@ function AnchorDetailView({
         </div>
 
         <div className="anchor-detail-heading">
-          <p className="eyebrow"><AnchorIcon size={13} /> {formatEntitySerial('A', anchor.serialNumber)}</p>
+          <p className="eyebrow"><AnchorIcon size={13} /> {formatAnchorSerial(anchor, project?.name)}</p>
           <h1>{anchor.title}</h1>
         </div>
 
@@ -4114,6 +4151,7 @@ function AnchorDetailView({
           </div>
           <EntityIdentity
             prefix="A"
+            displaySerial={formatAnchorSerial(anchor, project?.name)}
             serialNumber={anchor.serialNumber}
             id={anchor.id}
             createdAt={anchor.createdAt}
@@ -4503,7 +4541,7 @@ function buildWorkspaceAIContext(
     const count = anchors.filter((anchor) => anchor.projectId === project.id).length
     return `- ${project.name}: ${project.description} (${count} anchor${count === 1 ? '' : 's'})`
   })
-  const anchorLines = anchors.slice(0, 24).map(anchorPromptLine)
+  const anchorLines = anchors.slice(0, 24).map((anchor) => anchorPromptLine(anchor, getProject(projects, anchor.projectId)?.name))
   const decisionLines = decisions.slice(0, 8).map((decision) =>
     `- ${decisionPreview(decision)}${decision.projectId ? ` [project: ${projects.find((project) => project.id === decision.projectId)?.name ?? 'unknown'}]` : ''}`,
   )
@@ -4534,8 +4572,8 @@ function buildProjectAIContext(
 
   return limitAIContext([
     `PROJECT\n${project.name}\n${project.description}`,
-    `PROJECT ANCHORS\n${projectAnchors.map(anchorPromptLine).join('\n') || '- No project anchors yet.'}`,
-    `GLOBAL PRINCIPLES\n${globalAnchors.map(anchorPromptLine).join('\n') || '- No pinned global principles.'}`,
+    `PROJECT ANCHORS\n${projectAnchors.map((anchor) => anchorPromptLine(anchor, project.name)).join('\n') || '- No project anchors yet.'}`,
+    `GLOBAL PRINCIPLES\n${globalAnchors.map((anchor) => anchorPromptLine(anchor)).join('\n') || '- No pinned global principles.'}`,
     `PROJECT DECISION ROOMS\n${projectDecisions.map((decision) => `- ${decisionPreview(decision)}`).join('\n') || '- No project decision rooms yet.'}`,
     `RECENT NOTES\n${recentNotes.map((note) => `- ${note.title}: ${note.content.replace(/\s+/g, ' ').trim().slice(0, 240)}`).join('\n') || '- No saved notes yet.'}`,
   ].join('\n\n'), 12000)
@@ -4834,6 +4872,7 @@ function parseAnchorAgentPlan(response: string, anchors: Anchor[]): AnchorAgentP
 interface AnchorAgentCardProps {
   context: string
   contextAnchors: Anchor[]
+  projects: Project[]
   omittedContextCount: number
   settings: AISettings
   onOpenSettings: () => void
@@ -4843,6 +4882,7 @@ interface AnchorAgentCardProps {
 function AnchorAgentCard({
   context,
   contextAnchors,
+  projects,
   omittedContextCount,
   settings,
   onOpenSettings,
@@ -4981,7 +5021,7 @@ function AnchorAgentCard({
               <div className="ai-context-item" key={anchor.id}>
                 <span className={`ai-context-dot ${anchor.color}`} />
                 <div>
-                  <strong><span>{formatEntitySerial('A', anchor.serialNumber)}</span>{anchor.title || 'Untitled anchor'}</strong>
+                  <strong><span>{anchorReference(anchor, projects)}</span>{anchor.title || 'Untitled anchor'}</strong>
                   <small>{contextParts.join(' · ')}</small>
                 </div>
               </div>
@@ -5014,6 +5054,7 @@ function AnchorAgentCard({
         <AnchorAgentPlanView
           plan={plan}
           anchors={contextAnchors}
+          projects={projects}
           selectedChangeIndexes={selectedChangeIndexes}
           onToggleChange={toggleChange}
           onSelectAll={() => setSelectedChangeIndexes(plan.changes.map((_, index) => index))}
@@ -5077,6 +5118,7 @@ function agentDiffValue(value: unknown): string {
 interface AnchorAgentPlanViewProps {
   plan: AnchorAgentPlan
   anchors: Anchor[]
+  projects: Project[]
   selectedChangeIndexes: number[]
   onToggleChange: (index: number) => void
   onSelectAll: () => void
@@ -5088,6 +5130,7 @@ interface AnchorAgentPlanViewProps {
 function AnchorAgentPlanView({
   plan,
   anchors,
+  projects,
   selectedChangeIndexes,
   onToggleChange,
   onSelectAll,
@@ -5115,6 +5158,7 @@ function AnchorAgentPlanView({
           <AnchorAgentDiff
             change={change}
             anchors={anchors}
+            projects={projects}
             selected={selectedChangeIndexes.includes(index)}
             onToggle={() => onToggleChange(index)}
             key={`${change.action}-${change.action === 'add' ? `new-${index}` : change.anchorId}`}
@@ -5135,16 +5179,17 @@ function AnchorAgentPlanView({
 interface AnchorAgentDiffProps {
   change: AnchorAgentChange
   anchors: Anchor[]
+  projects: Project[]
   selected: boolean
   onToggle: () => void
 }
 
-function AnchorAgentDiff({ change, anchors, selected, onToggle }: AnchorAgentDiffProps) {
+function AnchorAgentDiff({ change, anchors, projects, selected, onToggle }: AnchorAgentDiffProps) {
   const originalAnchor = change.action === 'add' ? undefined : anchors.find((anchor) => anchor.id === change.anchorId)
   const isAvailable = change.action === 'add' || Boolean(originalAnchor)
   const title = change.action === 'add'
     ? 'New anchor'
-    : `${formatEntitySerial('A', originalAnchor?.serialNumber)} · ${originalAnchor?.title || 'Anchor no longer available'}`
+    : `${originalAnchor ? anchorReference(originalAnchor, projects) : 'PROJECT-ANCHOR-0000'} · ${originalAnchor?.title || 'Anchor no longer available'}`
   const fieldNames: (keyof AnchorAgentEditableFields)[] = ['title', 'body', 'tag', 'color', 'pinned']
 
   return (
@@ -5191,7 +5236,7 @@ function AnchorAgentDiff({ change, anchors, selected, onToggle }: AnchorAgentDif
       {change.action === 'delete' && originalAnchor && (
         <div className="ai-agent-diff-fields">
           <div className="ai-diff-lines">
-            <div className="ai-diff-line removed"><Minus size={13} /><span><strong>{formatEntitySerial('A', originalAnchor.serialNumber)} · {originalAnchor.title}</strong>{originalAnchor.body.trim() ? ` — ${originalAnchor.body.trim()}` : ''}</span></div>
+            <div className="ai-diff-line removed"><Minus size={13} /><span><strong>{anchorReference(originalAnchor, projects)} · {originalAnchor.title}</strong>{originalAnchor.body.trim() ? ` — ${originalAnchor.body.trim()}` : ''}</span></div>
           </div>
         </div>
       )}
@@ -5318,7 +5363,7 @@ function AnchorReflectionModal({
     const related = relatedAnchors
       .filter((item) => item.id !== anchor.id && (item.projectId === anchor.projectId || item.scope === 'global'))
       .slice(0, 8)
-      .map(anchorPromptLine)
+      .map((item) => anchorPromptLine(item, project?.name ?? ''))
       .join('\n')
 
     try {
@@ -5329,7 +5374,7 @@ function AnchorReflectionModal({
         },
         {
           role: 'user',
-          content: `ANCHOR\n${anchorPromptLine(anchor)}\n\n${project ? `PROJECT\n${project.name}: ${project.description}` : 'SCOPE\nGlobal context'}\n\nRELATED ANCHORS\n${related || '- None yet.'}\n\nREQUEST\n${trimmedPrompt}`,
+          content: `ANCHOR\n${anchorPromptLine(anchor, project?.name ?? '')}\n\n${project ? `PROJECT\n${project.name}: ${project.description}` : 'SCOPE\nGlobal context'}\n\nRELATED ANCHORS\n${related || '- None yet.'}\n\nREQUEST\n${trimmedPrompt}`,
         },
       ], requestController.signal)
       setAnswer(response)
@@ -5382,7 +5427,6 @@ function AnchorReflectionModal({
 }
 
 interface DecisionViewProps {
-  name: string
   projects: Project[]
   anchors: Anchor[]
   notes: Note[]
@@ -5393,18 +5437,18 @@ interface DecisionViewProps {
   onDeleteDecision: (decisionId: string) => void
 }
 
-function anchorPromptLine(anchor: Anchor): string {
+function anchorPromptLine(anchor: Anchor, projectName = ''): string {
   const evidence = anchor.evidence ? ` [Evidence reference: ${anchor.evidence.label} — ${anchor.evidence.url}]` : ''
   const attachments = anchor.attachments?.length
     ? ` [Attachments: ${anchor.attachments.map((attachment) => `${attachment.name}${attachment.source === 'link' ? ` — ${attachment.url}` : ''}`).join('; ')}]`
     : ''
-  const serial = formatEntitySerial('A', anchor.serialNumber)
+  const serial = formatAnchorSerial(anchor, projectName)
   const body = anchor.body.trim()
 
   return `- ${serial} ${anchor.title}${body ? `: ${body}` : ''}${evidence}${attachments}`
 }
 
-function buildAnchorAIContext(anchors: Anchor[]): AnchorAgentContext {
+function buildAnchorAIContext(anchors: Anchor[], projects: Project[] = []): AnchorAgentContext {
   const maxLength = 12000
   const includedAnchors: Anchor[] = []
   const lines: string[] = []
@@ -5412,7 +5456,7 @@ function buildAnchorAIContext(anchors: Anchor[]): AnchorAgentContext {
   let omittedContextCount = 0
 
   anchors.some((anchor, index) => {
-    const line = anchorPromptLine(anchor)
+    const line = anchorPromptLine(anchor, getProject(projects, anchor.projectId)?.name)
     const nextLength = currentLength + line.length + (lines.length ? 1 : 0)
 
     if (nextLength > maxLength) {
@@ -5439,10 +5483,10 @@ function decisionSystemPrompt(
   globalAnchors: Anchor[],
 ): string {
   const projectContext = project
-    ? `\nImported project: ${project.name}\nProject description: ${project.description}\nProject anchors:\n${projectAnchors.map(anchorPromptLine).join('\n') || '- No project anchors yet.'}`
+    ? `\nImported project: ${project.name}\nProject description: ${project.description}\nProject anchors:\n${projectAnchors.map((anchor) => anchorPromptLine(anchor, project.name)).join('\n') || '- No project anchors yet.'}`
     : '\nNo project was imported. Treat this as a personal, general decision.'
   const globalContext = globalAnchors.length
-    ? `\nGlobal context the person chose to keep close:\n${globalAnchors.map(anchorPromptLine).join('\n')}`
+    ? `\nGlobal context the person chose to keep close:\n${globalAnchors.map((anchor) => anchorPromptLine(anchor)).join('\n')}`
     : ''
 
   return `You are Anchor, a warm and thoughtful decision companion. Help this person slow down without taking their agency away. Be kind, clear, honest, and thorough. Do not pretend certainty, diagnose them, or make a high-stakes decision on their behalf. Name assumptions and uncertainty plainly.\n\nFor the first response, cover:\n1. What you hear beneath the situation.\n2. The realistic options, including the option to wait or gather more information.\n3. Benefits, costs, risks, and likely short-term and longer-term outcomes for each option.\n4. What could change the recommendation.\n5. A gentle, concrete next step and one question worth sitting with.\n\nUse readable headings and bullets. Keep the tone human rather than clinical. For follow-up questions, answer directly while remembering the full context.${projectContext}${globalContext}`
@@ -5692,6 +5736,386 @@ function ChatRichText({ content }: { content: string }) {
   return <div className="chat-rich-text">{blocks}</div>
 }
 
+interface WalkthroughViewProps {
+  anchors: Anchor[]
+  projects: Project[]
+  notes: Note[]
+  decisions: Decision[]
+  settings: AISettings
+  onOpenSettings: () => void
+  onOpenAnchors: () => void
+  onOpenToday: () => void
+  onOpenNotes: () => void
+  onOpenDecisions: () => void
+  onAddAnchor: () => void
+  onAddProject: () => void
+}
+
+interface WalkthroughContextRecord {
+  kind: 'Anchor' | 'Project' | 'Note' | 'Decision'
+  text: string
+  updatedAt: string
+}
+
+interface WalkthroughAIContext {
+  text: string
+  matchedCount: number
+}
+
+const WALKTHROUGH_REFERENCE = `
+Anchor actions:
+- Add an anchor with the New anchor button (or the + button on mobile). Enter a title and context, choose Global context or a project, then save it.
+- Find anchors with the search field or Cmd/Ctrl+K. Search matches titles, context, tags, and IDs.
+- Pin an anchor to keep it on Today and receive reminders if notifications are enabled.
+- Edit or delete an anchor from its detail view.
+- Create a project from Projects or the + button beside Projects. Open a project to add project anchors.
+- Write a note from Notes, then save it. Notes can be imported into a decision.
+- Use Decision space to enter a situation, optionally import a project, anchors, or note, then select Think this through. Follow-up questions stay in the room.
+- Change AI, theme, notifications, security, sync, and export/import options in Settings.
+`
+
+function truncateForWalkthrough(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized
+}
+
+function walkthroughSearchTerms(value: string): string[] {
+  return Array.from(new Set(value.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []))
+}
+
+function buildWalkthroughAIContext(
+  question: string,
+  anchors: Anchor[],
+  projects: Project[],
+  notes: Note[],
+  decisions: Decision[],
+): WalkthroughAIContext {
+  const projectNames = new Map(projects.map((project) => [project.id, project.name]))
+  const records: WalkthroughContextRecord[] = [
+    ...anchors.map((anchor) => ({
+      kind: 'Anchor' as const,
+      text: `${anchorPromptLine(anchor, anchor.projectId ? projectNames.get(anchor.projectId) ?? '' : '')} [${anchor.projectId ? `Project: ${projectNames.get(anchor.projectId) ?? 'Unknown project'}` : 'Global context'}]`,
+      updatedAt: anchor.updatedAt,
+    })),
+    ...projects.map((project) => ({
+      kind: 'Project' as const,
+      text: `- ${formatEntitySerial('P', project.serialNumber)} ${project.name}: ${truncateForWalkthrough(project.description, 600) || 'No description.'}`,
+      updatedAt: project.updatedAt ?? project.createdAt,
+    })),
+    ...notes.map((note) => ({
+      kind: 'Note' as const,
+      text: `- ${formatEntitySerial('N', note.serialNumber)} ${note.title}: ${truncateForWalkthrough(note.content, 1_800)}`,
+      updatedAt: note.updatedAt,
+    })),
+    ...decisions.map((decision) => ({
+      kind: 'Decision' as const,
+      text: `- ${formatEntitySerial('D', decision.serialNumber)} ${decisionPreview(decision)}: ${truncateForWalkthrough(`${decision.situation} ${decision.additionalContext} ${decision.messages.slice(-6).map((message) => `${message.role}: ${message.content}`).join(' ')}`, 2_400)}`,
+      updatedAt: decision.updatedAt,
+    })),
+  ]
+  const terms = walkthroughSearchTerms(question)
+  const rankedRecords = records
+    .map((record, index) => {
+      const haystack = `${record.kind} ${record.text}`.toLowerCase()
+      const score = terms.reduce((total, term) => total + (haystack.includes(term) ? 1 : 0), 0)
+      return { record, score, index }
+    })
+    .filter(({ score }) => terms.length === 0 || score > 0)
+    .sort((first, second) => second.score - first.score || Date.parse(second.record.updatedAt) - Date.parse(first.record.updatedAt) || first.index - second.index)
+  const scoredRecords = rankedRecords.length > 0
+    ? rankedRecords
+    : records
+      .map((record, index) => ({ record, score: 0, index }))
+      .sort((first, second) => Date.parse(second.record.updatedAt) - Date.parse(first.record.updatedAt) || first.index - second.index)
+
+  const selected: WalkthroughContextRecord[] = []
+  let length = 0
+  for (const { record } of scoredRecords) {
+    const nextLength = length + record.text.length + 12
+    if (nextLength > 14_000) continue
+    selected.push(record)
+    length = nextLength
+    if (selected.length >= 18) break
+  }
+
+  const grouped = selected.reduce<Record<WalkthroughContextRecord['kind'], string[]>>((groups, record) => {
+    groups[record.kind].push(record.text)
+    return groups
+  }, { Anchor: [], Project: [], Note: [], Decision: [] })
+  const sections = (Object.keys(grouped) as WalkthroughContextRecord['kind'][])
+    .filter((kind) => grouped[kind].length > 0)
+    .map((kind) => `${kind.toUpperCase()}S\n${grouped[kind].join('\n')}`)
+
+  const hasDirectMatches = terms.length > 0 && rankedRecords.length > 0
+  const contextLabel = terms.length > 0 && !hasDirectMatches ? 'RECENT WORKSPACE RECORDS (NO DIRECT MATCH)' : 'WORKSPACE RECORDS'
+
+  return {
+    text: `${contextLabel}\nWORKSPACE TOTALS\n- Anchors: ${anchors.length}\n- Projects: ${projects.length}\n- Notes: ${notes.length}\n- Decisions: ${decisions.length}\n\n${sections.join('\n\n') || '- No workspace records yet.'}`,
+    matchedCount: terms.length ? rankedRecords.length : selected.length,
+  }
+}
+
+function WalkthroughView({
+  anchors,
+  projects,
+  notes,
+  decisions,
+  settings,
+  onOpenSettings,
+  onOpenAnchors,
+  onOpenToday,
+  onOpenNotes,
+  onOpenDecisions,
+  onAddAnchor,
+  onAddProject,
+}: WalkthroughViewProps) {
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [question, setQuestion] = useState('')
+  const [isThinking, setIsThinking] = useState(false)
+  const [error, setError] = useState<string>()
+  const [matchedCount, setMatchedCount] = useState<number>()
+  const requestControllerRef = useRef<AbortController | undefined>(undefined)
+  const connectionReady = isAIReady(settings)
+
+  useEffect(() => () => requestControllerRef.current?.abort(), [])
+
+  const ask = async (value: string) => {
+    const trimmedQuestion = value.trim()
+    if (!trimmedQuestion) return
+
+    if (!connectionReady) {
+      setError('Connect AI in Settings.')
+      return
+    }
+
+    const context = buildWalkthroughAIContext(trimmedQuestion, anchors, projects, notes, decisions)
+    const userMessage: ChatMessage = {
+      id: createId('message'),
+      serialNumber: nextSerialNumber(messages),
+      role: 'user',
+      content: trimmedQuestion,
+      createdAt: new Date().toISOString(),
+    }
+    const nextMessages = [...messages, userMessage]
+    const aiMessages: AIMessage[] = [
+      {
+        role: 'system',
+        content: `You are Anchor's concise in-app guide and workspace librarian. Answer the question directly. For how-to questions, give exact clicks or keyboard actions in order. For workspace questions, use only the supplied records and say when the information is not present. Never invent records, features, or facts. Keep answers short and use Markdown when it improves scanning.\n\nAPP REFERENCE${WALKTHROUGH_REFERENCE}`,
+      },
+      ...messages.map((message) => ({ role: message.role, content: message.content })),
+      {
+        role: 'user',
+        content: `QUESTION\n${trimmedQuestion}\n\n${context.text}`,
+      },
+    ]
+
+    requestControllerRef.current?.abort()
+    const requestController = new AbortController()
+    requestControllerRef.current = requestController
+    setMessages(nextMessages)
+    setQuestion('')
+    setMatchedCount(context.matchedCount)
+    setError(undefined)
+    setIsThinking(true)
+
+    try {
+      const response = await completeAIChat(settings, aiMessages, requestController.signal)
+      setMessages([...nextMessages, {
+        id: createId('message'),
+        serialNumber: nextSerialNumber(nextMessages),
+        role: 'assistant',
+        content: response,
+        createdAt: new Date().toISOString(),
+      }])
+      void notifyAIResponse('Walkthrough answer ready', response)
+    } catch (requestError) {
+      if (requestError instanceof DOMException && requestError.name === 'AbortError') return
+      setError(requestError instanceof Error ? requestError.message : 'AI could not answer.')
+    } finally {
+      if (requestControllerRef.current === requestController) {
+        requestControllerRef.current = undefined
+        setIsThinking(false)
+      }
+    }
+  }
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void ask(question)
+  }
+
+  const clearChat = () => {
+    requestControllerRef.current?.abort()
+    requestControllerRef.current = undefined
+    setMessages([])
+    setQuestion('')
+    setMatchedCount(undefined)
+    setError(undefined)
+    setIsThinking(false)
+  }
+
+  return (
+    <div className="walkthrough-view page-enter">
+      <div className="page-heading walkthrough-heading">
+        <h1>Walkthrough<span className="accent-dot">.</span></h1>
+      </div>
+
+      <div className="walkthrough-layout">
+        <section className="walkthrough-guide" aria-labelledby="walkthrough-guide-title">
+          <div className="walkthrough-section-heading">
+            <h2 id="walkthrough-guide-title">Do it</h2>
+            <span>Exact actions</span>
+          </div>
+          <div className="walkthrough-card-grid">
+            <WalkthroughAction
+              number="01"
+              icon={CirclePlus}
+              title="Capture an anchor"
+              steps={['Click New anchor (or + on mobile).', 'Enter a title and context.', 'Choose Global or a project.', 'Save anchor.']}
+              action="Add anchor"
+              onAction={onAddAnchor}
+            />
+            <WalkthroughAction
+              number="02"
+              icon={FolderKanban}
+              title="Organize a project"
+              steps={['Open Projects.', 'Create a project.', 'Open it.', 'Add project anchors.']}
+              action="New project"
+              onAction={onAddProject}
+            />
+            <WalkthroughAction
+              number="03"
+              icon={GitFork}
+              title="Work through a decision"
+              steps={['Open Decision space.', 'Enter the situation.', 'Import context if useful.', 'Click Think this through.']}
+              action="Open decisions"
+              onAction={onOpenDecisions}
+            />
+            <WalkthroughAction
+              number="04"
+              icon={NotebookPen}
+              title="Write a note"
+              steps={['Open Notes.', 'Choose New note.', 'Write the thought.', 'Save note.']}
+              action="Open notes"
+              onAction={onOpenNotes}
+            />
+            <WalkthroughAction
+              number="05"
+              icon={Search}
+              title="Find and keep something close"
+              steps={['Press Cmd/Ctrl+K.', 'Search title, context, tag, or ID.', 'Open the result.', 'Pin it for Today.']}
+              action="Find anchors"
+              onAction={onOpenAnchors}
+            />
+            <WalkthroughAction
+              number="06"
+              icon={Pin}
+              title="Return to what matters"
+              steps={['Pin an anchor.', 'Open Today.', 'Read the pinned anchor.', 'Mark it remembered when done.']}
+              action="Open Today"
+              onAction={onOpenToday}
+            />
+            <WalkthroughAction
+              number="07"
+              icon={Settings2}
+              title="Back up or connect"
+              steps={['Open Settings.', 'Use AI to connect a provider.', 'Use Data to export or import.', 'Use Sync for another device.']}
+              action="Open settings"
+              onAction={onOpenSettings}
+            />
+          </div>
+        </section>
+
+        <section className="walkthrough-ai-card" aria-labelledby="walkthrough-ai-title">
+          <div className="walkthrough-ai-header">
+            <div className="walkthrough-ai-title">
+              <span className="walkthrough-ai-icon"><Bot size={18} /></span>
+              <h2 id="walkthrough-ai-title">Ask Anchor</h2>
+            </div>
+            <div className="walkthrough-ai-actions">
+              {matchedCount !== undefined && <span className="walkthrough-context-count">{matchedCount} matching record{matchedCount === 1 ? '' : 's'}</span>}
+              <button className="text-button" type="button" onClick={clearChat} disabled={!messages.length && !isThinking}>Clear</button>
+            </div>
+          </div>
+          <div className="walkthrough-ai-messages" aria-live="polite">
+            {messages.length === 0 ? (
+              <div className="walkthrough-ai-empty">
+                <Bot size={22} />
+                <strong>Ask anything.</strong>
+              </div>
+            ) : messages.map((message) => (
+              <div className={`walkthrough-message ${message.role}`} key={message.id}>
+                <span className="walkthrough-message-label">{message.role === 'assistant' ? 'Anchor' : 'You'}</span>
+                {message.role === 'assistant' ? <ChatRichText content={message.content} /> : <p>{message.content}</p>}
+              </div>
+            ))}
+            {isThinking && (
+              <div className="walkthrough-message assistant" aria-label="Anchor is thinking">
+                <span className="walkthrough-message-label">Anchor</span>
+                <span className="typing-dots"><i /><i /><i /></span>
+              </div>
+            )}
+          </div>
+          <form className="walkthrough-ai-composer" onSubmit={handleSubmit}>
+            <textarea
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
+              placeholder="Ask about Anchor or your workspace…"
+              aria-label="Ask Anchor anything"
+              rows={3}
+              disabled={isThinking}
+            />
+            <button className="send-button" type="submit" disabled={isThinking || !question.trim()} aria-label="Ask Anchor">
+              {isThinking ? <RefreshCw className="spin" size={16} /> : <Send size={16} />}
+            </button>
+          </form>
+          <div className="walkthrough-quick-questions">
+            {['How do I add an anchor?', 'What is in my workspace?', 'How do I use decisions?'].map((prompt) => (
+              <button className="walkthrough-quick-question" type="button" key={prompt} onClick={() => void ask(prompt)} disabled={isThinking}>
+                {prompt}
+              </button>
+            ))}
+          </div>
+          {!connectionReady && (
+            <div className="walkthrough-ai-connection" role="status">
+              <span>AI not connected</span>
+              <button type="button" onClick={onOpenSettings}>Connect AI <ArrowUpRight size={13} /></button>
+            </div>
+          )}
+          {error && <div className="walkthrough-ai-error" role="alert"><CircleAlert size={14} /><span>{error}</span></div>}
+        </section>
+      </div>
+    </div>
+  )
+}
+
+interface WalkthroughActionProps {
+  number: string
+  icon: LucideIcon
+  title: string
+  steps: string[]
+  action: string
+  onAction: () => void
+}
+
+function WalkthroughAction({ number, icon: Icon, title, steps, action, onAction }: WalkthroughActionProps) {
+  return (
+    <article className="walkthrough-action-card">
+      <div className="walkthrough-action-heading">
+        <span className="walkthrough-action-number">{number}</span>
+        <Icon size={17} />
+        <h3>{title}</h3>
+      </div>
+      <ol>
+        {steps.map((step) => <li key={step}>{step}</li>)}
+      </ol>
+      <button className="walkthrough-action-button" type="button" onClick={onAction}>
+        {action} <ArrowUpRight size={14} />
+      </button>
+    </article>
+  )
+}
+
 interface NoteImportSelectProps {
   notes: Note[]
   target: 'situation' | 'context'
@@ -5723,17 +6147,18 @@ function NoteImportSelect({ notes, target, onImport }: NoteImportSelectProps) {
 
 interface AnchorImportPickerProps {
   anchors: Anchor[]
+  projects: Project[]
   selectedIds: string[]
   onChange: (ids: string[]) => void
 }
 
-function AnchorImportPicker({ anchors, selectedIds, onChange }: AnchorImportPickerProps) {
+function AnchorImportPicker({ anchors, projects, selectedIds, onChange }: AnchorImportPickerProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const pickerRef = useRef<HTMLDivElement>(null)
   const visibleAnchors = useMemo(
-    () => filterAnchors(anchors, 'all', undefined, searchTerm).slice(0, 40),
-    [anchors, searchTerm],
+    () => filterAnchors(anchors, 'all', undefined, searchTerm, projects).slice(0, 40),
+    [anchors, projects, searchTerm],
   )
   const selectedAnchors = useMemo(
     () => selectedIds.map((id) => anchors.find((anchor) => anchor.id === id)).filter((anchor): anchor is Anchor => Boolean(anchor)),
@@ -5812,7 +6237,7 @@ function AnchorImportPicker({ anchors, selectedIds, onChange }: AnchorImportPick
                   <span className="anchor-import-check">{selected && <Check size={12} />}</span>
                   <span className={`context-dot ${anchor.color}`} />
                   <span className="anchor-import-option-copy">
-                    <strong><span className="record-number">{formatEntitySerial('A', anchor.serialNumber)}</span>{anchor.title}</strong>
+                    <strong><span className="record-number">{formatAnchorSerial(anchor, getProject(projects, anchor.projectId)?.name)}</span>{anchor.title}</strong>
                     <small>{anchor.scope === 'global' ? 'Global context' : 'Project context'} · {anchor.tag}</small>
                   </span>
                 </button>
@@ -5866,7 +6291,6 @@ function decisionDraftsMatch(first: DecisionDraft, second: DecisionDraft): boole
 }
 
 function DecisionView({
-  name,
   projects,
   anchors,
   notes,
@@ -5890,7 +6314,6 @@ function DecisionView({
     decisionDraftRef.current = decisionDraft
   }, [decisionDraft])
   const activeDecisionId = decisionDraft.activeDecisionId
-  const activeDecisionSerialNumber = decisionDraft.activeDecisionSerialNumber
   const projectId = decisionDraft.projectId
   const projectImported = decisionDraft.projectImported
   const decisionTitle = decisionDraft.title
@@ -5961,13 +6384,13 @@ function DecisionView({
 
   const buildUserPrompt = () => {
     const importedContext = selectedProject && projectImported
-      ? `\n\nIMPORTED PROJECT CONTEXT\nProject: ${selectedProject.name}\nDescription: ${selectedProject.description}\nAnchors:\n${projectAnchors.map(anchorPromptLine).join('\n') || '- None yet.'}`
+      ? `\n\nIMPORTED PROJECT CONTEXT\nProject: ${selectedProject.name}\nDescription: ${selectedProject.description}\nAnchors:\n${projectAnchors.map((anchor) => anchorPromptLine(anchor, selectedProject.name)).join('\n') || '- None yet.'}`
       : ''
     const globalContextText = globalAnchors.length
-      ? `\n\nGLOBAL ANCHORS\n${globalAnchors.map(anchorPromptLine).join('\n')}`
+      ? `\n\nGLOBAL ANCHORS\n${globalAnchors.map((anchor) => anchorPromptLine(anchor)).join('\n')}`
       : ''
     const importedAnchorsText = importedAnchors.length
-      ? `\n\nIMPORTED ANCHORS\n${importedAnchors.map(anchorPromptLine).join('\n')}`
+      ? `\n\nIMPORTED ANCHORS\n${importedAnchors.map((anchor) => anchorPromptLine(anchor, getProject(projects, anchor.projectId)?.name)).join('\n')}`
       : ''
 
     return `I want to think this through carefully.\n\nSITUATION\n${situation.trim()}\n\nMORE CONTEXT\n${additionalContext.trim() || 'No additional context yet.'}${importedContext}${globalContextText}${importedAnchorsText}`
@@ -6158,10 +6581,7 @@ function DecisionView({
   return (
     <div className="decision-view page-enter">
       <div className="page-heading decision-heading">
-        <div>
-          <p className="eyebrow">Decision room {activeDecisionId ? formatEntitySerial('D', activeDecisionSerialNumber) : 'not saved yet'}</p>
-          <h1>Decision space, dear {displayName(name)}<span className="accent-dot">.</span></h1>
-        </div>
+        <h1>Decision space<span className="accent-dot">.</span></h1>
         <button className="secondary-button" type="button" onClick={startNewDecision}>
           <RotateCcw size={16} />
           New decision
@@ -6233,7 +6653,6 @@ function DecisionView({
             <div className="decision-history-empty">
               <MessageCircle size={20} />
               <strong>No rooms yet</strong>
-              <span>Your saved conversations will stay here.</span>
             </div>
           )}
         </aside>
@@ -6241,10 +6660,8 @@ function DecisionView({
           <div className="decision-panel-heading">
             <span className="step-badge" aria-hidden="true"><WandSparkles size={17} /></span>
             <div>
-              <p className="eyebrow">Set the scene</p>
-              <h2>What is going on?</h2>
+              <h2>Context</h2>
             </div>
-            <span className="brief-rail-label">Setup</span>
             <button
               className="brief-collapse-toggle"
               type="button"
@@ -6255,7 +6672,6 @@ function DecisionView({
               {briefCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
             </button>
           </div>
-          <p className="decision-panel-copy">You don&apos;t have to make it neat. Start where your mind is.</p>
           {hasDraft && <DraftNotice onDiscard={discardDecisionDraft} />}
 
           <label className="form-field decision-field">
@@ -6303,6 +6719,7 @@ function DecisionView({
             </div>
             <AnchorImportPicker
               anchors={anchors}
+              projects={projects}
               selectedIds={decisionDraft.importedAnchorIds}
               onChange={(anchorIds) => updateDecisionDraft({ importedAnchorIds: anchorIds })}
             />
@@ -6311,7 +6728,7 @@ function DecisionView({
                 {importedAnchors.map((anchor) => (
                   <span key={anchor.id}>
                     <span className={`context-dot ${anchor.color}`} />
-                    <strong>{formatEntitySerial('A', anchor.serialNumber)}</strong> {anchor.title}
+                    <strong>{formatAnchorSerial(anchor, getProject(projects, anchor.projectId)?.name)}</strong> {anchor.title}
                   </span>
                 ))}
               </div>
@@ -6405,11 +6822,11 @@ function DecisionView({
           <div className={`decision-connection-note ${connectionReady ? 'ready' : ''}`}>
             <span className="connection-dot" />
             <div>
-              <strong>{connectionReady ? `Ready with ${provider?.name ?? 'your provider'}.` : 'One gentle setup step remains.'}</strong>
-              <span>{connectionReady ? `Using ${settings.model}. Your context will be sent only when you ask.` : 'Connect an AI provider and model in Settings to receive a thorough analysis.'}</span>
+              <strong>{connectionReady ? `Ready · ${provider?.name ?? 'AI'}` : 'AI not connected'}</strong>
+              {connectionReady && <span>{settings.model}</span>}
             </div>
             {!connectionReady && (
-              <button type="button" onClick={onOpenSettings}>Open Settings <ArrowUpRight size={13} /></button>
+              <button type="button" onClick={onOpenSettings}>Connect AI <ArrowUpRight size={13} /></button>
             )}
           </div>
 
@@ -6432,7 +6849,6 @@ function DecisionView({
               <span className="chat-bot-mark"><Bot size={18} /></span>
               <div>
                 <strong>Anchor companion</strong>
-                <span>Not a verdict. A clearer view.</span>
               </div>
             </div>
             <div className="chat-header-actions">
@@ -6456,14 +6872,7 @@ function DecisionView({
             {messages.length === 0 ? (
               <div className="chat-welcome">
                 <div className="chat-welcome-icon"><Bot size={22} /></div>
-                <p className="eyebrow">A quiet place to think</p>
-                <h2>Let&apos;s slow this down together.</h2>
-                <p>Share the situation on the left, and I&apos;ll help you see the options, trade-offs, and possible paths without rushing you toward one.</p>
-                <div className="chat-welcome-points">
-                  <span>What matters most</span>
-                  <span>What could happen</span>
-                  <span>What to do next</span>
-                </div>
+                <h2>Ask Anchor</h2>
               </div>
             ) : (
               messages.map((message) => (
@@ -6518,7 +6927,6 @@ function DecisionView({
               aria-label="Message Anchor"
             />
             <div className="chat-composer-footer">
-              <span><Sparkles size={13} /> {messages.length ? 'Keep exploring at your pace.' : 'Analysis stays grounded in what you share.'}</span>
               <span className="chat-shortcut">⌘ / Ctrl + Enter to send</span>
               <button className="send-button" type="submit" disabled={isThinking || (!chatInput.trim() && messages.length > 0)} aria-label="Send message">
                 {isThinking ? <RefreshCw className="spin" size={16} /> : <Send size={16} />}
@@ -8150,7 +8558,7 @@ function AnchorComposer({
     scope: defaultProjectId ? 'project' : 'global',
     projectId: defaultProjectId ?? projects[0]?.id ?? '',
     color: 'coral',
-    pinned: true,
+    pinned: false,
     evidenceLabel: '',
     evidenceUrl: '',
     attachments: [],
@@ -8349,6 +8757,7 @@ function AnchorEditModal({
   onSave,
   onDelete,
 }: AnchorEditModalProps) {
+  const project = getProject(projects, anchor.projectId)
   const initialDraft: AnchorComposerDraft = {
     title: anchor.title,
     body: anchor.body,
@@ -8431,6 +8840,7 @@ function AnchorEditModal({
       <form className="composer-form" onSubmit={handleSubmit}>
         <EntityIdentity
           prefix="A"
+          displaySerial={formatAnchorSerial(anchor, project?.name)}
           serialNumber={anchor.serialNumber}
           id={anchor.id}
           createdAt={anchor.createdAt}

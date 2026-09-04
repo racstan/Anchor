@@ -223,6 +223,40 @@ export function formatEntitySerial(prefix: EntitySerialPrefix, serialNumber: num
   return `${prefix}-${String(safeSerial).padStart(4, '0')}`
 }
 
+function readableProjectKey(name: string): string {
+  const key = name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32)
+    .replace(/-+$/g, '')
+
+  return key || 'PROJECT'
+}
+
+/**
+ * A human-facing anchor reference. The internal `id` stays opaque and stable;
+ * this reference makes an anchor's scope obvious and prevents project anchors
+ * from looking like duplicate global records.
+ */
+export function formatAnchorSerial(
+  anchor: Pick<Anchor, 'scope' | 'serialNumber'>,
+  projectName = '',
+): string {
+  const serial = formatEntitySerial('A', anchor.serialNumber).slice(2)
+
+  if (anchor.scope === 'global') {
+    return `GLOBAL-ANCHOR-${serial}`
+  }
+
+  const projectKey = readableProjectKey(projectName)
+  return projectKey === 'PROJECT'
+    ? `PROJECT-ANCHOR-${serial}`
+    : `PROJECT-${projectKey}-ANCHOR-${serial}`
+}
+
 export function nextSerialNumber(records: SerialRecord[]): number {
   return records.reduce((highest, record) => {
     const serial = record.serialNumber
@@ -385,7 +419,7 @@ export function matchSearchText(value: string, query: string): TextSearchMatch |
   return null
 }
 
-export function getAnchorSearchMatch(anchor: Anchor, query: string): AnchorSearchMatch | null {
+export function getAnchorSearchMatch(anchor: Anchor, query: string, projectName = ''): AnchorSearchMatch | null {
   if (!query.trim()) {
     return { score: 0, title: null, body: null, tag: null, attachments: null, id: null, serial: null }
   }
@@ -396,12 +430,15 @@ export function getAnchorSearchMatch(anchor: Anchor, query: string): AnchorSearc
   const attachmentText = anchor.attachments?.map((attachment) => `${attachment.name} ${attachment.url}`).join(' ') ?? ''
   const attachments = matchSearchText(attachmentText, query)
   const id = matchSearchText(anchor.id, query)
-  const serial = matchSearchText(formatEntitySerial('A', anchor.serialNumber), query)
+  const formattedSerial = matchSearchText(formatAnchorSerial(anchor, projectName), query)
+  const legacySerial = matchSearchText(formatEntitySerial('A', anchor.serialNumber), query)
+  const serial = formattedSerial ?? legacySerial
   const evidence = anchor.evidence ? matchSearchText(anchor.evidence.label, query) : null
 
   const weightedMatches = [
     { match: title, weight: 150 },
-    { match: serial, weight: 130 },
+    { match: formattedSerial, weight: 130 },
+    { match: legacySerial, weight: 125 },
     { match: id, weight: 120 },
     { match: tag, weight: 80 },
     { match: body, weight: 20 },
@@ -423,6 +460,7 @@ export function filterAnchors(
   filter: AnchorFilter,
   projectId: string | undefined,
   query: string,
+  projects: Project[] = [],
 ): Anchor[] {
   const matches = anchors
     .filter((anchor) => {
@@ -434,7 +472,10 @@ export function filterAnchors(
 
       return matchesFilter && matchesProject
     })
-    .map((anchor) => ({ anchor, match: getAnchorSearchMatch(anchor, query) }))
+    .map((anchor) => ({
+      anchor,
+      match: getAnchorSearchMatch(anchor, query, projects.find((project) => project.id === anchor.projectId)?.name),
+    }))
     .filter((entry): entry is { anchor: Anchor; match: AnchorSearchMatch } => entry.match !== null)
 
   if (!query.trim()) {

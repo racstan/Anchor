@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   filterAnchors,
+  formatAnchorSerial,
   formatEntitySerial,
   formatTimestamp,
   formatUpdatedAt,
@@ -9,7 +10,7 @@ import {
   normalizeAnchorState,
   nextSerialNumber,
 } from './anchors'
-import type { Anchor } from './anchors'
+import type { Anchor, Project } from './anchors'
 
 const anchors: Anchor[] = [
   {
@@ -65,6 +66,20 @@ describe('anchor filtering', () => {
     expect(filterAnchors(anchors, 'all', undefined, 'A-0002')).toEqual([anchors[1]])
     expect(filterAnchors(anchors, 'all', undefined, 'trade-plan')).toEqual([anchors[1]])
   })
+
+  it('matches a project anchor by its descriptive reference', () => {
+    const projects: Project[] = [{
+      id: 'trading',
+      serialNumber: 1,
+      name: 'Trading',
+      description: '',
+      color: 'gold',
+      icon: 'chart',
+      createdAt: '2025-01-01T00:00:00.000Z',
+    }]
+
+    expect(filterAnchors(anchors, 'all', undefined, 'PROJECT-TRADING-ANCHOR-0002', projects)).toEqual([anchors[1]])
+  })
 })
 
 describe('fuzzy search', () => {
@@ -100,6 +115,9 @@ describe('record identity and timestamps', () => {
     expect(normalized.anchors.map((anchor) => anchor.serialNumber)).toEqual([1, 7, 8])
     expect(nextSerialNumber(normalized.anchors)).toBe(9)
     expect(formatEntitySerial('A', normalized.anchors[0].serialNumber)).toBe('A-0001')
+    expect(formatAnchorSerial(anchors[0])).toBe('GLOBAL-ANCHOR-0001')
+    expect(formatAnchorSerial(anchors[1], 'Trading')).toBe('PROJECT-TRADING-ANCHOR-0002')
+    expect(formatAnchorSerial(anchors[1])).toBe('PROJECT-ANCHOR-0002')
   })
 
   it('formats an exact timestamp for record details', () => {
