@@ -6094,7 +6094,8 @@ fieldset.form-field {
   .decision-view .decision-layout.brief-collapsed .imported-context,
   .decision-view .decision-layout.brief-collapsed .decision-connection-note,
   .decision-view .decision-layout.brief-collapsed .decision-error,
-  .decision-view .decision-layout.brief-collapsed .decision-submit {
+  .decision-view .decision-layout.brief-collapsed .decision-submit,
+  .decision-view .decision-layout.brief-collapsed .draft-notice {
     display: none;
   }
 }
@@ -6173,6 +6174,30 @@ fieldset.form-field {
   .decision-view .decision-layout.history-collapsed .decision-history-sidebar-header > div,
   .decision-view .decision-layout.history-collapsed .decision-new-room,
   .decision-view .decision-layout.history-collapsed .decision-history-sidebar-list {
+    display: none;
+  }
+
+  /* The setup panel stacks below the conversation at this width, so collapse
+     it to a compact header instead of leaving a full-height blank card. */
+  .decision-view .decision-layout.brief-collapsed .decision-brief {
+    min-height: 64px;
+    max-height: 76px;
+    overflow: hidden;
+    padding: 12px 14px;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .decision-panel-heading {
+    min-height: 40px;
+    align-items: center;
+  }
+
+  .decision-view .decision-layout.brief-collapsed .decision-panel-copy,
+  .decision-view .decision-layout.brief-collapsed .decision-field,
+  .decision-view .decision-layout.brief-collapsed .imported-context,
+  .decision-view .decision-layout.brief-collapsed .decision-connection-note,
+  .decision-view .decision-layout.brief-collapsed .decision-error,
+  .decision-view .decision-layout.brief-collapsed .decision-submit,
+  .decision-view .decision-layout.brief-collapsed .draft-notice {
     display: none;
   }
 }
@@ -9274,12 +9299,9 @@ fieldset.form-field {
     min-height: 380px;
   }
 
-  .decision-view .brief-collapse-toggle {
-    display: none;
-  }
-
   .notes-sidebar-toggle,
-  .history-collapse-toggle {
+  .history-collapse-toggle,
+  .brief-collapse-toggle {
     width: 40px;
     height: 40px;
   }
