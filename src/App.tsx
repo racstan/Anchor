@@ -4130,7 +4130,9 @@ function AnchorDetailView({
         <section className="anchor-detail-context">
           <p className="eyebrow">More context</p>
           {hasBody ? (
-            <p className="anchor-detail-copy">{anchor.body}</p>
+            <div className="anchor-detail-copy">
+              <ChatRichText content={anchor.body} />
+            </div>
           ) : (
             <div className="anchor-detail-no-context">
               <AnchorIcon size={17} />

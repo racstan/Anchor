@@ -2388,10 +2388,26 @@ html[data-theme='dusk'] {
   max-width: 880px;
   margin: 0;
   color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.anchor-detail-copy .chat-rich-text {
+  gap: 20px;
+  color: var(--ink-2);
   font-size: 17px;
   line-height: 1.75;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+}
+
+.anchor-detail-copy .chat-rich-text p,
+.anchor-detail-copy .chat-rich-text ul,
+.anchor-detail-copy .chat-rich-text ol {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.anchor-detail-copy .chat-rich-text h3 {
+  margin: 2px 0 -4px;
+  font-size: 21px;
 }
 
 .anchor-detail-no-context {
