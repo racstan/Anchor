@@ -6,6 +6,7 @@ import {
   formatTimestamp,
   formatUpdatedAt,
   getProjectAnchorCount,
+  initialState,
   matchSearchText,
   normalizeAnchorState,
   nextSerialNumber,
@@ -43,6 +44,30 @@ const anchors: Anchor[] = [
     updatedAt: '2025-01-01T00:00:00.000Z',
   },
 ]
+
+describe('Paths starter project', () => {
+  it('includes the Paths project with all twelve project anchors', () => {
+    const paths = initialState.projects.find((project) => project.id === 'paths')
+    const pathAnchors = initialState.anchors.filter((anchor) => anchor.projectId === 'paths')
+
+    expect(paths?.name).toBe('Paths')
+    expect(pathAnchors).toHaveLength(12)
+    expect(pathAnchors.map((anchor) => anchor.title)).toEqual([
+      'Path 1: The Path of Absolute Realism with Chosen Optimism',
+      'Path 2: The Path of the Sacred Actor',
+      'Path 3: The Path of Dangerous Silence',
+      'Path 4: The Path of Unflinching Logical Honesty',
+      'Path 5: The Path of the Unbreachable Fortress',
+      'Path 6: The Path of the Dying Temple',
+      'Path 7: The Path of Temporal Strategy',
+      'Path 8: The Path of Sovereign Emotion',
+      'Path 9: The Path of Absolute Internal Autonomy',
+      'Path 10: The Path of Joyful Normalcy',
+      'Path 11: The Path of Brilliance and the Limit of Saving (The Anti-Martyrdom Clause)',
+      'Path 12: The Path of Absolute Sovereignty (The Code of No Regret)',
+    ])
+  })
+})
 
 describe('anchor filtering', () => {
   it('returns every anchor when no filter is applied', () => {
