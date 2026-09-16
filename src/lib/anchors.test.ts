@@ -45,26 +45,20 @@ const anchors: Anchor[] = [
   },
 ]
 
-describe('Paths starter project', () => {
-  it('includes the Paths project with all twelve project anchors', () => {
-    const paths = initialState.projects.find((project) => project.id === 'paths')
-    const pathAnchors = initialState.anchors.filter((anchor) => anchor.projectId === 'paths')
+describe('Six paths of Rachit starter project', () => {
+  it('includes the project with all six path anchors', () => {
+    const paths = initialState.projects.find((project) => project.id === 'six-paths-of-rachit')
+    const pathAnchors = initialState.anchors.filter((anchor) => anchor.projectId === 'six-paths-of-rachit')
 
-    expect(paths?.name).toBe('Paths')
-    expect(pathAnchors).toHaveLength(12)
+    expect(paths?.name).toBe('six paths of Rachit')
+    expect(pathAnchors).toHaveLength(6)
     expect(pathAnchors.map((anchor) => anchor.title)).toEqual([
-      'Path 1: The Path of Absolute Realism with Chosen Optimism',
-      'Path 2: The Path of the Sacred Actor',
-      'Path 3: The Path of Dangerous Silence',
-      'Path 4: The Path of Unflinching Logical Honesty',
-      'Path 5: The Path of the Unbreachable Fortress',
-      'Path 6: The Path of the Dying Temple',
-      'Path 7: The Path of Temporal Strategy',
-      'Path 8: The Path of Sovereign Emotion',
-      'Path 9: The Path of Absolute Internal Autonomy',
-      'Path 10: The Path of Joyful Normalcy',
-      'Path 11: The Path of Brilliance and the Limit of Saving (The Anti-Martyrdom Clause)',
-      'Path 12: The Path of Absolute Sovereignty (The Code of No Regret)',
+      'Path 1: The Path of Existence',
+      'Path 2: The Path of the Self',
+      'Path 3: The Path of Reality',
+      'Path 4: The Path of Others',
+      'Path 5: The Path of Future',
+      'Path 6: The Path of Reflection',
     ])
   })
 })
@@ -135,6 +129,7 @@ describe('record identity and timestamps', () => {
       projects: [],
       decisions: [],
       notes: [],
+      journals: [],
     })
 
     expect(normalized.anchors.map((anchor) => anchor.serialNumber)).toEqual([1, 7, 8])

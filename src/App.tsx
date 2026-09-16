@@ -22,6 +22,7 @@ import {
   Compass,
   Copy,
   ExternalLink,
+  FileText,
   FolderKanban,
   FolderOpen,
   GitFork,
@@ -102,6 +103,7 @@ import type {
   Decision,
   EvidenceSource,
   AnchorAttachment,
+  JournalEntry,
   Note,
   Project,
 } from './lib/anchors'
@@ -180,7 +182,7 @@ import {
 import type { PhilosophyCategory, PhilosophyThought } from './lib/philosophy'
 import './App.css'
 
-type View = 'home' | 'dashboard' | 'all' | 'global' | 'projects' | 'notes' | 'decide' | 'walkthrough' | 'settings'
+type View = 'home' | 'dashboard' | 'all' | 'global' | 'projects' | 'notes' | 'journal' | 'decide' | 'walkthrough' | 'settings'
 type AnchorContentFilter = 'all' | 'pinned' | 'unPinned' | 'withEvidence' | 'withAttachment' | 'recent'
 type AnchorSort = 'updatedDesc' | 'updatedAsc' | 'createdDesc' | 'titleAsc' | 'titleDesc'
 
@@ -274,6 +276,9 @@ function readAppRoute(pathname = typeof window === 'undefined' ? '/' : window.lo
   if (first === 'notes') {
     return { view: 'notes' }
   }
+  if (first === 'journal') {
+    return { view: 'journal' }
+  }
   if (first === 'decisions' || first === 'decide') {
     return { view: 'decide' }
   }
@@ -304,6 +309,7 @@ function appRoutePath(route: AppRoute): string {
   if (route.view === 'global') return '/global'
   if (route.view === 'projects') return projectId ? `/projects/${projectId}` : '/projects'
   if (route.view === 'notes') return '/notes'
+  if (route.view === 'journal') return '/journal'
   if (route.view === 'all' && route.filter === 'projects') return '/anchors/projects'
   if (route.view === 'decide') return '/decisions'
   if (route.view === 'walkthrough') return '/walkthrough'
@@ -335,6 +341,7 @@ function viewLabel(view: View): string {
   if (view === 'global') return 'Global context'
   if (view === 'projects') return 'Projects'
   if (view === 'notes') return 'Notes'
+  if (view === 'journal') return 'Journal'
   if (view === 'decide') return 'Decision space'
   if (view === 'walkthrough') return 'Walkthrough'
   return 'Settings'
@@ -1425,7 +1432,7 @@ function App() {
           lastSyncMessage: `${connectionMessage} Loading your saved Anchor workspace…`,
         })
         const restoreState = restoringBeforeSetup
-          ? { anchors: [], projects: [], decisions: [], notes: [] }
+          ? { anchors: [], projects: [], decisions: [], notes: [], journals: [] }
           : stateRef.current
         const result = await executeWorkspaceSync(
           restoreState,
@@ -2123,6 +2130,30 @@ function App() {
     showToast('Note removed.')
   }
 
+  const saveJournalEntry = (entry: JournalEntry) => {
+    setState((currentState) => {
+      const existing = currentState.journals.find((item) => item.id === entry.id)
+      return {
+        ...currentState,
+        journals: [
+          { ...entry, serialNumber: entry.serialNumber ?? existing?.serialNumber ?? nextSerialNumber(currentState.journals) },
+          ...currentState.journals.filter((item) => item.id !== entry.id),
+        ],
+      }
+    })
+    showToast('Journal entry saved.')
+  }
+
+  const deleteJournalEntry = (entryId: string) => {
+    const entry = state.journals.find((item) => item.id === entryId)
+    if (entry) removeLocalAnchorAttachments(entry.attachments)
+    setState((currentState) => ({
+      ...currentState,
+      journals: currentState.journals.filter((item) => item.id !== entryId),
+    }))
+    showToast('Journal entry removed.')
+  }
+
   const togglePinned = (anchorId: string) => {
     const timestamp = new Date().toISOString()
     setState((currentState) => ({
@@ -2562,7 +2593,7 @@ function App() {
 
           setProfile({ name, updatedAt: new Date().toISOString() })
           if (!keepExamples) {
-            setState({ anchors: [], projects: [], decisions: [], notes: [] })
+            setState({ anchors: [], projects: [], decisions: [], notes: [], journals: [] })
             setSpotlightAnchorId(undefined)
           }
         }}
@@ -2661,6 +2692,14 @@ function App() {
         onOpenSettings={openAISettings}
         onSaveNote={saveNote}
         onDeleteNote={deleteNote}
+      />
+    )
+  } else if (activeView === 'journal') {
+    pageContent = (
+      <JournalView
+        entries={state.journals}
+        onSaveEntry={saveJournalEntry}
+        onDeleteEntry={deleteJournalEntry}
       />
     )
   } else if (activeView === 'decide') {
@@ -2866,6 +2905,13 @@ function App() {
             active={activeView === 'notes' && !activeProjectId}
             onClick={() => navigate('notes')}
             count={state.notes.length}
+          />
+          <NavItem
+            icon={BookOpenText}
+            label="Journal"
+            active={activeView === 'journal' && !activeProjectId}
+            onClick={() => navigate('journal')}
+            count={state.journals.length}
           />
           <NavItem
             icon={FolderKanban}
@@ -4194,6 +4240,7 @@ function AttachmentTypeIcon({ kind, size }: { kind: AnchorAttachment['kind']; si
   if (kind === 'image') return <ImageIcon size={size} />
   if (kind === 'video') return <VideoIcon size={size} />
   if (kind === 'audio') return <Music2 size={size} />
+  if (kind === 'file') return <FileText size={size} />
   return <Link2 size={size} />
 }
 
@@ -4201,14 +4248,15 @@ function attachmentKindLabel(kind: AnchorAttachment['kind']): string {
   if (kind === 'image') return 'Image'
   if (kind === 'video') return 'Video'
   if (kind === 'audio') return 'Audio'
+  if (kind === 'file') return 'File'
   return 'Link'
 }
 
-type AnchorMediaKind = Exclude<AnchorAttachment['kind'], 'link'>
+type AnchorMediaKind = Exclude<AnchorAttachment['kind'], 'link' | 'file'>
 
 function attachmentPreviewKind(attachment: AnchorAttachment): AnchorMediaKind | undefined {
   if (attachment.kind !== 'link') {
-    return attachment.kind
+    return attachment.kind === 'file' ? undefined : attachment.kind
   }
 
   const mimeType = attachment.mimeType?.toLowerCase() ?? ''
@@ -4325,6 +4373,8 @@ function AnchorAttachmentItem({ attachment, compact = false, onRemove }: AnchorA
         <div className="anchor-attachment-copy">
           {attachment.source === 'link' ? (
             <a href={attachment.url} target="_blank" rel="noreferrer" title={attachment.url}>{attachment.name}</a>
+          ) : resolvedUrl && attachment.kind === 'file' ? (
+            <a href={resolvedUrl} download={attachment.name} title={`Download ${attachment.name}`}>{attachment.name}</a>
           ) : (
             <strong title={attachment.name}>{attachment.name}</strong>
           )}
@@ -4408,11 +4458,7 @@ function AnchorAttachmentEditor({ attachments, originalAttachmentIds = [], onCha
             ? 'video'
             : file.type.startsWith('audio/')
               ? 'audio'
-              : undefined
-
-        if (!kind) {
-          continue
-        }
+              : 'file'
 
         const id = createId('attachment')
         await saveAnchorAttachmentFile(id, file)
@@ -4427,9 +4473,6 @@ function AnchorAttachmentEditor({ attachments, originalAttachmentIds = [], onCha
         })
       }
 
-      if (!added.length) {
-        throw new Error('Choose an image, video, or audio file.')
-      }
       onChange([...attachments, ...added])
     } catch (attachmentError) {
       await Promise.all(added.map((attachment) => removeAnchorAttachmentFile(attachment.id).catch(() => undefined)))
@@ -4472,14 +4515,13 @@ function AnchorAttachmentEditor({ attachments, originalAttachmentIds = [], onCha
       <div className="attachment-editor-heading">
         <div>
           <span className="attachment-editor-label"><Paperclip size={14} /> Attachments <em>optional</em></span>
-          <small>Keep a useful picture, video, audio clip, or link with this anchor.</small>
+          <small>Keep a useful picture, video, audio clip, document, or link with this record.</small>
         </div>
         <label className={`attachment-file-button ${isAddingFiles ? 'busy' : ''}`}>
           <Upload size={14} /> {isAddingFiles ? 'Adding…' : 'Add file'}
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*,video/*,audio/*"
             multiple
             disabled={isAddingFiles}
             onChange={(event) => void addFiles(event)}
@@ -7266,6 +7308,105 @@ function NotesView({ notes, settings, onOpenSettings, onSaveNote, onDeleteNote }
               setActiveNoteId(sortedNotes.find((note) => note.id !== noteId)?.id)
             }}
           />
+        </section>
+      </div>
+    </div>
+  )
+}
+
+interface JournalViewProps {
+  entries: JournalEntry[]
+  onSaveEntry: (entry: JournalEntry) => void
+  onDeleteEntry: (entryId: string) => void
+}
+
+function JournalView({ entries, onSaveEntry, onDeleteEntry }: JournalViewProps) {
+  const sortedEntries = useMemo(
+    () => [...entries].sort((a, b) => b.entryDate.localeCompare(a.entryDate) || b.updatedAt.localeCompare(a.updatedAt)),
+    [entries],
+  )
+  const [activeId, setActiveId] = useState<string | undefined>(() => sortedEntries[0]?.id)
+  const [query, setQuery] = useState('')
+  const activeEntry = entries.find((entry) => entry.id === activeId)
+  const [title, setTitle] = useState(activeEntry?.title ?? '')
+  const [content, setContent] = useState(activeEntry?.content ?? '')
+  const [entryDate, setEntryDate] = useState(activeEntry?.entryDate ?? new Date().toISOString().slice(0, 10))
+  const [attachments, setAttachments] = useState<AnchorAttachment[]>(activeEntry?.attachments ?? [])
+
+  const selectEntry = (entry?: JournalEntry) => {
+    setActiveId(entry?.id)
+    setTitle(entry?.title ?? '')
+    setContent(entry?.content ?? '')
+    setEntryDate(entry?.entryDate ?? new Date().toISOString().slice(0, 10))
+    setAttachments(entry?.attachments ?? [])
+  }
+
+  const filteredEntries = sortedEntries.filter((entry) =>
+    !query.trim() || `${entry.title} ${entry.content} ${entry.entryDate}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+  )
+
+  const saveEntry = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!content.trim() && !title.trim() && !attachments.length) return
+
+    const now = new Date().toISOString()
+    const id = activeEntry?.id ?? createId('journal')
+    const nextEntry: JournalEntry = {
+      id,
+      serialNumber: activeEntry?.serialNumber,
+      title: title.trim() || `Journal — ${entryDate}`,
+      content: content.trim(),
+      entryDate,
+      attachments,
+      createdAt: activeEntry?.createdAt ?? now,
+      updatedAt: now,
+    }
+    if (activeEntry) {
+      const retainedIds = new Set(attachments.map((attachment) => attachment.id))
+      removeLocalAnchorAttachments(activeEntry.attachments.filter((attachment) => !retainedIds.has(attachment.id)))
+    }
+    onSaveEntry(nextEntry)
+    setActiveId(id)
+    setTitle(nextEntry.title)
+  }
+
+  return (
+    <div className="notes-view journal-view page-enter">
+      <div className="page-heading notes-heading">
+        <div>
+          <p className="eyebrow">A private record of your days</p>
+          <h1>Journal<span className="accent-dot">.</span></h1>
+          <p className="page-subtitle">Write your daily story and keep its images, videos, audio, and files close.</p>
+        </div>
+        <button className="primary-button" type="button" onClick={() => selectEntry()}><Plus size={16} /> Today&apos;s entry</button>
+      </div>
+      <div className="notes-layout journal-layout">
+        <aside className="notes-list-card">
+          <div className="notes-list-heading"><div><strong>Your journal</strong><span>{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</span></div></div>
+          <label className="notes-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search journal" aria-label="Search journal" /></label>
+          <div className="notes-list">
+            {filteredEntries.length ? filteredEntries.map((entry) => (
+              <button className={`note-list-item ${activeId === entry.id ? 'active' : ''}`} type="button" key={entry.id} onClick={() => selectEntry(entry)}>
+                <span className="note-list-item-topline"><strong><span className="record-number">{formatEntitySerial('J', entry.serialNumber)}</span>{entry.title}</strong><small>{entry.entryDate}</small></span>
+                <span>{entry.content.replace(/\s+/g, ' ').trim() || `${entry.attachments.length} attachment${entry.attachments.length === 1 ? '' : 's'}`}</span>
+              </button>
+            )) : <div className="notes-list-empty"><BookOpenText size={18} /><span>{entries.length ? 'No entries match that search.' : 'Your days will gather here.'}</span></div>}
+          </div>
+        </aside>
+        <section className="notes-editor-card">
+          <form className="note-editor-form journal-editor-form" onSubmit={saveEntry}>
+            <div className="note-editor-heading"><h2>{activeEntry ? 'Edit journal entry' : 'New journal entry'}</h2><span className="note-editor-date">{activeEntry ? formatUpdatedAt(activeEntry.updatedAt) : 'Today'}</span></div>
+            <div className="journal-title-row">
+              <label className="form-field"><span>Date</span><input type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} required /></label>
+              <label className="form-field"><span>Title <em>optional</em></span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="What marked this day?" maxLength={160} /></label>
+            </div>
+            <label className="form-field journal-content-field"><span>Today</span><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="Write freely…" maxLength={30000} /></label>
+            <AnchorAttachmentEditor attachments={attachments} originalAttachmentIds={activeEntry?.attachments.map((attachment) => attachment.id)} onChange={setAttachments} />
+            <div className="note-editor-footer">
+              {activeEntry ? <button className="text-button note-delete-button" type="button" onClick={() => { if (window.confirm('Delete this journal entry? This cannot be undone.')) { onDeleteEntry(activeEntry.id); selectEntry(sortedEntries.find((entry) => entry.id !== activeEntry.id)) } }}><Trash2 size={14} /> Delete entry</button> : <span />}
+              <button className="primary-button" type="submit"><Check size={15} /> Save entry</button>
+            </div>
+          </form>
         </section>
       </div>
     </div>

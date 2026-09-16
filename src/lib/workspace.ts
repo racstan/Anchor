@@ -1,5 +1,5 @@
 import { normalizeAnchorState } from './anchors'
-import type { Anchor, AnchorAttachment, AnchorState, ChatMessage, Decision, EvidenceSource, Note, Project } from './anchors'
+import type { Anchor, AnchorAttachment, AnchorState, ChatMessage, Decision, EvidenceSource, JournalEntry, Note, Project } from './anchors'
 import { normalizeNotificationSettings } from './notifications'
 import type { NotificationSettings } from './notifications'
 
@@ -83,7 +83,7 @@ function isAnchorAttachment(value: unknown): value is AnchorAttachment {
   }
 
   return value.source === 'file' &&
-    (value.kind === 'image' || value.kind === 'video' || value.kind === 'audio') &&
+    (value.kind === 'image' || value.kind === 'video' || value.kind === 'audio' || value.kind === 'file') &&
     value.url === `attachment:${value.id}`
 }
 
@@ -166,6 +166,19 @@ function isNote(value: unknown): value is Note {
     isString(value.updatedAt)
 }
 
+function isJournalEntry(value: unknown): value is JournalEntry {
+  if (!isRecord(value)) return false
+
+  return isString(value.id) &&
+    (value.serialNumber === undefined || (typeof value.serialNumber === 'number' && Number.isInteger(value.serialNumber) && value.serialNumber > 0)) &&
+    isString(value.title) &&
+    isString(value.content) &&
+    isString(value.entryDate) &&
+    Array.isArray(value.attachments) && value.attachments.every(isAnchorAttachment) &&
+    isString(value.createdAt) &&
+    isString(value.updatedAt)
+}
+
 function validateState(value: unknown): AnchorState {
   if (!isRecord(value) || !Array.isArray(value.anchors) || !value.anchors.every(isAnchor)) {
     throw new Error('This backup does not contain a valid anchor list.')
@@ -183,11 +196,16 @@ function validateState(value: unknown): AnchorState {
     throw new Error('This backup does not contain valid notes.')
   }
 
+  if (value.journals !== undefined && (!Array.isArray(value.journals) || !value.journals.every(isJournalEntry))) {
+    throw new Error('This backup does not contain valid journal entries.')
+  }
+
   return normalizeAnchorState({
     anchors: value.anchors,
     projects: value.projects,
     decisions: value.decisions ?? [],
     notes: value.notes ?? [],
+    journals: value.journals ?? [],
   })
 }
 
@@ -342,6 +360,7 @@ export function mergeWorkspaceState(current: AnchorState, incoming: AnchorState)
     projects: mergeById(current.projects, incoming.projects),
     decisions: mergeById(current.decisions, incoming.decisions),
     notes: mergeById(current.notes, incoming.notes),
+    journals: mergeById(current.journals, incoming.journals),
   })
 }
 

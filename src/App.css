@@ -7075,6 +7075,32 @@ fieldset.form-field {
   background: #fff1f2;
 }
 
+.journal-view .page-heading {
+  margin-bottom: 22px;
+}
+
+.journal-title-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.35fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.journal-content-field {
+  flex: 1;
+}
+
+.journal-editor-form .journal-content-field textarea {
+  min-height: 230px;
+  height: 100%;
+  resize: vertical;
+}
+
+@media (max-width: 700px) {
+  .journal-title-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Keep the decision workspace inside the viewport. The conversation is the only
    surface that should grow and scroll on desktop. */
 @media (min-width: 1201px) {
