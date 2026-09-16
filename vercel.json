@@ -17,6 +17,9 @@
     { "source": "/projects/:projectId", "destination": "/" },
     { "source": "/projects/:projectId/anchors/:anchorId", "destination": "/" },
     { "source": "/notes", "destination": "/" },
+    { "source": "/journal", "destination": "/" },
+    { "source": "/walkthrough", "destination": "/" },
+    { "source": "/guide", "destination": "/" },
     { "source": "/decisions", "destination": "/" },
     { "source": "/decide", "destination": "/" },
     { "source": "/settings", "destination": "/" }

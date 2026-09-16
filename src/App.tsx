@@ -12,6 +12,7 @@ import {
   CheckCheck,
   ChartNoAxesCombined,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronUp,
   CircleAlert,
@@ -3150,8 +3151,8 @@ function App() {
 
         <nav className="mobile-nav" aria-label="Mobile navigation">
           <MobileNavItem icon={Sunrise} label="Today" active={activeView === 'home' && !activeProjectId} onClick={() => navigate('home')} />
+          <MobileNavItem icon={BookOpenText} label="Journal" active={activeView === 'journal'} onClick={() => navigate('journal')} />
           <MobileNavItem icon={Compass} label="Guide" active={activeView === 'walkthrough'} onClick={() => navigate('walkthrough')} />
-          <MobileNavItem icon={BookOpenText} label="Wisdom" active={activeView === 'dashboard'} onClick={() => navigate('dashboard')} />
           <button className="mobile-add" type="button" aria-label="Add anchor" onClick={() => openAnchorComposer()}>
             <Plus size={21} />
           </button>
@@ -7321,34 +7322,53 @@ interface JournalViewProps {
 }
 
 function JournalView({ entries, onSaveEntry, onDeleteEntry }: JournalViewProps) {
-  const sortedEntries = useMemo(
-    () => [...entries].sort((a, b) => b.entryDate.localeCompare(a.entryDate) || b.updatedAt.localeCompare(a.updatedAt)),
-    [entries],
-  )
-  const [activeId, setActiveId] = useState<string | undefined>(() => sortedEntries[0]?.id)
+  const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  const today = dateKey(new Date())
+  const [selectedDate, setSelectedDate] = useState(today)
+  const [visibleMonth, setVisibleMonth] = useState(() => new Date(`${today}T12:00:00`))
+  const [activeId, setActiveId] = useState<string>()
   const [query, setQuery] = useState('')
   const activeEntry = entries.find((entry) => entry.id === activeId)
-  const [title, setTitle] = useState(activeEntry?.title ?? '')
-  const [content, setContent] = useState(activeEntry?.content ?? '')
-  const [entryDate, setEntryDate] = useState(activeEntry?.entryDate ?? new Date().toISOString().slice(0, 10))
-  const [attachments, setAttachments] = useState<AnchorAttachment[]>(activeEntry?.attachments ?? [])
+  const [title, setTitle] = useState('')
+  const [content, setContent] = useState('')
+  const [entryDate, setEntryDate] = useState(today)
+  const [attachments, setAttachments] = useState<AnchorAttachment[]>([])
+  const selectedDateLabel = new Date(`${selectedDate}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+  const entryCounts = useMemo(() => entries.reduce<Record<string, number>>((counts, entry) => {
+    counts[entry.entryDate] = (counts[entry.entryDate] ?? 0) + 1
+    return counts
+  }, {}), [entries])
+  const monthDays = useMemo(() => {
+    const first = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1)
+    const start = new Date(first)
+    start.setDate(1 - first.getDay())
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(start)
+      date.setDate(start.getDate() + index)
+      return { key: dateKey(date), day: date.getDate(), inMonth: date.getMonth() === first.getMonth() }
+    })
+  }, [visibleMonth])
+  const selectedEntries = entries
+    .filter((entry) => entry.entryDate === selectedDate)
+    .filter((entry) => !query.trim() || `${entry.title} ${entry.content}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 
-  const selectEntry = (entry?: JournalEntry) => {
+  const selectEntry = (entry?: JournalEntry, date = selectedDate) => {
     setActiveId(entry?.id)
     setTitle(entry?.title ?? '')
     setContent(entry?.content ?? '')
-    setEntryDate(entry?.entryDate ?? new Date().toISOString().slice(0, 10))
+    setEntryDate(entry?.entryDate ?? date)
     setAttachments(entry?.attachments ?? [])
   }
-
-  const filteredEntries = sortedEntries.filter((entry) =>
-    !query.trim() || `${entry.title} ${entry.content} ${entry.entryDate}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
-  )
+  const selectDate = (date: string) => {
+    setSelectedDate(date)
+    selectEntry(undefined, date)
+  }
+  const addEntryForSelectedDate = () => selectEntry(undefined, selectedDate)
 
   const saveEntry = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!content.trim() && !title.trim() && !attachments.length) return
-
     const now = new Date().toISOString()
     const id = activeEntry?.id ?? createId('journal')
     const nextEntry: JournalEntry = {
@@ -7366,6 +7386,7 @@ function JournalView({ entries, onSaveEntry, onDeleteEntry }: JournalViewProps) 
       removeLocalAnchorAttachments(activeEntry.attachments.filter((attachment) => !retainedIds.has(attachment.id)))
     }
     onSaveEntry(nextEntry)
+    setSelectedDate(entryDate)
     setActiveId(id)
     setTitle(nextEntry.title)
   }
@@ -7373,39 +7394,25 @@ function JournalView({ entries, onSaveEntry, onDeleteEntry }: JournalViewProps) 
   return (
     <div className="notes-view journal-view page-enter">
       <div className="page-heading notes-heading">
-        <div>
-          <p className="eyebrow">A private record of your days</p>
-          <h1>Journal<span className="accent-dot">.</span></h1>
-          <p className="page-subtitle">Write your daily story and keep its images, videos, audio, and files close.</p>
-        </div>
-        <button className="primary-button" type="button" onClick={() => selectEntry()}><Plus size={16} /> Today&apos;s entry</button>
+        <div><p className="eyebrow">A private record of your days</p><h1>Journal<span className="accent-dot">.</span></h1><p className="page-subtitle">Choose a day, then make as many entries as it needs. Keep the moments with their photos, videos, audio, and files.</p></div>
+        <button className="primary-button" type="button" onClick={addEntryForSelectedDate}><Plus size={16} /> New entry</button>
       </div>
       <div className="notes-layout journal-layout">
-        <aside className="notes-list-card">
-          <div className="notes-list-heading"><div><strong>Your journal</strong><span>{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</span></div></div>
-          <label className="notes-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search journal" aria-label="Search journal" /></label>
-          <div className="notes-list">
-            {filteredEntries.length ? filteredEntries.map((entry) => (
-              <button className={`note-list-item ${activeId === entry.id ? 'active' : ''}`} type="button" key={entry.id} onClick={() => selectEntry(entry)}>
-                <span className="note-list-item-topline"><strong><span className="record-number">{formatEntitySerial('J', entry.serialNumber)}</span>{entry.title}</strong><small>{entry.entryDate}</small></span>
-                <span>{entry.content.replace(/\s+/g, ' ').trim() || `${entry.attachments.length} attachment${entry.attachments.length === 1 ? '' : 's'}`}</span>
-              </button>
-            )) : <div className="notes-list-empty"><BookOpenText size={18} /><span>{entries.length ? 'No entries match that search.' : 'Your days will gather here.'}</span></div>}
-          </div>
+        <aside className="notes-list-card journal-calendar-card">
+          <div className="journal-calendar-heading"><button className="icon-button" type="button" aria-label="Previous month" onClick={() => setVisibleMonth((month) => new Date(month.getFullYear(), month.getMonth() - 1, 1))}><ChevronLeft size={17} /></button><strong>{visibleMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</strong><button className="icon-button" type="button" aria-label="Next month" onClick={() => setVisibleMonth((month) => new Date(month.getFullYear(), month.getMonth() + 1, 1))}><ChevronRight size={17} /></button></div>
+          <div className="journal-weekdays">{['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}</div>
+          <div className="journal-calendar-grid">{monthDays.map(({ key, day, inMonth }) => <button className={`journal-day ${inMonth ? '' : 'outside'} ${key === selectedDate ? 'selected' : ''} ${key === today ? 'today' : ''}`} type="button" key={key} onClick={() => selectDate(key)} aria-label={`${key}${entryCounts[key] ? `, ${entryCounts[key]} entries` : ''}`}><span>{day}</span>{entryCounts[key] ? <small>{entryCounts[key] > 9 ? '9+' : entryCounts[key]}</small> : null}</button>)}</div>
+          <div className="journal-day-list-heading"><div><strong>{selectedDateLabel}</strong><span>{entryCounts[selectedDate] ?? 0} {(entryCounts[selectedDate] ?? 0) === 1 ? 'entry' : 'entries'}</span></div><button className="journal-add-day" type="button" onClick={addEntryForSelectedDate} aria-label={`Add entry for ${selectedDateLabel}`}><Plus size={16} /></button></div>
+          <label className="notes-search journal-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search this day" aria-label="Search selected day" /></label>
+          <div className="notes-list journal-day-list">{selectedEntries.length ? selectedEntries.map((entry) => <button className={`note-list-item ${activeId === entry.id ? 'active' : ''}`} type="button" key={entry.id} onClick={() => selectEntry(entry)}><span className="note-list-item-topline"><strong><span className="record-number">{formatEntitySerial('J', entry.serialNumber)}</span>{entry.title}</strong><small>{formatUpdatedAt(entry.updatedAt)}</small></span><span>{entry.content.replace(/\s+/g, ' ').trim() || `${entry.attachments.length} attachment${entry.attachments.length === 1 ? '' : 's'}`}</span></button>) : <div className="notes-list-empty"><BookOpenText size={18} /><span>{query ? 'No entries match that search.' : 'No entries yet. Begin this day.'}</span></div>}</div>
         </aside>
         <section className="notes-editor-card">
           <form className="note-editor-form journal-editor-form" onSubmit={saveEntry}>
-            <div className="note-editor-heading"><h2>{activeEntry ? 'Edit journal entry' : 'New journal entry'}</h2><span className="note-editor-date">{activeEntry ? formatUpdatedAt(activeEntry.updatedAt) : 'Today'}</span></div>
-            <div className="journal-title-row">
-              <label className="form-field"><span>Date</span><input type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} required /></label>
-              <label className="form-field"><span>Title <em>optional</em></span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="What marked this day?" maxLength={160} /></label>
-            </div>
-            <label className="form-field journal-content-field"><span>Today</span><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="Write freely…" maxLength={30000} /></label>
+            <div className="note-editor-heading"><h2>{activeEntry ? 'Edit journal entry' : `New entry · ${selectedDateLabel}`}</h2><span className="note-editor-date">{activeEntry ? formatUpdatedAt(activeEntry.updatedAt) : 'Ready when you are'}</span></div>
+            <div className="journal-title-row"><label className="form-field"><span>Date</span><input type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} required /></label><label className="form-field"><span>Title <em>optional</em></span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="What marked this moment?" maxLength={160} /></label></div>
+            <label className="form-field journal-content-field"><span>Write freely</span><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="What happened? What did you notice, feel, or want to remember?" maxLength={30000} /></label>
             <AnchorAttachmentEditor attachments={attachments} originalAttachmentIds={activeEntry?.attachments.map((attachment) => attachment.id)} onChange={setAttachments} />
-            <div className="note-editor-footer">
-              {activeEntry ? <button className="text-button note-delete-button" type="button" onClick={() => { if (window.confirm('Delete this journal entry? This cannot be undone.')) { onDeleteEntry(activeEntry.id); selectEntry(sortedEntries.find((entry) => entry.id !== activeEntry.id)) } }}><Trash2 size={14} /> Delete entry</button> : <span />}
-              <button className="primary-button" type="submit"><Check size={15} /> Save entry</button>
-            </div>
+            <div className="note-editor-footer">{activeEntry ? <button className="text-button note-delete-button" type="button" onClick={() => { if (window.confirm('Delete this journal entry? This cannot be undone.')) { onDeleteEntry(activeEntry.id); selectEntry(undefined, selectedDate) } }}><Trash2 size={14} /> Delete entry</button> : <span />}<button className="primary-button" type="submit"><Check size={15} /> Save entry</button></div>
           </form>
         </section>
       </div>
